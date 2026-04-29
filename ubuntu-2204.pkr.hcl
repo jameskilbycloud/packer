@@ -35,8 +35,10 @@ source "vsphere-iso" "ubuntu-2204-server" {
   RAM             = var.server_ram_mb
   RAM_reserve_all = false
 
-  # Firmware (EFI required for Ubuntu 22.04+)
-  firmware = "efi-secure"
+  # Firmware — EFI without Secure Boot. Secure Boot locks GRUB's edit/command
+  # keys (e/c) which Packer needs to inject autoinstall kernel parameters.
+  # The finished template can be redeployed with Secure Boot enabled.
+  firmware = "efi"
 
   # Storage
   disk_controller_type = ["pvscsi"]
@@ -125,7 +127,7 @@ source "vsphere-iso" "ubuntu-2204-desktop" {
   RAM_reserve_all = false
 
   # Firmware
-  firmware = "efi-secure"
+  firmware = "efi"
 
   # Storage
   disk_controller_type = ["pvscsi"]

@@ -35,8 +35,9 @@ source "vsphere-iso" "ubuntu-2404-server" {
   RAM             = var.server_ram_mb
   RAM_reserve_all = false
 
-  # Firmware
-  firmware = "efi-secure"
+  # Firmware — EFI without Secure Boot. Secure Boot locks GRUB's edit/command
+  # keys (e/c) which Packer needs to inject autoinstall kernel parameters.
+  firmware = "efi"
 
   # Storage
   disk_controller_type = ["pvscsi"]
@@ -123,8 +124,9 @@ source "vsphere-iso" "ubuntu-2404-desktop" {
   RAM             = var.desktop_ram_mb
   RAM_reserve_all = false
 
-  # Firmware
-  firmware = "efi-secure"
+  # Firmware — EFI without Secure Boot. Secure Boot locks GRUB's edit/command
+  # keys (e/c) which Packer needs to inject autoinstall kernel parameters.
+  firmware = "efi"
 
   # Storage
   disk_controller_type = ["pvscsi"]
