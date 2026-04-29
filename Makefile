@@ -75,22 +75,22 @@ fmt:
 # ── Individual builds ─────────────────────────────────────────────────────────
 
 2204-server: $(VARS_FILE)
-	packer build $(PACKER_ARGS) -only=vsphere-iso.ubuntu-2204-server .
+	packer build $(PACKER_ARGS) -only='*.vsphere-iso.ubuntu-2204-server' .
 
 2204-desktop: $(VARS_FILE)
-	packer build $(PACKER_ARGS) -only=vsphere-iso.ubuntu-2204-desktop .
+	packer build $(PACKER_ARGS) -only='*.vsphere-iso.ubuntu-2204-desktop' .
 
 2404-server: $(VARS_FILE)
-	packer build $(PACKER_ARGS) -only=vsphere-iso.ubuntu-2404-server .
+	packer build $(PACKER_ARGS) -only='*.vsphere-iso.ubuntu-2404-server' .
 
 2404-desktop: $(VARS_FILE)
-	packer build $(PACKER_ARGS) -only=vsphere-iso.ubuntu-2404-desktop .
+	packer build $(PACKER_ARGS) -only='*.vsphere-iso.ubuntu-2404-desktop' .
 
 2604-server: $(VARS_FILE)
-	packer build $(PACKER_ARGS) -only=vsphere-iso.ubuntu-2604-server .
+	packer build $(PACKER_ARGS) -only='*.vsphere-iso.ubuntu-2604-server' .
 
 2604-desktop: $(VARS_FILE)
-	packer build $(PACKER_ARGS) -only=vsphere-iso.ubuntu-2604-desktop .
+	packer build $(PACKER_ARGS) -only='*.vsphere-iso.ubuntu-2604-desktop' .
 
 # ── Version-grouped builds ────────────────────────────────────────────────────
 

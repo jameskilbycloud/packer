@@ -169,7 +169,7 @@ jobs:
         run: |
           packer validate \
             -var-file=runner.pkrvars.hcl \
-            -only=vsphere-iso.ubuntu-${{ matrix.build }} \
+            -only="*.vsphere-iso.ubuntu-${{ matrix.build }}" \
             .
 
       # ── Build ────────────────────────────────────────────────────────────────
@@ -181,7 +181,7 @@ jobs:
         run: |
           packer build \
             -var-file=runner.pkrvars.hcl \
-            -only=vsphere-iso.ubuntu-${{ matrix.build }} \
+            -only="*.vsphere-iso.ubuntu-${{ matrix.build }}" \
             -on-error=cleanup \
             -timestamp-ui \
             .
