@@ -64,7 +64,9 @@ export GOVC_INSECURE="${GOVC_INSECURE:-false}"
 # ── Optional configuration ─────────────────────────────────────────────────────
 CONTENT_LIBRARY="${CONTENT_LIBRARY:-Packer-ISOs}"
 UBUNTU_VERSIONS="${UBUNTU_VERSIONS:-2204 2404 2604}"
-DOWNLOAD_DIR="${DOWNLOAD_DIR:-/tmp/packer-isos}"
+# Default to /var/tmp — on the main disk, not tmpfs. Ubuntu ISOs are 1-2 GB
+# each so /tmp (often a small tmpfs) will fill up. Override with DOWNLOAD_DIR.
+DOWNLOAD_DIR="${DOWNLOAD_DIR:-/var/tmp/packer-isos}"
 KEEP_DOWNLOADS="${KEEP_DOWNLOADS:-false}"
 SKIP_CHECKSUM="${SKIP_CHECKSUM:-false}"
 
@@ -90,6 +92,9 @@ declare -A ISO_LABEL=(
 
 # Track results for summary
 declare -A BUILD_STATUS=()
+
+# Return value from download_iso — avoids command substitution capturing log output
+DOWNLOADED_ISO_PATH=""
 
 # ── Prerequisites ──────────────────────────────────────────────────────────────
 check_prerequisites() {
@@ -123,6 +128,24 @@ check_prerequisites() {
       error "sha256sum / shasum not found. Set SKIP_CHECKSUM=true to bypass, or install coreutils."
       missing=1
     fi
+  fi
+
+  # Disk space — each ISO is up to 2 GB; require 2 GB × version count + 1 GB headroom
+  local version_count
+  version_count=$(echo "${UBUNTU_VERSIONS}" | wc -w)
+  local required_gb=$(( version_count * 2 + 1 ))
+  mkdir -p "${DOWNLOAD_DIR}"
+  local avail_kb
+  avail_kb=$(df -k "${DOWNLOAD_DIR}" | awk 'NR==2 {print $4}')
+  local avail_gb=$(( avail_kb / 1024 / 1024 ))
+  if [[ "${avail_gb}" -lt "${required_gb}" ]]; then
+    error "Insufficient disk space in ${DOWNLOAD_DIR}"
+    error "  Required : ~${required_gb} GB  (${version_count} ISO(s) × 2 GB + 1 GB headroom)"
+    error "  Available: ~${avail_gb} GB"
+    error "  Set DOWNLOAD_DIR to a path with more space, e.g. DOWNLOAD_DIR=/home/runner/isos"
+    missing=1
+  else
+    success "Disk space OK: ~${avail_gb} GB available in ${DOWNLOAD_DIR}"
   fi
 
   [[ "${missing}" -eq 0 ]] || { error "Missing prerequisites — aborting."; exit 1; }
@@ -208,6 +231,8 @@ verify_checksum() {
 }
 
 # ── ISO download ───────────────────────────────────────────────────────────────
+# Sets DOWNLOADED_ISO_PATH on success. Do NOT call via $() — command substitution
+# captures all stdout (including log lines) and corrupts the returned path.
 download_iso() {
   local version="$1"
   local filename="${ISO_FILENAME[${version}]}"
@@ -215,25 +240,29 @@ download_iso() {
   local iso_url="${base_url}/${filename}"
   local iso_path="${DOWNLOAD_DIR}/${filename}"
 
+  DOWNLOADED_ISO_PATH=""
+
   if [[ -f "${iso_path}" ]]; then
     info "Found existing download: ${iso_path}"
     info "Attempting to resume / verify..."
     # Try to resume; curl will confirm file is complete if server supports it
-    curl -fL --continue-at - \
-      --progress-bar \
-      -o "${iso_path}" \
-      "${iso_url}" || true
+    if ! curl -fL --continue-at - --progress-bar -o "${iso_path}" "${iso_url}"; then
+      error "Download failed for ${filename} (curl exit $?)"
+      rm -f "${iso_path}"
+      return 1
+    fi
   else
     info "Downloading ${filename}..."
     info "Source: ${iso_url}"
-    curl -fL --continue-at - \
-      --progress-bar \
-      -o "${iso_path}" \
-      "${iso_url}"
+    if ! curl -fL --continue-at - --progress-bar -o "${iso_path}" "${iso_url}"; then
+      error "Download failed for ${filename} (curl exit $?)"
+      rm -f "${iso_path}"
+      return 1
+    fi
   fi
 
   verify_checksum "${iso_path}" "${base_url}"
-  echo "${iso_path}"
+  DOWNLOADED_ISO_PATH="${iso_path}"
 }
 
 # ── Library item existence check ───────────────────────────────────────────────
@@ -289,8 +318,8 @@ process_version() {
   fi
 
   # Download
-  local iso_path
-  iso_path=$(download_iso "${version}")
+  download_iso "${version}"
+  local iso_path="${DOWNLOADED_ISO_PATH}"
 
   # Upload
   upload_iso "${version}" "${iso_path}"

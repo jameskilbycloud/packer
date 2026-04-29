@@ -15,6 +15,11 @@ on:
         required: false
         default: "Packer-ISOs"
 
+      download_dir:
+        description: "Runner path for ISO downloads (must have 2 GB free per ISO)"
+        required: false
+        default: "/var/tmp/packer-isos"
+
       keep_downloads:
         description: "Keep local ISO files on the runner after upload"
         required: false
@@ -104,4 +109,5 @@ jobs:
           UBUNTU_VERSIONS:    ${{ github.event.inputs.ubuntu_versions }}
           KEEP_DOWNLOADS:     ${{ github.event.inputs.keep_downloads }}
           SKIP_CHECKSUM:      ${{ github.event.inputs.skip_checksum }}
+          DOWNLOAD_DIR:       ${{ github.event.inputs.download_dir }}
         run: bash scripts/upload-isos.sh
