@@ -4,9 +4,9 @@
 # NOTE: Ubuntu 26.04 was released in April 2026. Update ubuntu_2604_iso_path
 # in your .pkrvars.hcl once you have downloaded the final ISO.
 #
-# Run a single build:
-#   packer build -only=vsphere-iso.ubuntu-2604-server .
-#   packer build -only=vsphere-iso.ubuntu-2604-desktop .
+# Run a single build (glob required — build label prefix varies):
+#   packer build -var-file=variables.pkrvars.hcl -only='*.vsphere-iso.ubuntu-2604-server' .
+#   packer build -var-file=variables.pkrvars.hcl -only='*.vsphere-iso.ubuntu-2604-desktop' .
 # =============================================================================
 
 # ── Ubuntu 26.04 Server ───────────────────────────────────────────────────────
@@ -170,7 +170,7 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
   communicator = "ssh"
   ssh_username = var.build_username
   ssh_password = var.build_password
-  ssh_timeout  = "90m"
+  ssh_timeout  = local.desktop_ssh_timeout
   ssh_port     = 22
 
   # Shutdown

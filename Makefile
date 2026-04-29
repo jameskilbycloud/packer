@@ -1,9 +1,15 @@
 # =============================================================================
 # Makefile — HashiCorp Packer build targets for Ubuntu vSphere templates
 # =============================================================================
-# Usage:
+#
+# PRIMARY WORKFLOW — everything runs in GitHub Actions:
+#   make secrets       — push variables.pkrvars.hcl values to GitHub secrets
+#                        (one-time setup, then trigger builds from Actions UI)
+#
+# LOCAL DEVELOPER TARGETS — require Packer + vSphere access on this machine:
 #   make init          — download the vsphere plugin
 #   make validate      — syntax-check all build files
+#   make fmt           — reformat all .pkr.hcl files
 #   make build-all     — build every image (sequential)
 #
 #   make 2204-server   — build Ubuntu 22.04 Server only
@@ -17,7 +23,7 @@
 #   make 2404          — build both 24.04 images
 #   make 2604          — build both 26.04 images
 #
-# All build targets require variables.pkrvars.hcl to exist.
+# All local build targets require variables.pkrvars.hcl to exist.
 # Copy variables.pkrvars.hcl.example and fill in your values first.
 # =============================================================================
 

@@ -5,5 +5,9 @@ locals {
 
   # Convenience: padded shutdown timeout used across all builds.
   shutdown_timeout = "15m"
-  ssh_timeout      = "45m"
+
+  # SSH timeouts — server builds are faster; desktop installs take longer due
+  # to the ubuntu-desktop-minimal package set.
+  ssh_timeout         = "45m"
+  desktop_ssh_timeout = "90m"
 }

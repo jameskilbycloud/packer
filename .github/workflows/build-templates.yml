@@ -215,6 +215,8 @@ jobs:
           ubuntu_2404_iso_path        = "${{ secrets.UBUNTU_2404_ISO_PATH }}"
           ubuntu_2604_iso_path        = "${{ secrets.UBUNTU_2604_ISO_PATH }}"
           EOF
+          # Strip leading whitespace added by the heredoc indentation
+          sed -i 's/^[[:space:]]*//' runner.pkrvars.hcl
 
       # ── Validate ─────────────────────────────────────────────────────────────
       - name: Packer validate

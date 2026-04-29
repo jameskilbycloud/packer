@@ -36,8 +36,14 @@
 set -euo pipefail
 
 # ── Colour helpers ─────────────────────────────────────────────────────────────
-RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'
-CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
+# Disable colour when running inside GitHub Actions or when NO_COLOR is set,
+# so escape sequences don't litter the Actions log viewer.
+if [[ -z "${GITHUB_ACTIONS:-}" && -z "${NO_COLOR:-}" ]]; then
+  RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'
+  CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
+else
+  RED=''; YELLOW=''; GREEN=''; CYAN=''; BOLD=''; RESET=''
+fi
 
 info()    { echo -e "${CYAN}==>${RESET} $*"; }
 success() { echo -e "${GREEN}✔${RESET}  $*"; }

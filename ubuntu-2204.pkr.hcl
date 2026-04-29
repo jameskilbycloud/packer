@@ -1,9 +1,9 @@
 # =============================================================================
 # Ubuntu 22.04 LTS (Jammy Jellyfish) — Server & Desktop
 # =============================================================================
-# Run a single build:
-#   packer build -only=vsphere-iso.ubuntu-2204-server .
-#   packer build -only=vsphere-iso.ubuntu-2204-desktop .
+# Run a single build (glob required — build label prefix varies):
+#   packer build -var-file=variables.pkrvars.hcl -only='*.vsphere-iso.ubuntu-2204-server' .
+#   packer build -var-file=variables.pkrvars.hcl -only='*.vsphere-iso.ubuntu-2204-desktop' .
 # =============================================================================
 
 # ── Ubuntu 22.04 Server ───────────────────────────────────────────────────────
@@ -169,7 +169,7 @@ source "vsphere-iso" "ubuntu-2204-desktop" {
   ssh_username = var.build_username
   ssh_password = var.build_password
   # Desktop installs take longer due to ubuntu-desktop package set
-  ssh_timeout  = "90m"
+  ssh_timeout  = local.desktop_ssh_timeout
   ssh_port     = 22
 
   # Shutdown

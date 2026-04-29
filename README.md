@@ -81,11 +81,7 @@ cp variables.pkrvars.hcl.example variables.pkrvars.hcl
 
 Edit `variables.pkrvars.hcl` with your vSphere details and credentials. See [Variable reference](#variable-reference) for every option.
 
-> **Important:** add `variables.pkrvars.hcl` to your `.gitignore` — it contains credentials.
-
-```bash
-echo "variables.pkrvars.hcl" >> .gitignore
-```
+> **Important:** `variables.pkrvars.hcl` contains credentials and must never be committed. The `.gitignore` already covers `*.pkrvars.hcl` so the file is ignored automatically — no extra steps needed.
 
 ### 3. Generate the build password hash
 
@@ -448,19 +444,28 @@ content_library_destination {
 Three workflows cover the full pipeline. Almost everything runs from Actions — the only local step is the one-time `make secrets` to populate credentials (you can't set GitHub secrets from within Actions itself without a Personal Access Token).
 
 ```
-Local (one-time setup)          GitHub Actions (ongoing)
-──────────────────────          ────────────────────────────────────────────
-fill in pkrvars file            PR opened
-make secrets                 →  validate.yml  — fmt check + packer validate
-                                               (ubuntu-latest, no secrets needed)
+Local (one-time)                GitHub Actions (ongoing, automated)
+────────────────                ───────────────────────────────────────────
+1. Fill in pkrvars file
+2. make secrets              ─► secrets stored in GitHub
 
-                                merge to main / manual trigger / weekly cron
-                                build-templates.yml — packer build
-                                               (self-hosted vsphere runner)
+                                PR opened
+                                └─► validate.yml
+                                    fmt check + packer validate
+                                    (ubuntu-latest, no secrets needed)
 
-make upload-isos             →  upload-isos.yml — govc library.import
-(or trigger from Actions UI)    (self-hosted vsphere runner, manual only)
+                                Merge to main / manual trigger / weekly cron
+                                └─► build-templates.yml
+                                    packer build → vSphere template
+                                    (self-hosted runner)
+
+3. Trigger upload-isos.yml   ─► upload-isos.yml
+   from Actions UI               govc library.import → Content Library
+   (or: make upload-isos          (self-hosted runner, manual only)
+    if runner has govc locally)
 ```
+
+> **Steps 1–3 are one-time setup.** After that, builds run automatically on push to `main`, on a weekly schedule, or on demand from the Actions UI. No local tooling is needed day-to-day.
 
 ### Why a self-hosted runner
 
