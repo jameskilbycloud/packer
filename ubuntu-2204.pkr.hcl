@@ -67,15 +67,17 @@ source "vsphere-iso" "ubuntu-2204-server" {
   }
   cd_label = "cidata"
 
-  # Boot — drop to GRUB command line and pass autoinstall parameters
-  boot_order = "disk,cdrom"
+  # Boot — press 'e' to edit the highlighted GRUB entry, navigate to the
+  # kernel line, append autoinstall params, then F10 to boot. This is more
+  # reliable on EFI than the <esc>c command-line approach.
+  boot_order = "cdrom,disk"
   boot_wait  = "5s"
   boot_command = [
-    "<esc><wait2>",
-    "c<wait2>",
-    "linux /casper/vmlinuz --- autoinstall ds=nocloud<enter><wait5>",
-    "initrd /casper/initrd<enter><wait5>",
-    "boot<enter><wait30>"
+    "<wait5>",
+    "e<wait2>",
+    "<down><down><down><end>",
+    " autoinstall ds=nocloud",
+    "<f10><wait30>"
   ]
 
   # SSH communicator (Packer connects once cloud-init completes the install)
