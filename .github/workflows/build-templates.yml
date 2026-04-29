@@ -199,61 +199,103 @@ jobs:
           fi
           echo "xorriso: $(xorriso --version 2>&1 | head -1)"
 
-      # ── Install govc ─────────────────────────────────────────────────────────
-      - name: Install govc
-        run: |
-          if ! command -v govc &>/dev/null; then
-            GOVC_VERSION=$(curl -fsSL https://api.github.com/repos/vmware/govmomi/releases/latest \
-              | grep '"tag_name"' | cut -d'"' -f4)
-            curl -fsSL \
-              "https://github.com/vmware/govmomi/releases/download/${GOVC_VERSION}/govc_Linux_x86_64.tar.gz" \
-              | sudo tar -xzf - -C /usr/local/bin govc
-            sudo chmod +x /usr/local/bin/govc
-          fi
-          echo "govc: $(govc version)"
-
       # ── Resolve ISO paths from Content Library ───────────────────────────────
-      # Content Library items are stored on the backing datastore at:
+      # vSphere Content Library items are stored on the backing datastore at:
       #   contentlib-{library-uuid}/{item-uuid}/{filename}.iso
-      # iso_paths in vsphere-iso requires a real datastore path — the Content
-      # Library name is not a valid datastore. We search the backing datastore
-      # recursively to find each ISO's actual path (no UUIDs needed).
+      # The library name ("Packer-ISOs") is NOT a valid datastore — iso_paths
+      # must use the real path. We query the vSphere REST API for the library
+      # and item UUIDs, construct the datastore path, and export to GITHUB_ENV.
       - name: Resolve ISO paths from Content Library
         env:
-          GOVC_URL:       ${{ secrets.VSPHERE_SERVER }}
-          GOVC_USERNAME:  ${{ secrets.VSPHERE_USER }}
-          GOVC_PASSWORD:  ${{ secrets.VSPHERE_PASSWORD }}
-          GOVC_INSECURE:  ${{ secrets.VSPHERE_INSECURE || 'false' }}
-          GOVC_DATACENTER: ${{ secrets.VSPHERE_DATACENTER }}
-          LIB_DATASTORE:  ${{ secrets.VSPHERE_ISO_LIBRARY_DATASTORE }}
+          VSPHERE_SERVER:   ${{ secrets.VSPHERE_SERVER }}
+          VSPHERE_USER:     ${{ secrets.VSPHERE_USER }}
+          VSPHERE_PASSWORD: ${{ secrets.VSPHERE_PASSWORD }}
+          VSPHERE_INSECURE: ${{ secrets.VSPHERE_INSECURE || 'false' }}
+          LIB_DATASTORE:    ${{ secrets.VSPHERE_ISO_LIBRARY_DATASTORE }}
+          CONTENT_LIBRARY:  ${{ vars.CONTENT_LIBRARY || 'Packer-ISOs' }}
+          MATRIX_BUILD:     ${{ matrix.build }}
         run: |
-          resolve_iso_path() {
-            local filename="$1"
-            local path
-            # -R lists all files recursively on the datastore; the CL items live at
-            # contentlib-{uuid}/{item-uuid}/{filename} under the datastore root.
-            path=$(govc datastore.ls -ds="${LIB_DATASTORE}" -R 2>/dev/null \
-              | grep -m1 "${filename}" || true)
-            if [[ -z "${path}" ]]; then
-              echo "❌ ${filename} not found on datastore ${LIB_DATASTORE} — run the upload-isos workflow first" >&2
-              return 1
-            fi
-            echo "${path}"
+          python3 << 'PYEOF'
+          import base64, json, os, ssl, sys, urllib.request
+
+          server   = os.environ['VSPHERE_SERVER'].rstrip('/')
+          if not server.startswith('http'):
+              server = 'https://' + server
+          user     = os.environ['VSPHERE_USER']
+          pwd      = os.environ['VSPHERE_PASSWORD']
+          insecure = os.environ.get('VSPHERE_INSECURE', 'false').lower() == 'true'
+          library  = os.environ.get('CONTENT_LIBRARY', 'Packer-ISOs')
+          ds       = os.environ['LIB_DATASTORE']
+          build    = os.environ.get('MATRIX_BUILD', '')
+
+          filenames = {
+              '2204': 'ubuntu-22.04.5-live-server-amd64.iso',
+              '2404': 'ubuntu-24.04.4-live-server-amd64.iso',
+              '2604': 'ubuntu-26.04-live-server-amd64.iso',
           }
 
-          ISO_2204=$(resolve_iso_path "ubuntu-22.04.5-live-server-amd64.iso")
-          ISO_2404=$(resolve_iso_path "ubuntu-24.04.4-live-server-amd64.iso")
-          ISO_2604=$(resolve_iso_path "ubuntu-26.04-live-server-amd64.iso")
+          ctx = ssl.create_default_context()
+          if insecure:
+              ctx.check_hostname = False
+              ctx.verify_mode = ssl.CERT_NONE
 
-          echo "Resolved ISO paths on [${LIB_DATASTORE}]:"
-          echo "  22.04: ${ISO_2204}"
-          echo "  24.04: ${ISO_2404}"
-          echo "  26.04: ${ISO_2604}"
+          def get(path, tok=None):
+              hdrs = {'Content-Type': 'application/json'}
+              if tok:
+                  hdrs['vmware-api-session-id'] = tok
+              req = urllib.request.Request(f'{server}{path}', headers=hdrs)
+              with urllib.request.urlopen(req, context=ctx) as r:
+                  return json.load(r)
 
-          echo "ISO_BACKING_DATASTORE=${LIB_DATASTORE}" >> "$GITHUB_ENV"
-          echo "RESOLVED_ISO_2204=${ISO_2204}"           >> "$GITHUB_ENV"
-          echo "RESOLVED_ISO_2404=${ISO_2404}"           >> "$GITHUB_ENV"
-          echo "RESOLVED_ISO_2604=${ISO_2604}"           >> "$GITHUB_ENV"
+          # Authenticate
+          creds = base64.b64encode(f'{user}:{pwd}'.encode()).decode()
+          req = urllib.request.Request(
+              f'{server}/rest/com/vmware/cis/session',
+              method='POST',
+              headers={'Authorization': f'Basic {creds}', 'Content-Type': 'application/json'}
+          )
+          with urllib.request.urlopen(req, context=ctx) as r:
+              tok = json.load(r)['value']
+
+          # Find library UUID by name
+          lib_ids = get('/rest/com/vmware/content/library', tok)['value']
+          lib_id = None
+          for lid in lib_ids:
+              if get(f'/rest/com/vmware/content/library/{lid}', tok)['value']['name'] == library:
+                  lib_id = lid
+                  break
+          if not lib_id:
+              print(f'ERROR: Content Library "{library}" not found in vCenter', file=sys.stderr)
+              sys.exit(1)
+
+          # Build item-name -> item-uuid map for the library
+          item_ids = get(f'/rest/com/vmware/content/library/item?library_id={lib_id}', tok)['value']
+          name_to_uuid = {}
+          for iid in item_ids:
+              name = get(f'/rest/com/vmware/content/library/item/{iid}', tok)['value']['name']
+              name_to_uuid[name] = iid
+          print(f'Library "{library}" [{lib_id}] — {len(name_to_uuid)} item(s): {list(name_to_uuid.keys())}')
+
+          # Write resolved paths to GITHUB_ENV
+          github_env = os.environ.get('GITHUB_ENV', '/dev/stderr')
+          with open(github_env, 'a') as ef:
+              ef.write(f'ISO_BACKING_DATASTORE={ds}\n')
+              for ver, fname in filenames.items():
+                  item_uuid = name_to_uuid.get(fname, '')
+                  if item_uuid:
+                      path = f'contentlib-{lib_id}/{item_uuid}/{fname}'
+                      print(f'  {ver}: {path}')
+                  else:
+                      path = ''
+                      print(f'  {ver}: NOT IN LIBRARY ({fname})')
+                  ef.write(f'RESOLVED_ISO_{ver}={path}\n')
+
+          # Fail fast if the ISO for the current matrix build is missing
+          ver = build.split('-')[0] if build else ''
+          if ver in filenames and not name_to_uuid.get(filenames[ver]):
+              print(f'ERROR: {filenames[ver]} not found in "{library}" — run the upload-isos workflow first', file=sys.stderr)
+              sys.exit(1)
+          PYEOF
 
       # ── Install plugin ───────────────────────────────────────────────────────
       - name: Packer init (download vsphere plugin)
