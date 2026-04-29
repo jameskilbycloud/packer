@@ -1,0 +1,205 @@
+name: Build Packer Templates
+
+# ── Triggers ──────────────────────────────────────────────────────────────────
+on:
+  # Manual build — choose exactly what to build and optionally override sizing
+  workflow_dispatch:
+    inputs:
+      build_target:
+        description: "Template(s) to build"
+        required: true
+        default: "2404-server"
+        type: choice
+        options:
+          - 2204-server
+          - 2204-desktop
+          - 2404-server
+          - 2404-desktop
+          - 2604-server
+          - 2604-desktop
+          - all-servers
+          - all-desktops
+          - all
+
+      dry_run:
+        description: "Validate only — do not build"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+  # Auto-rebuild templates every Sunday at 02:00 UTC (catches security updates)
+  # Comment out or adjust the cron if you do not want automatic rebuilds.
+  schedule:
+    - cron: "0 2 * * 0"
+
+  # Rebuild when Packer files or provisioner scripts are changed on main
+  push:
+    branches:
+      - main
+    paths:
+      - "*.pkr.hcl"
+      - "templates/**"
+      - "scripts/setup.sh"
+      - "scripts/vmtools.sh"
+      - ".github/workflows/build-templates.yml"
+
+# ── Concurrency ───────────────────────────────────────────────────────────────
+# Prevent multiple builds running simultaneously (vSphere resource constraint).
+concurrency:
+  group: packer-build
+  cancel-in-progress: false   # queue rather than cancel — don't orphan VMs
+
+# ── Jobs ──────────────────────────────────────────────────────────────────────
+jobs:
+
+  # ── Resolve which builds to run based on the trigger / input ────────────────
+  resolve-targets:
+    name: Resolve build targets
+    runs-on: ubuntu-latest   # lightweight — just resolves the matrix
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      dry_run: ${{ steps.set-dry-run.outputs.dry_run }}
+
+    steps:
+      - name: Set dry-run flag
+        id: set-dry-run
+        run: |
+          # workflow_dispatch sets the input; push/schedule always build for real
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "dry_run=${{ github.event.inputs.dry_run }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "dry_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set build matrix
+        id: set-matrix
+        run: |
+          TARGET="${{ github.event.inputs.build_target }}"
+
+          # Default for schedule / push triggers
+          if [[ -z "${TARGET}" ]]; then
+            TARGET="all"
+          fi
+
+          case "${TARGET}" in
+            2204-server)  BUILDS='["2204-server"]' ;;
+            2204-desktop) BUILDS='["2204-desktop"]' ;;
+            2404-server)  BUILDS='["2404-server"]' ;;
+            2404-desktop) BUILDS='["2404-desktop"]' ;;
+            2604-server)  BUILDS='["2604-server"]' ;;
+            2604-desktop) BUILDS='["2604-desktop"]' ;;
+            all-servers)  BUILDS='["2204-server","2404-server","2604-server"]' ;;
+            all-desktops) BUILDS='["2204-desktop","2404-desktop","2604-desktop"]' ;;
+            all)          BUILDS='["2204-server","2204-desktop","2404-server","2404-desktop","2604-server","2604-desktop"]' ;;
+            *)            BUILDS='["2404-server"]' ;;
+          esac
+
+          echo "matrix={\"build\":${BUILDS}}" >> "$GITHUB_OUTPUT"
+          echo "Resolved targets: ${BUILDS}"
+
+  # ── Packer build (one job per template) ─────────────────────────────────────
+  build:
+    name: Build ${{ matrix.build }}
+    needs: resolve-targets
+    runs-on: [self-hosted, vsphere]   # <── label your runner with "vsphere"
+    timeout-minutes: 120              # desktop builds take ~60-90 min
+
+    strategy:
+      matrix: ${{ fromJson(needs.resolve-targets.outputs.matrix) }}
+      fail-fast: false   # let other builds continue if one fails
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Install Packer ───────────────────────────────────────────────────────
+      - name: Install Packer
+        run: |
+          if command -v packer &>/dev/null; then
+            echo "Packer already installed: $(packer version)"
+            exit 0
+          fi
+          # Install via HashiCorp APT repo
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
+            https://apt.releases.hashicorp.com $(lsb_release -cs) main" \
+            | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt-get update -y
+          sudo apt-get install -y packer
+          packer version
+
+      # ── Install plugin ───────────────────────────────────────────────────────
+      - name: Packer init (download vsphere plugin)
+        run: packer init .
+
+      # ── Write variables file from secrets ────────────────────────────────────
+      # We write a temporary vars file rather than passing dozens of -var flags.
+      # The file is removed in the cleanup step regardless of build success.
+      - name: Write variables file
+        run: |
+          cat > runner.pkrvars.hcl << 'EOF'
+          vsphere_server              = "${{ secrets.VSPHERE_SERVER }}"
+          vsphere_user                = "${{ secrets.VSPHERE_USER }}"
+          vsphere_password            = "${{ secrets.VSPHERE_PASSWORD }}"
+          vsphere_insecure_connection = ${{ secrets.VSPHERE_INSECURE || 'false' }}
+          vsphere_datacenter          = "${{ secrets.VSPHERE_DATACENTER }}"
+          vsphere_cluster             = "${{ secrets.VSPHERE_CLUSTER }}"
+          vsphere_host                = "${{ secrets.VSPHERE_HOST }}"
+          vsphere_datastore           = "${{ secrets.VSPHERE_DATASTORE }}"
+          vsphere_network             = "${{ secrets.VSPHERE_NETWORK }}"
+          vsphere_folder              = "${{ secrets.VSPHERE_FOLDER }}"
+          vsphere_iso_datastore       = "${{ secrets.VSPHERE_ISO_DATASTORE }}"
+          build_username              = "${{ secrets.BUILD_USERNAME }}"
+          build_password              = "${{ secrets.BUILD_PASSWORD }}"
+          build_password_encrypted    = "${{ secrets.BUILD_PASSWORD_ENCRYPTED }}"
+          ubuntu_2204_iso_path        = "${{ secrets.UBUNTU_2204_ISO_PATH }}"
+          ubuntu_2404_iso_path        = "${{ secrets.UBUNTU_2404_ISO_PATH }}"
+          ubuntu_2604_iso_path        = "${{ secrets.UBUNTU_2604_ISO_PATH }}"
+          EOF
+
+      # ── Validate ─────────────────────────────────────────────────────────────
+      - name: Packer validate
+        run: |
+          packer validate \
+            -var-file=runner.pkrvars.hcl \
+            -only=vsphere-iso.ubuntu-${{ matrix.build }} \
+            .
+
+      # ── Build ────────────────────────────────────────────────────────────────
+      - name: Packer build
+        if: needs.resolve-targets.outputs.dry_run == 'false'
+        env:
+          PACKER_LOG: 1
+          PACKER_LOG_PATH: packer-${{ matrix.build }}.log
+        run: |
+          packer build \
+            -var-file=runner.pkrvars.hcl \
+            -only=vsphere-iso.ubuntu-${{ matrix.build }} \
+            -on-error=cleanup \
+            -timestamp-ui \
+            .
+
+      # ── Upload logs ──────────────────────────────────────────────────────────
+      - name: Upload Packer log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packer-log-${{ matrix.build }}-${{ github.run_number }}
+          path: packer-${{ matrix.build }}.log
+          retention-days: 30
+
+      - name: Upload build manifest
+        if: success() && needs.resolve-targets.outputs.dry_run == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifest-${{ matrix.build }}-${{ github.run_number }}
+          path: manifests/ubuntu-${{ matrix.build }}.json
+          retention-days: 90
+
+      # ── Always clean up credentials ──────────────────────────────────────────
+      - name: Remove variables file
+        if: always()
+        run: rm -f runner.pkrvars.hcl

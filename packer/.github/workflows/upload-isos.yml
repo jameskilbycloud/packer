@@ -1,0 +1,74 @@
+name: Upload ISOs to Content Library
+
+# ── Triggers ──────────────────────────────────────────────────────────────────
+on:
+  # Manual only — run this once when setting up or when new ISOs are released
+  workflow_dispatch:
+    inputs:
+      ubuntu_versions:
+        description: "Ubuntu versions to upload (space-separated)"
+        required: false
+        default: "2204 2404 2604"
+
+      content_library:
+        description: "Content Library name"
+        required: false
+        default: "Packer-ISOs"
+
+      keep_downloads:
+        description: "Keep local ISO files on the runner after upload"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+      skip_checksum:
+        description: "Skip SHA256 checksum verification (not recommended)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+# ── Jobs ──────────────────────────────────────────────────────────────────────
+jobs:
+  upload-isos:
+    name: Upload ISOs to vSphere Content Library
+    runs-on: [self-hosted, vsphere]   # must have govc installed and network access
+    timeout-minutes: 180              # ISOs are 1-2 GB each — allow time for download + upload
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Verify govc is available ─────────────────────────────────────────────
+      - name: Check govc
+        run: |
+          if ! command -v govc &>/dev/null; then
+            echo "govc not found — installing..."
+            GOVC_VERSION=$(curl -s https://api.github.com/repos/vmware/govmomi/releases/latest \
+              | grep '"tag_name"' | cut -d'"' -f4)
+            curl -fsSL \
+              "https://github.com/vmware/govmomi/releases/download/${GOVC_VERSION}/govc_Linux_x86_64.tar.gz" \
+              | sudo tar -xzf - -C /usr/local/bin govc
+            sudo chmod +x /usr/local/bin/govc
+          fi
+          echo "govc version: $(govc version)"
+
+      # ── Run upload script ────────────────────────────────────────────────────
+      - name: Upload ISOs
+        env:
+          GOVC_URL:           ${{ secrets.VSPHERE_SERVER }}
+          GOVC_USERNAME:      ${{ secrets.VSPHERE_USER }}
+          GOVC_PASSWORD:      ${{ secrets.VSPHERE_PASSWORD }}
+          GOVC_INSECURE:      ${{ secrets.VSPHERE_INSECURE || 'false' }}
+          GOVC_DATACENTER:    ${{ secrets.VSPHERE_DATACENTER }}
+          LIBRARY_DATASTORE:  ${{ secrets.VSPHERE_ISO_LIBRARY_DATASTORE }}
+          CONTENT_LIBRARY:    ${{ github.event.inputs.content_library }}
+          UBUNTU_VERSIONS:    ${{ github.event.inputs.ubuntu_versions }}
+          KEEP_DOWNLOADS:     ${{ github.event.inputs.keep_downloads }}
+          SKIP_CHECKSUM:      ${{ github.event.inputs.skip_checksum }}
+        run: bash scripts/upload-isos.sh

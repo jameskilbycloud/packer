@@ -1,0 +1,71 @@
+#cloud-config
+autoinstall:
+  version: 1
+
+  # ── Locale / Keyboard ─────────────────────────────────────────────────────
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+    variant: ''
+
+  # ── Network (DHCP on first NIC — adjust if you use static IPs) ────────────
+  network:
+    network:
+      version: 2
+      ethernets:
+        ens192:
+          dhcp4: true
+          dhcp-identifier: mac
+
+  # ── Storage (LVM, thin-provisioned on the first available disk) ───────────
+  storage:
+    layout:
+      name: lvm
+      match:
+        ssd: no
+
+  # ── Identity ──────────────────────────────────────────────────────────────
+  identity:
+    hostname: ${vm_hostname}
+    username: ${build_username}
+    # SHA-512 hash — generate with: openssl passwd -6 '<password>'
+    password: "${build_password_encrypted}"
+
+  # ── SSH ───────────────────────────────────────────────────────────────────
+  # SSH is required during build for Packer provisioners.
+  # You may harden or disable it after the template is deployed.
+  ssh:
+    install-server: true
+    allow-pw: true
+    authorized-keys: []
+
+  # ── Packages ──────────────────────────────────────────────────────────────
+  packages:
+    - open-vm-tools
+    - open-vm-tools-desktop   # Clipboard / drag-and-drop integration for GUI
+    - ubuntu-desktop-minimal  # Full GNOME desktop (use ubuntu-desktop for extras)
+    - curl
+    - wget
+    - vim
+    - git
+    - net-tools
+    - ca-certificates
+
+  # ── Post-install ──────────────────────────────────────────────────────────
+  late-commands:
+    # Passwordless sudo for the build account (Packer needs this for provisioners)
+    - echo '${build_username} ALL=(ALL) NOPASSWD:ALL' > /target/etc/sudoers.d/90-packer-${build_username}
+    - chmod 440 /target/etc/sudoers.d/90-packer-${build_username}
+    # Ensure VMware tools services start on boot
+    - curtin in-target --target=/target -- systemctl enable open-vm-tools
+    # Auto-login on first boot (optional — remove if not wanted)
+    - |
+      cat > /target/etc/gdm3/custom.conf << 'EOF'
+      [daemon]
+      AutomaticLoginEnable=false
+      EOF
+    # Disable cloud-init on first boot after template clone (re-enable if needed)
+    - touch /target/etc/cloud/cloud-init.disabled
+
+  updates: security
+  shutdown: poweroff
