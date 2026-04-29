@@ -220,6 +220,8 @@ jobs:
 
       # ── Validate ─────────────────────────────────────────────────────────────
       - name: Packer validate
+        env:
+          TMPDIR: /var/tmp
         run: |
           packer validate \
             -var-file=runner.pkrvars.hcl \
@@ -232,6 +234,7 @@ jobs:
         env:
           PACKER_LOG: 1
           PACKER_LOG_PATH: packer-${{ matrix.build }}.log
+          TMPDIR: /var/tmp   # /tmp is a small tmpfs; Packer writes CD images here
         run: |
           packer build \
             -var-file=runner.pkrvars.hcl \
