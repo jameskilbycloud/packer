@@ -186,9 +186,12 @@ verify_govc_connection() {
 ensure_content_library() {
   header "Content Library: ${CONTENT_LIBRARY}"
 
-  # govc library.info exits 0 even when the library doesn't exist, so check
-  # for actual output from library.ls instead.
-  if govc library.ls 2>/dev/null | grep -qF "/${CONTENT_LIBRARY}"; then
+  # Check for the library by querying it directly and looking for output.
+  # govc library.info exits 0 even when the library doesn't exist, so we use
+  # library.ls with the exact name and check for non-empty output instead.
+  local lib_check
+  lib_check=$(govc library.ls "/${CONTENT_LIBRARY}" 2>/dev/null || true)
+  if [[ -n "${lib_check}" ]]; then
     success "Content library '${CONTENT_LIBRARY}' already exists"
   else
     info "Creating content library '${CONTENT_LIBRARY}' on datastore '${LIBRARY_DATASTORE}'..."
@@ -277,9 +280,13 @@ library_item_exists() {
   local lib="$1"
   local item_name="$2"
 
-  # govc library.info exits 0 even when the item doesn't exist, so check for
-  # actual output from library.ls instead.
-  govc library.ls "${lib}/" 2>/dev/null | grep -qF "${item_name}"
+  # Query the specific item path directly. govc library.info exits 0 whether
+  # the item exists or not, but only produces output when the item is found.
+  # Using library.ls with the full path scopes the check to this library only
+  # (avoiding false positives from other libraries that may have the same ISO).
+  local result
+  result=$(govc library.ls "${lib}/${item_name}" 2>/dev/null || true)
+  [[ -n "${result}" ]]
 }
 
 # ── Upload to Content Library ──────────────────────────────────────────────────
