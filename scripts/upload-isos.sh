@@ -29,7 +29,7 @@
 #   CONTENT_LIBRARY     — Content Library name to create/use    (default: Packer-ISOs)
 #   LIBRARY_DATASTORE   — Datastore to back the library         (required)
 #   UBUNTU_VERSIONS     — Space-separated versions to process   (default: 2204 2404 2604)
-#   DOWNLOAD_DIR        — Local temp dir for ISO downloads      (default: /tmp/packer-isos)
+#   DOWNLOAD_DIR        — Local temp dir for ISO downloads      (default: /var/tmp/packer-isos)
 #   KEEP_DOWNLOADS      — Set to "true" to keep local ISOs      (default: false)
 #   SKIP_CHECKSUM       — Set to "true" to skip SHA256 check    (default: false)
 # =============================================================================
@@ -382,15 +382,6 @@ print_summary() {
 
   info "Content library : ${CONTENT_LIBRARY}"
   info "vCenter         : ${GOVC_URL}"
-  echo ""
-  echo -e "${BOLD}Packer variables to use in variables.pkrvars.hcl:${RESET}"
-  echo ""
-  echo "  vsphere_iso_datastore = \"${CONTENT_LIBRARY}\""
-  for version in ${UBUNTU_VERSIONS}; do
-    local filename="${ISO_FILENAME[${version}]:-}"
-    [[ -n "${filename}" ]] && \
-      echo "  ubuntu_${version}_iso_path  = \"${filename}\""
-  done
   echo ""
 }
 

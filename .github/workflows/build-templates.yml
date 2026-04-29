@@ -128,7 +128,7 @@ jobs:
           VSPHERE_NETWORK:   ${{ secrets.VSPHERE_NETWORK }}
           VSPHERE_CLUSTER:   ${{ secrets.VSPHERE_CLUSTER }}
           VSPHERE_HOST:      ${{ secrets.VSPHERE_HOST }}
-          VSPHERE_ISO_DATASTORE: ${{ secrets.VSPHERE_ISO_DATASTORE }}
+          VSPHERE_ISO_LIBRARY_DATASTORE: ${{ secrets.VSPHERE_ISO_LIBRARY_DATASTORE }}
           BUILD_USERNAME:    ${{ secrets.BUILD_USERNAME }}
           BUILD_PASSWORD:    ${{ secrets.BUILD_PASSWORD }}
           BUILD_PASSWORD_ENCRYPTED: ${{ secrets.BUILD_PASSWORD_ENCRYPTED }}
@@ -142,7 +142,8 @@ jobs:
           [[ -z "${VSPHERE_DATACENTER}" ]] && missing+=("VSPHERE_DATACENTER")
           [[ -z "${VSPHERE_DATASTORE}" ]] && missing+=("VSPHERE_DATASTORE")
           [[ -z "${VSPHERE_NETWORK}"   ]] && missing+=("VSPHERE_NETWORK")
-          [[ -z "${VSPHERE_ISO_DATASTORE}" ]] && missing+=("VSPHERE_ISO_DATASTORE")
+          # ISO paths are resolved from the content library backing datastore at runtime
+          [[ -z "${VSPHERE_ISO_LIBRARY_DATASTORE}" ]] && missing+=("VSPHERE_ISO_LIBRARY_DATASTORE")
 
           # At least one of VSPHERE_HOST or VSPHERE_CLUSTER must be set
           if [[ -z "${VSPHERE_HOST}" && -z "${VSPHERE_CLUSTER}" ]]; then
@@ -198,6 +199,62 @@ jobs:
           fi
           echo "xorriso: $(xorriso --version 2>&1 | head -1)"
 
+      # ── Install govc ─────────────────────────────────────────────────────────
+      - name: Install govc
+        run: |
+          if ! command -v govc &>/dev/null; then
+            GOVC_VERSION=$(curl -fsSL https://api.github.com/repos/vmware/govmomi/releases/latest \
+              | grep '"tag_name"' | cut -d'"' -f4)
+            curl -fsSL \
+              "https://github.com/vmware/govmomi/releases/download/${GOVC_VERSION}/govc_Linux_x86_64.tar.gz" \
+              | sudo tar -xzf - -C /usr/local/bin govc
+            sudo chmod +x /usr/local/bin/govc
+          fi
+          echo "govc: $(govc version)"
+
+      # ── Resolve ISO paths from Content Library ───────────────────────────────
+      # Content Library items are stored on the backing datastore at:
+      #   contentlib-{library-uuid}/{item-uuid}/{filename}.iso
+      # iso_paths in vsphere-iso requires a real datastore path — the Content
+      # Library name is not a valid datastore. We search the backing datastore
+      # recursively to find each ISO's actual path (no UUIDs needed).
+      - name: Resolve ISO paths from Content Library
+        env:
+          GOVC_URL:       ${{ secrets.VSPHERE_SERVER }}
+          GOVC_USERNAME:  ${{ secrets.VSPHERE_USER }}
+          GOVC_PASSWORD:  ${{ secrets.VSPHERE_PASSWORD }}
+          GOVC_INSECURE:  ${{ secrets.VSPHERE_INSECURE || 'false' }}
+          GOVC_DATACENTER: ${{ secrets.VSPHERE_DATACENTER }}
+          LIB_DATASTORE:  ${{ secrets.VSPHERE_ISO_LIBRARY_DATASTORE }}
+        run: |
+          resolve_iso_path() {
+            local filename="$1"
+            local path
+            # -R lists all files recursively on the datastore; the CL items live at
+            # contentlib-{uuid}/{item-uuid}/{filename} under the datastore root.
+            path=$(govc datastore.ls -ds="${LIB_DATASTORE}" -R 2>/dev/null \
+              | grep -m1 "${filename}" || true)
+            if [[ -z "${path}" ]]; then
+              echo "❌ ${filename} not found on datastore ${LIB_DATASTORE} — run the upload-isos workflow first" >&2
+              return 1
+            fi
+            echo "${path}"
+          }
+
+          ISO_2204=$(resolve_iso_path "ubuntu-22.04.5-live-server-amd64.iso")
+          ISO_2404=$(resolve_iso_path "ubuntu-24.04.4-live-server-amd64.iso")
+          ISO_2604=$(resolve_iso_path "ubuntu-26.04-live-server-amd64.iso")
+
+          echo "Resolved ISO paths on [${LIB_DATASTORE}]:"
+          echo "  22.04: ${ISO_2204}"
+          echo "  24.04: ${ISO_2404}"
+          echo "  26.04: ${ISO_2604}"
+
+          echo "ISO_BACKING_DATASTORE=${LIB_DATASTORE}" >> "$GITHUB_ENV"
+          echo "RESOLVED_ISO_2204=${ISO_2204}"           >> "$GITHUB_ENV"
+          echo "RESOLVED_ISO_2404=${ISO_2404}"           >> "$GITHUB_ENV"
+          echo "RESOLVED_ISO_2604=${ISO_2604}"           >> "$GITHUB_ENV"
+
       # ── Install plugin ───────────────────────────────────────────────────────
       - name: Packer init (download vsphere plugin)
         run: packer init .
@@ -218,13 +275,13 @@ jobs:
           vsphere_datastore           = "${{ secrets.VSPHERE_DATASTORE }}"
           vsphere_network             = "${{ secrets.VSPHERE_NETWORK }}"
           vsphere_folder              = "${{ secrets.VSPHERE_FOLDER }}"
-          vsphere_iso_datastore       = "${{ secrets.VSPHERE_ISO_DATASTORE }}"
+          vsphere_iso_datastore       = "${{ env.ISO_BACKING_DATASTORE }}"
           build_username              = "${{ secrets.BUILD_USERNAME }}"
           build_password              = "${{ secrets.BUILD_PASSWORD }}"
           build_password_encrypted    = "${{ secrets.BUILD_PASSWORD_ENCRYPTED }}"
-          ubuntu_2204_iso_path        = "${{ secrets.UBUNTU_2204_ISO_PATH }}"
-          ubuntu_2404_iso_path        = "${{ secrets.UBUNTU_2404_ISO_PATH }}"
-          ubuntu_2604_iso_path        = "${{ secrets.UBUNTU_2604_ISO_PATH }}"
+          ubuntu_2204_iso_path        = "${{ env.RESOLVED_ISO_2204 }}"
+          ubuntu_2404_iso_path        = "${{ env.RESOLVED_ISO_2404 }}"
+          ubuntu_2604_iso_path        = "${{ env.RESOLVED_ISO_2604 }}"
           EOF
           # Strip leading whitespace added by the heredoc indentation
           sed -i 's/^[[:space:]]*//' runner.pkrvars.hcl
