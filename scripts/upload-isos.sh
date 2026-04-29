@@ -156,7 +156,9 @@ verify_govc_connection() {
 ensure_content_library() {
   header "Content Library: ${CONTENT_LIBRARY}"
 
-  if govc library.info "${CONTENT_LIBRARY}" &>/dev/null; then
+  # govc library.info exits 0 even when the library doesn't exist, so check
+  # for actual output from library.ls instead.
+  if govc library.ls 2>/dev/null | grep -qF "/${CONTENT_LIBRARY}"; then
     success "Content library '${CONTENT_LIBRARY}' already exists"
   else
     info "Creating content library '${CONTENT_LIBRARY}' on datastore '${LIBRARY_DATASTORE}'..."
@@ -239,8 +241,9 @@ library_item_exists() {
   local lib="$1"
   local item_name="$2"
 
-  # govc library.info returns non-zero when item doesn't exist
-  govc library.info "${lib}/${item_name}" &>/dev/null
+  # govc library.info exits 0 even when the item doesn't exist, so check for
+  # actual output from library.ls instead.
+  govc library.ls "${lib}/" 2>/dev/null | grep -qF "${item_name}"
 }
 
 # ── Upload to Content Library ──────────────────────────────────────────────────
