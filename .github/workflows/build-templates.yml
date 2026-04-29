@@ -129,7 +129,8 @@ jobs:
           ARCH=$(dpkg --print-architecture)
           curl -fsSL "https://releases.hashicorp.com/packer/${PACKER_VERSION}/packer_${PACKER_VERSION}_linux_${ARCH}.zip" \
             -o /tmp/packer.zip
-          sudo unzip -o /tmp/packer.zip -d /usr/local/bin packer
+          python3 -c "import zipfile,sys; zipfile.ZipFile('/tmp/packer.zip').extract('packer','/tmp')"
+          sudo mv /tmp/packer /usr/local/bin/packer
           sudo chmod +x /usr/local/bin/packer
           rm /tmp/packer.zip
           packer version
