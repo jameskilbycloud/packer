@@ -280,13 +280,13 @@ library_item_exists() {
   local lib="$1"
   local item_name="$2"
 
-  # Query the specific item path directly. govc library.info exits 0 whether
-  # the item exists or not, but only produces output when the item is found.
-  # Using library.ls with the full path scopes the check to this library only
-  # (avoiding false positives from other libraries that may have the same ISO).
+  # govc content library paths are absolute — the leading slash is required to
+  # scope the query to this library only. Without it govc may return unexpected
+  # results from other libraries, causing false positives.
   local result
-  result=$(govc library.ls "${lib}/${item_name}" 2>/dev/null || true)
-  [[ -n "${result}" ]]
+  result=$(govc library.ls "/${lib}/${item_name}" 2>/dev/null || true)
+  # Confirm the output actually contains the item name, not stray output
+  [[ "${result}" == *"${item_name}"* ]]
 }
 
 # ── Upload to Content Library ──────────────────────────────────────────────────
@@ -325,11 +325,13 @@ process_version() {
   fi
 
   # Skip if already in library
+  info "Checking library for existing item: /${CONTENT_LIBRARY}/${filename}"
   if library_item_exists "${CONTENT_LIBRARY}" "${filename}"; then
     success "Already in content library: ${filename}"
     BUILD_STATUS[${version}]="SKIPPED (already present)"
     return 0
   fi
+  info "Not found in library — will download and upload"
 
   # Download
   download_iso "${version}"

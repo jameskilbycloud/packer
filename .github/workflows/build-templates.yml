@@ -113,7 +113,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
 
       # ── Verify required secrets are present ─────────────────────────────────
       # Fail fast with a clear message rather than letting Packer error on
@@ -243,7 +243,7 @@ jobs:
       # ── Upload logs ──────────────────────────────────────────────────────────
       - name: Upload Packer log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: packer-log-${{ matrix.build }}-${{ github.run_number }}
           path: packer-${{ matrix.build }}.log
@@ -251,7 +251,7 @@ jobs:
 
       - name: Upload build manifest
         if: success() && needs.resolve-targets.outputs.dry_run == 'false'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: manifest-${{ matrix.build }}-${{ github.run_number }}
           path: manifests/ubuntu-${{ matrix.build }}.json
