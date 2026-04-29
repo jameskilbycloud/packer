@@ -239,29 +239,29 @@ jobs:
               ctx.check_hostname = False
               ctx.verify_mode = ssl.CERT_NONE
 
-          def get(path, tok=None):
-              hdrs = {'Content-Type': 'application/json'}
-              if tok:
-                  hdrs['vmware-api-session-id'] = tok
-              req = urllib.request.Request(f'{server}{path}', headers=hdrs)
+          def get(path, tok):
+              req = urllib.request.Request(f'{server}{path}', headers={
+                  'vmware-api-session-id': tok,
+                  'Content-Type': 'application/json',
+              })
               with urllib.request.urlopen(req, context=ctx) as r:
                   return json.load(r)
 
-          # Authenticate
+          # Authenticate — vSphere 7+/8+ API (/api/session returns token as a bare string)
           creds = base64.b64encode(f'{user}:{pwd}'.encode()).decode()
           req = urllib.request.Request(
-              f'{server}/rest/com/vmware/cis/session',
+              f'{server}/api/session',
               method='POST',
               headers={'Authorization': f'Basic {creds}', 'Content-Type': 'application/json'}
           )
           with urllib.request.urlopen(req, context=ctx) as r:
-              tok = json.load(r)['value']
+              tok = json.load(r)   # bare string, no {"value":...} wrapper
 
-          # Find library UUID by name
-          lib_ids = get('/rest/com/vmware/content/library', tok)['value']
+          # Find library UUID by name — response is a plain list of IDs
+          lib_ids = get('/api/content/library', tok)
           lib_id = None
           for lid in lib_ids:
-              if get(f'/rest/com/vmware/content/library/{lid}', tok)['value']['name'] == library:
+              if get(f'/api/content/library/{lid}', tok)['name'] == library:
                   lib_id = lid
                   break
           if not lib_id:
@@ -269,10 +269,10 @@ jobs:
               sys.exit(1)
 
           # Build item-name -> item-uuid map for the library
-          item_ids = get(f'/rest/com/vmware/content/library/item?library_id={lib_id}', tok)['value']
+          item_ids = get(f'/api/content/library/item?library_id={lib_id}', tok)
           name_to_uuid = {}
           for iid in item_ids:
-              name = get(f'/rest/com/vmware/content/library/item/{iid}', tok)['value']['name']
+              name = get(f'/api/content/library/item/{iid}', tok)['name']
               name_to_uuid[name] = iid
           print(f'Library "{library}" [{lib_id}] — {len(name_to_uuid)} item(s): {list(name_to_uuid.keys())}')
 
