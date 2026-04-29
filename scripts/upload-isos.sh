@@ -133,13 +133,21 @@ verify_govc_connection() {
   header "Verifying vSphere connection"
   info "Connecting to ${GOVC_URL} as ${GOVC_USERNAME}..."
 
-  if govc about &>/dev/null; then
+  local govc_out
+  if govc_out=$(govc about 2>&1); then
     local vc_info
-    vc_info=$(govc about 2>/dev/null | grep -E "Name:|Version:" | sed 's/^/  /')
+    vc_info=$(echo "${govc_out}" | grep -E "Name:|Version:" | sed 's/^/  /')
     success "Connected to vCenter"
     echo -e "${vc_info}"
   else
-    error "Could not connect to vCenter. Check GOVC_URL, GOVC_USERNAME, GOVC_PASSWORD."
+    error "Could not connect to vCenter:"
+    # Print the actual govc error so the cause is visible in the log
+    echo "${govc_out}" | sed 's/^/  /' >&2
+    echo "" >&2
+    error "Common causes:"
+    echo "  • GOVC_URL must include the scheme — e.g. https://vcenter.example.com" >&2
+    echo "  • Self-signed cert? Set GOVC_INSECURE=true (VSPHERE_INSECURE secret)" >&2
+    echo "  • Verify VSPHERE_USER / VSPHERE_PASSWORD are correct" >&2
     exit 1
   fi
 }
