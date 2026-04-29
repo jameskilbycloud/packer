@@ -276,8 +276,10 @@ make build-all       # All six images (sequential)
 
 ### Via Packer directly
 
+Packer's `-only` flag requires the full `<build-label>.<source-type>.<source-name>` reference. Use a glob to avoid hard-coding the build label:
+
 ```bash
-packer build -var-file=variables.pkrvars.hcl -only=vsphere-iso.ubuntu-2404-server .
+packer build -var-file=variables.pkrvars.hcl -only='*.vsphere-iso.ubuntu-2404-server' .
 ```
 
 ### Useful flags
@@ -287,7 +289,7 @@ packer build -var-file=variables.pkrvars.hcl -only=vsphere-iso.ubuntu-2404-serve
 packer validate -var-file=variables.pkrvars.hcl .
 
 # Enable debug output
-PACKER_LOG=1 packer build -var-file=variables.pkrvars.hcl -only=vsphere-iso.ubuntu-2404-server .
+PACKER_LOG=1 packer build -var-file=variables.pkrvars.hcl -only='*.vsphere-iso.ubuntu-2404-server' .
 
 # Destroy the VM on failure instead of leaving it running
 packer build -on-error=cleanup -var-file=variables.pkrvars.hcl .
@@ -476,13 +478,28 @@ A small Ubuntu VM on the same network as vCenter works well. The runner can be r
 
 1. In your GitHub repository go to **Settings → Actions → Runners → New self-hosted runner**
 2. Follow the on-screen instructions to download and register the runner agent on your machine
-3. When prompted for labels, add **`vsphere`** — the workflows target `[self-hosted, vsphere]`
-4. Start the runner as a service so it survives reboots:
+3. Start the runner as a service so it survives reboots:
 
 ```bash
 sudo ./svc.sh install
 sudo ./svc.sh start
 ```
+
+4. The runner user needs passwordless sudo so Packer can install dependencies:
+
+```bash
+echo "YOUR_RUNNER_USER ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/github-runner
+```
+
+By default the workflows target any runner registered with the default `self-hosted` label (`runs-on: self-hosted`). To target a specific runner or label, set the **`RUNNER_LABEL`** repository variable:
+
+**Settings → Secrets and variables → Actions → Variables → New repository variable**
+
+| Variable | Example value | Effect |
+|---|---|---|
+| `RUNNER_LABEL` | `vsphere` | Targets runners with that label instead of `self-hosted` |
+
+If `RUNNER_LABEL` is not set, the workflows fall back to `self-hosted`.
 
 ### GitHub Secrets
 
@@ -557,10 +574,11 @@ This gives fast feedback (typically under 2 minutes) on every PR with no infrast
 
 1. Resolves which builds to run into a matrix based on the trigger/input
 2. Each matrix entry runs in parallel on the self-hosted runner (up to vSphere resource limits)
-3. Installs Packer if not cached, runs `packer init`, then `packer validate`
-4. Runs `packer build` with `PACKER_LOG=1` for full debug output
-5. Uploads the Packer log and build manifest as workflow artifacts
-6. Always deletes the temporary credentials file, even on failure
+3. **Pre-flight secrets check** — fails immediately with a clear list of any missing secrets before any tools are installed
+4. Installs Packer via direct binary download (codename-independent — works on any Ubuntu release), runs `packer init`, then `packer validate`
+5. Runs `packer build` with `PACKER_LOG=1` for full debug output
+6. Uploads the Packer log and build manifest as workflow artifacts
+7. Always deletes the temporary credentials file, even on failure
 
 **Running manually:**
 
@@ -595,6 +613,18 @@ The build workflow uses a `concurrency` group (`packer-build`) so that only one 
 ---
 
 ## Troubleshooting
+
+**`Error: No builds to run` with `-only` flag**
+Packer's full source reference format is `<build-label>.<source-type>.<source-name>` (e.g. `ubuntu-2404-server.vsphere-iso.ubuntu-2404-server`). Passing just `vsphere-iso.ubuntu-2404-server` does not match. Use a glob: `-only='*.vsphere-iso.ubuntu-2404-server'`. The Makefile and workflows already use this format.
+
+**`vcenter_server is required` / `ssh_username must be specified` errors**
+The build workflow pre-flight check will list exactly which secrets are absent before Packer runs. Go to **Settings → Secrets and variables → Actions** and add any missing secrets, or re-run `make secrets` after updating `variables.pkrvars.hcl`.
+
+**Runner not picking up jobs**
+Check the label the runner was registered with (visible in **Settings → Actions → Runners**). If it does not match `self-hosted`, set the `RUNNER_LABEL` repository variable to the correct label. See [Setting up the runner](#setting-up-the-runner).
+
+**Runner sudo prompt blocks job**
+The runner user must have passwordless sudo. Add the sudoers entry described in [Setting up the runner](#setting-up-the-runner) and re-trigger the workflow.
 
 **Build hangs at `Waiting for SSH`**
 The VM booted but Packer cannot reach port 22. Check that the machine running Packer has network access to the VM's subnet. Temporarily set `PACKER_LOG=1` and watch the boot sequence via the vSphere console.
