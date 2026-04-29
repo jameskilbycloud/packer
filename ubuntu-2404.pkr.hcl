@@ -30,9 +30,9 @@ source "vsphere-iso" "ubuntu-2404-server" {
   vm_version    = var.vm_hardware_version
 
   # CPU / RAM
-  CPUs          = 1
-  cpu_cores     = var.server_cpu_count
-  RAM           = var.server_ram_mb
+  CPUs            = 1
+  cpu_cores       = var.server_cpu_count
+  RAM             = var.server_ram_mb
   RAM_reserve_all = false
 
   # Firmware
@@ -118,9 +118,9 @@ source "vsphere-iso" "ubuntu-2404-desktop" {
   vm_version    = var.vm_hardware_version
 
   # CPU / RAM
-  CPUs          = 1
-  cpu_cores     = var.desktop_cpu_count
-  RAM           = var.desktop_ram_mb
+  CPUs            = 1
+  cpu_cores       = var.desktop_cpu_count
+  RAM             = var.desktop_ram_mb
   RAM_reserve_all = false
 
   # Firmware

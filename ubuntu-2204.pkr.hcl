@@ -30,9 +30,9 @@ source "vsphere-iso" "ubuntu-2204-server" {
   vm_version    = var.vm_hardware_version
 
   # CPU / RAM
-  CPUs          = 1
-  cpu_cores     = var.server_cpu_count
-  RAM           = var.server_ram_mb
+  CPUs            = 1
+  cpu_cores       = var.server_cpu_count
+  RAM             = var.server_ram_mb
   RAM_reserve_all = false
 
   # Firmware (EFI required for Ubuntu 22.04+)
@@ -119,9 +119,9 @@ source "vsphere-iso" "ubuntu-2204-desktop" {
   vm_version    = var.vm_hardware_version
 
   # CPU / RAM (desktop needs more resources for the GUI)
-  CPUs          = 1
-  cpu_cores     = var.desktop_cpu_count
-  RAM           = var.desktop_ram_mb
+  CPUs            = 1
+  cpu_cores       = var.desktop_cpu_count
+  RAM             = var.desktop_ram_mb
   RAM_reserve_all = false
 
   # Firmware
@@ -171,8 +171,8 @@ source "vsphere-iso" "ubuntu-2204-desktop" {
   ssh_username = var.build_username
   ssh_password = var.build_password
   # Desktop installs take longer due to ubuntu-desktop package set
-  ssh_timeout  = local.desktop_ssh_timeout
-  ssh_port     = 22
+  ssh_timeout = local.desktop_ssh_timeout
+  ssh_port    = 22
 
   # Shutdown
   shutdown_command = "echo '${var.build_password}' | sudo -S shutdown -P now"
