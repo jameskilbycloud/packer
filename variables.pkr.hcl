@@ -148,14 +148,14 @@ variable "vm_hardware_version" {
 
 variable "ubuntu_2204_iso_path" {
   type        = string
-  description = "ISO filename/path within the datastore or content library. For a datastore use a folder path (e.g. ISOs/ubuntu-22.04.4-live-server-amd64.iso). For a content library use the filename only (e.g. ubuntu-22.04.4-live-server-amd64.iso)."
-  default     = "ISOs/ubuntu-22.04.4-live-server-amd64.iso"
+  description = "ISO filename/path within the datastore or content library. For a datastore use a folder path (e.g. ISOs/ubuntu-22.04.5-live-server-amd64.iso). For a content library use the filename only (e.g. ubuntu-22.04.5-live-server-amd64.iso)."
+  default     = "ISOs/ubuntu-22.04.5-live-server-amd64.iso"
 }
 
 variable "ubuntu_2404_iso_path" {
   type        = string
-  description = "ISO filename/path within the datastore or content library. For a datastore use a folder path (e.g. ISOs/ubuntu-24.04.2-live-server-amd64.iso). For a content library use the filename only (e.g. ubuntu-24.04.2-live-server-amd64.iso)."
-  default     = "ISOs/ubuntu-24.04.2-live-server-amd64.iso"
+  description = "ISO filename/path within the datastore or content library. For a datastore use a folder path (e.g. ISOs/ubuntu-24.04.4-live-server-amd64.iso). For a content library use the filename only (e.g. ubuntu-24.04.4-live-server-amd64.iso)."
+  default     = "ISOs/ubuntu-24.04.4-live-server-amd64.iso"
 }
 
 variable "ubuntu_2604_iso_path" {

@@ -49,11 +49,11 @@ vm_hardware_version = 19
 #
 # Option A — Datastore (include the subfolder in the ISO path):
 #   vsphere_iso_datastore = "datastore1"
-#   ubuntu_2404_iso_path  = "ISOs/ubuntu-24.04.2-live-server-amd64.iso"
+#   ubuntu_2404_iso_path  = "ISOs/ubuntu-24.04.4-live-server-amd64.iso"
 #
 # Option B — Content Library (filename only, no subfolder):
 #   vsphere_iso_datastore = "MyContentLibrary"
-#   ubuntu_2404_iso_path  = "ubuntu-24.04.2-live-server-amd64.iso"
+#   ubuntu_2404_iso_path  = "ubuntu-24.04.4-live-server-amd64.iso"
 #
 # Download ISOs from: https://releases.ubuntu.com
 
@@ -64,6 +64,6 @@ vsphere_iso_datastore = "datastore1"
 # is backed by a different datastore.
 # vsphere_iso_library_datastore = "datastore1"
 
-ubuntu_2204_iso_path = "ISOs/ubuntu-22.04.4-live-server-amd64.iso"
-ubuntu_2404_iso_path = "ISOs/ubuntu-24.04.2-live-server-amd64.iso"
+ubuntu_2204_iso_path = "ISOs/ubuntu-22.04.5-live-server-amd64.iso"
+ubuntu_2404_iso_path = "ISOs/ubuntu-24.04.4-live-server-amd64.iso"
 ubuntu_2604_iso_path = "ISOs/ubuntu-26.04-live-server-amd64.iso"
