@@ -130,17 +130,24 @@ check_prerequisites() {
     fi
   fi
 
-  # Disk space — each ISO is up to 2 GB; require 2 GB × version count + 1 GB headroom
+  # Disk space — ISOs are downloaded one at a time and deleted after upload
+  # (unless KEEP_DOWNLOADS=true), so we only need space for the largest single
+  # ISO (~2 GB) plus 1 GB headroom. If keeping downloads, multiply by count.
   local version_count
   version_count=$(echo "${UBUNTU_VERSIONS}" | wc -w)
-  local required_gb=$(( version_count * 2 + 1 ))
+  local required_gb
+  if [[ "${KEEP_DOWNLOADS}" == "true" ]]; then
+    required_gb=$(( version_count * 2 + 1 ))
+  else
+    required_gb=3   # one ISO (~2 GB) + 1 GB headroom
+  fi
   mkdir -p "${DOWNLOAD_DIR}"
   local avail_kb
   avail_kb=$(df -k "${DOWNLOAD_DIR}" | awk 'NR==2 {print $4}')
   local avail_gb=$(( avail_kb / 1024 / 1024 ))
   if [[ "${avail_gb}" -lt "${required_gb}" ]]; then
     error "Insufficient disk space in ${DOWNLOAD_DIR}"
-    error "  Required : ~${required_gb} GB  (${version_count} ISO(s) × 2 GB + 1 GB headroom)"
+    error "  Required : ~${required_gb} GB"
     error "  Available: ~${avail_gb} GB"
     error "  Set DOWNLOAD_DIR to a path with more space, e.g. DOWNLOAD_DIR=/home/runner/isos"
     missing=1
