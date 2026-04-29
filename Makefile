@@ -25,7 +25,7 @@ VARS_FILE   := variables.pkrvars.hcl
 PACKER_ARGS := -var-file=$(VARS_FILE) -on-error=cleanup
 
 .PHONY: init validate fmt \
-        upload-isos \
+        secrets upload-isos \
         build-all \
         2204 2204-server 2204-desktop \
         2404 2404-server 2404-desktop \
@@ -47,6 +47,19 @@ PACKER_ARGS := -var-file=$(VARS_FILE) -on-error=cleanup
 
 upload-isos:
 	bash scripts/upload-isos.sh
+
+# ── GitHub Secrets ────────────────────────────────────────────────────────────
+# Reads variables.pkrvars.hcl and pushes all values to GitHub Actions secrets.
+# Requires the gh CLI authenticated with: gh auth login
+#
+# Dry-run (show values without pushing):
+#   DRY_RUN=true make secrets
+#
+# Target a different repo:
+#   GH_REPO=owner/repo make secrets
+
+secrets: $(VARS_FILE)
+	bash scripts/set-github-secrets.sh
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 

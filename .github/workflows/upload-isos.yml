@@ -37,7 +37,7 @@ on:
 jobs:
   upload-isos:
     name: Upload ISOs to vSphere Content Library
-    runs-on: [self-hosted, vsphere]   # must have govc installed and network access
+    runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
     timeout-minutes: 180              # ISOs are 1-2 GB each — allow time for download + upload
 
     steps:

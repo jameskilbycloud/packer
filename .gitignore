@@ -14,3 +14,9 @@ crash.log
 
 # For built boxes
 *.box
+
+# Packer build manifests (generated on each run)
+manifests/
+
+# Temporary runner vars file written by CI
+runner.pkrvars.hcl

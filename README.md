@@ -443,7 +443,22 @@ content_library_destination {
 
 ## GitHub Actions CI/CD
 
-Two workflows are included in `.github/workflows/` to automate builds and ISO uploads in a CI/CD pipeline.
+Three workflows cover the full pipeline. Almost everything runs from Actions — the only local step is the one-time `make secrets` to populate credentials (you can't set GitHub secrets from within Actions itself without a Personal Access Token).
+
+```
+Local (one-time setup)          GitHub Actions (ongoing)
+──────────────────────          ────────────────────────────────────────────
+fill in pkrvars file            PR opened
+make secrets                 →  validate.yml  — fmt check + packer validate
+                                               (ubuntu-latest, no secrets needed)
+
+                                merge to main / manual trigger / weekly cron
+                                build-templates.yml — packer build
+                                               (self-hosted vsphere runner)
+
+make upload-isos             →  upload-isos.yml — govc library.import
+(or trigger from Actions UI)    (self-hosted vsphere runner, manual only)
+```
 
 ### Why a self-hosted runner
 
@@ -471,28 +486,62 @@ sudo ./svc.sh start
 
 ### GitHub Secrets
 
-Store all credentials under **Settings → Secrets and variables → Actions → New repository secret**.
+The easiest way to populate secrets is with the included sync script, which reads your local `variables.pkrvars.hcl` and pushes every value to GitHub in one step:
 
-| Secret | Description |
-|---|---|
-| `VSPHERE_SERVER` | vCenter URL, e.g. `https://vcenter.example.com` |
-| `VSPHERE_USER` | vCenter username |
-| `VSPHERE_PASSWORD` | vCenter password |
-| `VSPHERE_INSECURE` | `true` to skip TLS verification (omit for `false`) |
-| `VSPHERE_DATACENTER` | Datacenter name |
-| `VSPHERE_CLUSTER` | Cluster name (leave blank if using `VSPHERE_HOST`) |
-| `VSPHERE_HOST` | ESXi host (leave blank if using `VSPHERE_CLUSTER`) |
-| `VSPHERE_DATASTORE` | Datastore for VM storage |
-| `VSPHERE_NETWORK` | Port group / network name |
-| `VSPHERE_FOLDER` | VM folder for finished templates, e.g. `Templates/Ubuntu` |
-| `VSPHERE_ISO_DATASTORE` | Datastore or Content Library name holding ISOs |
-| `VSPHERE_ISO_LIBRARY_DATASTORE` | Datastore that backs the ISO Content Library (upload workflow only) |
-| `BUILD_USERNAME` | OS user created during install, e.g. `ubuntu` |
-| `BUILD_PASSWORD` | Plaintext build password |
-| `BUILD_PASSWORD_ENCRYPTED` | SHA-512 hash (output of `openssl passwd -6 '<password>'`) |
-| `UBUNTU_2204_ISO_PATH` | ISO filename/path for 22.04 |
-| `UBUNTU_2404_ISO_PATH` | ISO filename/path for 24.04 |
-| `UBUNTU_2604_ISO_PATH` | ISO filename/path for 26.04 |
+```bash
+# Authenticate the GitHub CLI (one-time)
+gh auth login
+
+# Push all secrets from your local vars file
+make secrets
+
+# Preview what would be pushed without actually setting anything
+DRY_RUN=true make secrets
+
+# Target a specific repo (if auto-detection fails)
+GH_REPO=owner/repo make secrets
+```
+
+The script (`scripts/set-github-secrets.sh`) detects the repository from your `git remote origin` automatically, so there's nothing to configure. Re-run it any time you change a value in `variables.pkrvars.hcl` — existing secrets are overwritten in place.
+
+To set secrets manually instead, go to **Settings → Secrets and variables → Actions → New repository secret** and create each one from the table below.
+
+| Secret | Source variable | Description |
+|---|---|---|
+| `VSPHERE_SERVER` | `vsphere_server` | vCenter URL, e.g. `https://vcenter.example.com` |
+| `VSPHERE_USER` | `vsphere_user` | vCenter username |
+| `VSPHERE_PASSWORD` | `vsphere_password` | vCenter password |
+| `VSPHERE_INSECURE` | `vsphere_insecure_connection` | `true` to skip TLS verification |
+| `VSPHERE_DATACENTER` | `vsphere_datacenter` | Datacenter name |
+| `VSPHERE_CLUSTER` | `vsphere_cluster` | Cluster name (blank if using `VSPHERE_HOST`) |
+| `VSPHERE_HOST` | `vsphere_host` | ESXi host (blank if using `VSPHERE_CLUSTER`) |
+| `VSPHERE_DATASTORE` | `vsphere_datastore` | Datastore for VM storage |
+| `VSPHERE_NETWORK` | `vsphere_network` | Port group / network name |
+| `VSPHERE_FOLDER` | `vsphere_folder` | VM folder for finished templates |
+| `VSPHERE_ISO_DATASTORE` | `vsphere_iso_datastore` | Datastore or Content Library name holding ISOs |
+| `VSPHERE_ISO_LIBRARY_DATASTORE` | `vsphere_iso_library_datastore` | Datastore backing the Content Library (upload workflow). Defaults to `vsphere_datastore` if unset. |
+| `BUILD_USERNAME` | `build_username` | OS user created during install |
+| `BUILD_PASSWORD` | `build_password` | Plaintext build password |
+| `BUILD_PASSWORD_ENCRYPTED` | `build_password_encrypted` | SHA-512 hash — `openssl passwd -6 '<password>'` |
+| `UBUNTU_2204_ISO_PATH` | `ubuntu_2204_iso_path` | ISO filename/path for 22.04 |
+| `UBUNTU_2404_ISO_PATH` | `ubuntu_2404_iso_path` | ISO filename/path for 24.04 |
+| `UBUNTU_2604_ISO_PATH` | `ubuntu_2604_iso_path` | ISO filename/path for 26.04 |
+
+### Workflow: validate
+
+**File:** `.github/workflows/validate.yml`
+
+**Triggers:** Every pull request that touches `.pkr.hcl` files, templates, or provisioner scripts. Also runs on push to `main` and can be triggered manually.
+
+**Runner:** `ubuntu-latest` — this is a GitHub-hosted runner. No self-hosted runner or real secrets are needed because `packer validate` checks syntax and variable references only; it never contacts vSphere. Placeholder values are passed for required variables.
+
+**What it does:**
+
+1. Installs Packer and downloads the vsphere plugin (`packer init`)
+2. Runs `packer fmt --check` — fails the PR if any file needs reformatting (fix with `packer fmt .` locally)
+3. Runs `packer validate` against all six builds — catches undefined variables, bad HCL, and broken `templatefile()` references before anything reaches main
+
+This gives fast feedback (typically under 2 minutes) on every PR with no infrastructure cost.
 
 ### Workflow: build-templates
 

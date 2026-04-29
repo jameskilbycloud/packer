@@ -3,7 +3,7 @@
 # =============================================================================
 # Copy this file to variables.pkrvars.hcl and fill in your values.
 # NEVER commit variables.pkrvars.hcl to version control — it contains secrets.
-# Add it to .gitignore: echo "variables.pkrvars.hcl" >> .gitignore
+# The .gitignore already covers *.pkrvars.hcl so the copy is ignored automatically.
 # =============================================================================
 
 # ── vSphere Connection ────────────────────────────────────────────────────────
@@ -19,7 +19,6 @@ vsphere_host          = ""            # e.g. "esxi01.example.com" (only if clust
 vsphere_datastore     = "datastore1"
 vsphere_network       = "VM Network"
 vsphere_folder        = "Templates/Ubuntu"
-vsphere_iso_datastore = "datastore1"  # Datastore name only, no brackets
 
 # ── Build Credentials ─────────────────────────────────────────────────────────
 build_username = "ubuntu"
@@ -59,6 +58,11 @@ vm_hardware_version = 19
 # Download ISOs from: https://releases.ubuntu.com
 
 vsphere_iso_datastore = "datastore1"
+
+# Datastore that physically backs the Content Library (used by the ISO upload
+# workflow). Usually the same as vsphere_datastore. Only set this if the library
+# is backed by a different datastore.
+# vsphere_iso_library_datastore = "datastore1"
 
 ubuntu_2204_iso_path = "ISOs/ubuntu-22.04.4-live-server-amd64.iso"
 ubuntu_2404_iso_path = "ISOs/ubuntu-24.04.2-live-server-amd64.iso"

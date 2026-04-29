@@ -104,7 +104,7 @@ jobs:
   build:
     name: Build ${{ matrix.build }}
     needs: resolve-targets
-    runs-on: [self-hosted, vsphere]   # <── label your runner with "vsphere"
+    runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
     timeout-minutes: 120              # desktop builds take ~60-90 min
 
     strategy:
