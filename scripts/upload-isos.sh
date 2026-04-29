@@ -252,23 +252,24 @@ download_iso() {
 
   DOWNLOADED_ISO_PATH=""
 
+  # If a partial file exists from a previous run, remove it and start fresh.
+  # --continue-at - (resume) can trigger a 416 Range Not Satisfiable response
+  # from some servers, which curl treats as success (exit 0) but writes nothing,
+  # causing a silent failure followed by an upload of an empty path.
   if [[ -f "${iso_path}" ]]; then
-    info "Found existing download: ${iso_path}"
-    info "Attempting to resume / verify..."
-    # Try to resume; curl will confirm file is complete if server supports it
-    if ! curl -fL --continue-at - --progress-bar -o "${iso_path}" "${iso_url}"; then
-      error "Download failed for ${filename} (curl exit $?)"
-      rm -f "${iso_path}"
-      return 1
-    fi
-  else
-    info "Downloading ${filename}..."
-    info "Source: ${iso_url}"
-    if ! curl -fL --continue-at - --progress-bar -o "${iso_path}" "${iso_url}"; then
-      error "Download failed for ${filename} (curl exit $?)"
-      rm -f "${iso_path}"
-      return 1
-    fi
+    info "Removing leftover file from previous run: ${iso_path}"
+    rm -f "${iso_path}"
+  fi
+
+  info "Downloading ${filename}..."
+  info "Source: ${iso_url}"
+
+  local curl_rc=0
+  curl -fL --progress-bar -o "${iso_path}" "${iso_url}" || curl_rc=$?
+  if [[ ${curl_rc} -ne 0 ]]; then
+    error "Download failed for ${filename} (curl exit ${curl_rc})"
+    rm -f "${iso_path}"
+    return 1
   fi
 
   verify_checksum "${iso_path}" "${base_url}"
@@ -333,9 +334,20 @@ process_version() {
   fi
   info "Not found in library — will download and upload"
 
-  # Download
-  download_iso "${version}"
+  # Download — explicit check required: set -e is suppressed inside functions
+  # called from an `if !` context, so a return 1 from download_iso will not
+  # automatically abort this function.
+  if ! download_iso "${version}"; then
+    BUILD_STATUS[${version}]="FAILED"
+    return 1
+  fi
+
   local iso_path="${DOWNLOADED_ISO_PATH}"
+  if [[ -z "${iso_path}" ]]; then
+    error "Download completed but no file path was set — aborting upload"
+    BUILD_STATUS[${version}]="FAILED"
+    return 1
+  fi
 
   # Upload
   upload_iso "${version}" "${iso_path}"
