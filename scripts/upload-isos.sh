@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # upload-isos.sh
-# Downloads Ubuntu live-server ISOs and uploads them to a vSphere Content
+# Downloads Ubuntu live-server ISOs and imports them into a vSphere Content
 # Library using govc.
 #
 # Requirements:
@@ -21,23 +21,21 @@
 #   CONTENT_LIBRARY=MyISOs UBUNTU_VERSIONS="2404" ./scripts/upload-isos.sh
 #
 # Environment variables (all overridable):
-#   GOVC_URL            — vCenter HTTPS URL                     (required)
-#   GOVC_USERNAME       — vCenter username                      (required)
-#   GOVC_PASSWORD       — vCenter password                      (required)
-#   GOVC_INSECURE       — skip TLS verification (true/false)    (default: false)
-#   GOVC_DATACENTER     — vSphere datacenter name               (required)
-#   CONTENT_LIBRARY     — Content Library name to create/use    (default: Packer-ISOs)
-#   LIBRARY_DATASTORE   — Datastore to back the library         (required)
-#   UBUNTU_VERSIONS     — Space-separated versions to process   (default: 2204 2404 2604)
-#   DOWNLOAD_DIR        — Local temp dir for ISO downloads      (default: /var/tmp/packer-isos)
-#   KEEP_DOWNLOADS      — Set to "true" to keep local ISOs      (default: false)
-#   SKIP_CHECKSUM       — Set to "true" to skip SHA256 check    (default: false)
+#   GOVC_URL          — vCenter HTTPS URL                     (required)
+#   GOVC_USERNAME     — vCenter username                      (required)
+#   GOVC_PASSWORD     — vCenter password                      (required)
+#   GOVC_INSECURE     — skip TLS verification (true/false)    (default: false)
+#   GOVC_DATACENTER   — vSphere datacenter name               (required)
+#   LIBRARY_DATASTORE — Datastore that backs the library      (required)
+#   CONTENT_LIBRARY   — Content Library name                  (default: Packer-ISOs)
+#   UBUNTU_VERSIONS   — Space-separated versions to process   (default: 2204 2404 2604)
+#   DOWNLOAD_DIR      — Local temp dir for ISO downloads      (default: /var/tmp/packer-isos)
+#   KEEP_DOWNLOADS    — Set to "true" to keep local ISOs      (default: false)
+#   SKIP_CHECKSUM     — Set to "true" to skip SHA256 check    (default: false)
 # =============================================================================
 set -euo pipefail
 
 # ── Colour helpers ─────────────────────────────────────────────────────────────
-# Disable colour when running inside GitHub Actions or when NO_COLOR is set,
-# so escape sequences don't litter the Actions log viewer.
 if [[ -z "${GITHUB_ACTIONS:-}" && -z "${NO_COLOR:-}" ]]; then
   RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'
   CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
@@ -52,11 +50,11 @@ error()   { echo -e "${RED}✘${RESET}  $*" >&2; }
 header()  { echo -e "\n${BOLD}${CYAN}── $* ─────────────────────────────────────────────${RESET}"; }
 
 # ── Required environment ───────────────────────────────────────────────────────
-: "${GOVC_URL:?Set GOVC_URL to your vCenter URL (e.g. https://vcenter.example.com)}"
-: "${GOVC_USERNAME:?Set GOVC_USERNAME (e.g. administrator@vsphere.local)}"
+: "${GOVC_URL:?Set GOVC_URL to your vCenter URL}"
+: "${GOVC_USERNAME:?Set GOVC_USERNAME}"
 : "${GOVC_PASSWORD:?Set GOVC_PASSWORD}"
-: "${GOVC_DATACENTER:?Set GOVC_DATACENTER to your datacenter name}"
-: "${LIBRARY_DATASTORE:?Set LIBRARY_DATASTORE to the datastore that will back the content library}"
+: "${GOVC_DATACENTER:?Set GOVC_DATACENTER}"
+: "${LIBRARY_DATASTORE:?Set LIBRARY_DATASTORE to the datastore backing the Content Library}"
 
 export GOVC_URL GOVC_USERNAME GOVC_PASSWORD GOVC_DATACENTER
 export GOVC_INSECURE="${GOVC_INSECURE:-false}"
@@ -64,42 +62,33 @@ export GOVC_INSECURE="${GOVC_INSECURE:-false}"
 # ── Optional configuration ─────────────────────────────────────────────────────
 CONTENT_LIBRARY="${CONTENT_LIBRARY:-Packer-ISOs}"
 UBUNTU_VERSIONS="${UBUNTU_VERSIONS:-2204 2404 2604}"
-# Default to /var/tmp — on the main disk, not tmpfs. Ubuntu ISOs are 1-2 GB
-# each so /tmp (often a small tmpfs) will fill up. Override with DOWNLOAD_DIR.
 DOWNLOAD_DIR="${DOWNLOAD_DIR:-/var/tmp/packer-isos}"
 KEEP_DOWNLOADS="${KEEP_DOWNLOADS:-false}"
 SKIP_CHECKSUM="${SKIP_CHECKSUM:-false}"
 
 # ── ISO catalogue ──────────────────────────────────────────────────────────────
-# Update filenames here when Ubuntu releases new point releases.
 declare -A ISO_FILENAME=(
   [2204]="ubuntu-22.04.5-live-server-amd64.iso"
   [2404]="ubuntu-24.04.4-live-server-amd64.iso"
   [2604]="ubuntu-26.04-live-server-amd64.iso"
 )
-
 declare -A ISO_BASE_URL=(
   [2204]="https://releases.ubuntu.com/22.04"
   [2404]="https://releases.ubuntu.com/24.04"
   [2604]="https://releases.ubuntu.com/26.04"
 )
-
 declare -A ISO_LABEL=(
   [2204]="Ubuntu 22.04 LTS (Jammy Jellyfish)"
   [2404]="Ubuntu 24.04 LTS (Noble Numbat)"
   [2604]="Ubuntu 26.04 LTS (Plucky Puffin)"
 )
 
-# Track results for summary
 declare -A BUILD_STATUS=()
-
-# Return value from download_iso — avoids command substitution capturing log output
 DOWNLOADED_ISO_PATH=""
 
 # ── Prerequisites ──────────────────────────────────────────────────────────────
 check_prerequisites() {
   header "Checking prerequisites"
-
   local missing=0
 
   if ! command -v govc &>/dev/null; then
@@ -110,13 +99,12 @@ check_prerequisites() {
   fi
 
   if ! command -v curl &>/dev/null; then
-    error "curl not found. Install via your package manager."
+    error "curl not found."
     missing=1
   else
     success "curl found"
   fi
 
-  # sha256sum (Linux) or shasum -a 256 (macOS)
   if command -v sha256sum &>/dev/null; then
     SHA256_CMD="sha256sum"
     success "sha256sum found"
@@ -125,34 +113,28 @@ check_prerequisites() {
     success "shasum found (macOS)"
   else
     if [[ "${SKIP_CHECKSUM}" != "true" ]]; then
-      error "sha256sum / shasum not found. Set SKIP_CHECKSUM=true to bypass, or install coreutils."
+      error "sha256sum / shasum not found. Set SKIP_CHECKSUM=true to bypass."
       missing=1
     fi
   fi
 
-  # Disk space — ISOs are downloaded one at a time and deleted after upload
-  # (unless KEEP_DOWNLOADS=true), so we only need space for the largest single
-  # ISO (~2 GB) plus 1 GB headroom. If keeping downloads, multiply by count.
   local version_count
   version_count=$(echo "${UBUNTU_VERSIONS}" | wc -w)
   local required_gb
   if [[ "${KEEP_DOWNLOADS}" == "true" ]]; then
     required_gb=$(( version_count * 2 + 1 ))
   else
-    required_gb=3   # one ISO (~2 GB) + 1 GB headroom
+    required_gb=3
   fi
   mkdir -p "${DOWNLOAD_DIR}"
-  local avail_kb
+  local avail_kb avail_gb
   avail_kb=$(df -k "${DOWNLOAD_DIR}" | awk 'NR==2 {print $4}')
-  local avail_gb=$(( avail_kb / 1024 / 1024 ))
+  avail_gb=$(( avail_kb / 1024 / 1024 ))
   if [[ "${avail_gb}" -lt "${required_gb}" ]]; then
-    error "Insufficient disk space in ${DOWNLOAD_DIR}"
-    error "  Required : ~${required_gb} GB"
-    error "  Available: ~${avail_gb} GB"
-    error "  Set DOWNLOAD_DIR to a path with more space, e.g. DOWNLOAD_DIR=/home/runner/isos"
+    error "Insufficient disk space in ${DOWNLOAD_DIR} (need ~${required_gb} GB, have ~${avail_gb} GB)"
     missing=1
   else
-    success "Disk space OK: ~${avail_gb} GB available in ${DOWNLOAD_DIR}"
+    success "Disk space OK: ~${avail_gb} GB in ${DOWNLOAD_DIR}"
   fi
 
   [[ "${missing}" -eq 0 ]] || { error "Missing prerequisites — aborting."; exit 1; }
@@ -161,23 +143,15 @@ check_prerequisites() {
 # ── vSphere connection ─────────────────────────────────────────────────────────
 verify_govc_connection() {
   header "Verifying vSphere connection"
-  info "Connecting to ${GOVC_URL} as ${GOVC_USERNAME}..."
-
   local govc_out
   if govc_out=$(govc about 2>&1); then
-    local vc_info
-    vc_info=$(echo "${govc_out}" | grep -E "Name:|Version:" | sed 's/^/  /')
     success "Connected to vCenter"
-    echo -e "${vc_info}"
+    echo "${govc_out}" | grep -E "Name:|Version:" | sed 's/^/  /'
   else
     error "Could not connect to vCenter:"
-    # Print the actual govc error so the cause is visible in the log
     echo "${govc_out}" | sed 's/^/  /' >&2
-    echo "" >&2
-    error "Common causes:"
     echo "  • GOVC_URL must include the scheme — e.g. https://vcenter.example.com" >&2
-    echo "  • Self-signed cert? Set GOVC_INSECURE=true (VSPHERE_INSECURE secret)" >&2
-    echo "  • Verify VSPHERE_USER / VSPHERE_PASSWORD are correct" >&2
+    echo "  • Self-signed cert? Set GOVC_INSECURE=true" >&2
     exit 1
   fi
 }
@@ -185,32 +159,22 @@ verify_govc_connection() {
 # ── Content Library ────────────────────────────────────────────────────────────
 ensure_content_library() {
   header "Content Library: ${CONTENT_LIBRARY}"
-
-  # Check for the library by querying it directly and looking for output.
-  # govc library.info exits 0 even when the library doesn't exist, so we use
-  # library.ls with the exact name and check for non-empty output instead.
-  local lib_check
-  lib_check=$(govc library.ls "/${CONTENT_LIBRARY}" 2>/dev/null || true)
-  if [[ -n "${lib_check}" ]]; then
-    success "Content library '${CONTENT_LIBRARY}' already exists"
+  if govc library.ls "/${CONTENT_LIBRARY}" &>/dev/null; then
+    success "Library exists: ${CONTENT_LIBRARY}"
   else
-    info "Creating content library '${CONTENT_LIBRARY}' on datastore '${LIBRARY_DATASTORE}'..."
-    govc library.create \
-      -ds "${LIBRARY_DATASTORE}" \
-      "${CONTENT_LIBRARY}"
-    success "Content library created"
+    info "Creating Content Library '${CONTENT_LIBRARY}' on datastore '${LIBRARY_DATASTORE}'..."
+    govc library.create -ds="${LIBRARY_DATASTORE}" "${CONTENT_LIBRARY}"
+    success "Library created: ${CONTENT_LIBRARY}"
   fi
 }
 
-# ── Checksum verification ──────────────────────────────────────────────────────
+# ── Checksum ───────────────────────────────────────────────────────────────────
 verify_checksum() {
-  local iso_file="$1"
-  local base_url="$2"
-  local filename
-  filename=$(basename "${iso_file}")
+  local iso_file="$1" base_url="$2"
+  local filename; filename=$(basename "${iso_file}")
 
   if [[ "${SKIP_CHECKSUM}" == "true" ]]; then
-    warn "Checksum verification skipped (SKIP_CHECKSUM=true)"
+    warn "Checksum verification skipped"
     return 0
   fi
 
@@ -220,54 +184,40 @@ verify_checksum() {
 
   local expected_hash
   expected_hash=$(grep " \*${filename}$\| ${filename}$" "${sums_file}" | awk '{print $1}')
-
   if [[ -z "${expected_hash}" ]]; then
-    warn "Could not find checksum for '${filename}' in SHA256SUMS — skipping verification"
+    warn "Checksum for '${filename}' not found in SHA256SUMS — skipping"
     return 0
   fi
 
-  info "Verifying SHA256 checksum..."
   local actual_hash
   actual_hash=$(${SHA256_CMD} "${iso_file}" | awk '{print $1}')
-
   if [[ "${expected_hash}" == "${actual_hash}" ]]; then
-    success "Checksum verified: ${actual_hash:0:16}..."
+    success "Checksum OK: ${actual_hash:0:16}..."
   else
-    error "Checksum MISMATCH for ${filename}"
-    error "  Expected : ${expected_hash}"
-    error "  Actual   : ${actual_hash}"
+    error "Checksum MISMATCH — expected ${expected_hash}, got ${actual_hash}"
     return 1
   fi
 }
 
 # ── ISO download ───────────────────────────────────────────────────────────────
-# Sets DOWNLOADED_ISO_PATH on success. Do NOT call via $() — command substitution
-# captures all stdout (including log lines) and corrupts the returned path.
 download_iso() {
   local version="$1"
   local filename="${ISO_FILENAME[${version}]}"
   local base_url="${ISO_BASE_URL[${version}]}"
-  local iso_url="${base_url}/${filename}"
   local iso_path="${DOWNLOAD_DIR}/${filename}"
 
   DOWNLOADED_ISO_PATH=""
 
-  # If a partial file exists from a previous run, remove it and start fresh.
-  # --continue-at - (resume) can trigger a 416 Range Not Satisfiable response
-  # from some servers, which curl treats as success (exit 0) but writes nothing,
-  # causing a silent failure followed by an upload of an empty path.
   if [[ -f "${iso_path}" ]]; then
-    info "Removing leftover file from previous run: ${iso_path}"
+    info "Removing leftover partial file: ${iso_path}"
     rm -f "${iso_path}"
   fi
 
   info "Downloading ${filename}..."
-  info "Source: ${iso_url}"
-
   local curl_rc=0
-  curl -fL --progress-bar -o "${iso_path}" "${iso_url}" || curl_rc=$?
+  curl -fL --progress-bar -o "${iso_path}" "${base_url}/${filename}" || curl_rc=$?
   if [[ ${curl_rc} -ne 0 ]]; then
-    error "Download failed for ${filename} (curl exit ${curl_rc})"
+    error "Download failed (curl exit ${curl_rc})"
     rm -f "${iso_path}"
     return 1
   fi
@@ -278,39 +228,24 @@ download_iso() {
 
 # ── Library item existence check ───────────────────────────────────────────────
 library_item_exists() {
-  local lib="$1"
-  local item_name="$2"
-
-  # govc content library paths are absolute — the leading slash is required to
-  # scope the query to this library only. Without it govc may return unexpected
-  # results from other libraries, causing false positives.
-  local result
-  result=$(govc library.ls "/${lib}/${item_name}" 2>/dev/null || true)
-  # Confirm the output actually contains the item name, not stray output
-  [[ "${result}" == *"${item_name}"* ]]
+  local filename="$1"
+  # govc library.ls lists item names under the library path
+  govc library.ls "/${CONTENT_LIBRARY}/${filename}" &>/dev/null
 }
 
-# ── Upload to Content Library ──────────────────────────────────────────────────
-upload_iso() {
-  local version="$1"
-  local iso_path="$2"
-  local filename
-  filename=$(basename "${iso_path}")
+# ── Import into Content Library ────────────────────────────────────────────────
+import_iso() {
+  local iso_path="$1"
+  local filename; filename=$(basename "${iso_path}")
 
-  info "Uploading to content library '${CONTENT_LIBRARY}'..."
-  info "  Item name : ${filename}"
-  info "  File size : $(du -sh "${iso_path}" | cut -f1)"
+  info "Importing into Content Library '${CONTENT_LIBRARY}'..."
+  info "  Size: $(du -sh "${iso_path}" | cut -f1)"
 
-  # -n sets the library item name explicitly (preserves .iso extension)
-  govc library.import \
-    -n "${filename}" \
-    "${CONTENT_LIBRARY}" \
-    "${iso_path}"
-
-  success "Upload complete: ${filename}"
+  govc library.import "${CONTENT_LIBRARY}" "${iso_path}"
+  success "Imported: ${CONTENT_LIBRARY}/${filename}"
 }
 
-# ── Process a single Ubuntu version ───────────────────────────────────────────
+# ── Process a single version ───────────────────────────────────────────────────
 process_version() {
   local version="$1"
   local label="${ISO_LABEL[${version}]:-Ubuntu ${version}}"
@@ -318,25 +253,13 @@ process_version() {
 
   header "${label}"
 
-  # Check if ISO filename is a placeholder (26.04 may not have a final name yet)
-  if [[ "${filename}" == *"PLACEHOLDER"* ]]; then
-    warn "No ISO filename configured for ${version} — set ISO_FILENAME[${version}] and re-run"
-    BUILD_STATUS[${version}]="SKIPPED (no filename)"
-    return 0
-  fi
-
-  # Skip if already in library
-  info "Checking library for existing item: /${CONTENT_LIBRARY}/${filename}"
-  if library_item_exists "${CONTENT_LIBRARY}" "${filename}"; then
-    success "Already in content library: ${filename}"
+  if library_item_exists "${filename}"; then
+    success "Already present: ${CONTENT_LIBRARY}/${filename}"
     BUILD_STATUS[${version}]="SKIPPED (already present)"
     return 0
   fi
-  info "Not found in library — will download and upload"
+  info "Not found — will download and import"
 
-  # Download — explicit check required: set -e is suppressed inside functions
-  # called from an `if !` context, so a return 1 from download_iso will not
-  # automatically abort this function.
   if ! download_iso "${version}"; then
     BUILD_STATUS[${version}]="FAILED"
     return 1
@@ -344,28 +267,22 @@ process_version() {
 
   local iso_path="${DOWNLOADED_ISO_PATH}"
   if [[ -z "${iso_path}" ]]; then
-    error "Download completed but no file path was set — aborting upload"
+    error "No file path set after download"
     BUILD_STATUS[${version}]="FAILED"
     return 1
   fi
 
-  # Upload
-  upload_iso "${version}" "${iso_path}"
-  BUILD_STATUS[${version}]="UPLOADED"
+  import_iso "${iso_path}"
+  BUILD_STATUS[${version}]="IMPORTED"
 
-  # Clean up local file unless KEEP_DOWNLOADS=true
   if [[ "${KEEP_DOWNLOADS}" != "true" ]]; then
-    info "Removing local ISO (set KEEP_DOWNLOADS=true to retain it)"
     rm -f "${iso_path}"
-  else
-    info "Kept local ISO at: ${iso_path}"
   fi
 }
 
 # ── Summary ────────────────────────────────────────────────────────────────────
 print_summary() {
   header "Summary"
-
   echo ""
   printf "  %-8s  %-40s  %s\n" "VERSION" "ISO" "STATUS"
   printf "  %-8s  %-40s  %s\n" "-------" "---" "------"
@@ -373,15 +290,25 @@ print_summary() {
     local filename="${ISO_FILENAME[${version}]:-N/A}"
     local status="${BUILD_STATUS[${version}]:-NOT PROCESSED}"
     local colour="${RESET}"
-    [[ "${status}" == "UPLOADED" ]]             && colour="${GREEN}"
-    [[ "${status}" == SKIPPED* ]]               && colour="${YELLOW}"
-    [[ "${status}" == "FAILED"* ]]              && colour="${RED}"
+    [[ "${status}" == "IMPORTED" ]] && colour="${GREEN}"
+    [[ "${status}" == SKIPPED*   ]] && colour="${YELLOW}"
+    [[ "${status}" == "FAILED"*  ]] && colour="${RED}"
     printf "  %-8s  %-40s  ${colour}%s${RESET}\n" "${version}" "${filename}" "${status}"
   done
   echo ""
-
-  info "Content library : ${CONTENT_LIBRARY}"
+  info "Content Library : ${CONTENT_LIBRARY}"
   info "vCenter         : ${GOVC_URL}"
+  echo ""
+  echo -e "${BOLD}Secret to set (Settings → Secrets and variables → Actions):${RESET}"
+  echo ""
+  echo "  VSPHERE_ISO_LIBRARY_DATASTORE = \"${LIBRARY_DATASTORE}\""
+  echo ""
+  echo -e "${BOLD}Repository variable to set (Settings → Secrets and variables → Actions → Variables):${RESET}"
+  echo ""
+  echo "  CONTENT_LIBRARY = \"${CONTENT_LIBRARY}\""
+  echo ""
+  echo -e "ISO paths are resolved automatically at build time via:"
+  echo -e "  govc library.info -L /${CONTENT_LIBRARY}/<item>/<file>"
   echo ""
 }
 
@@ -389,26 +316,21 @@ print_summary() {
 main() {
   echo ""
   echo -e "${BOLD}Packer ISO Uploader — vSphere Content Library${RESET}"
-  echo -e "Processing versions: ${UBUNTU_VERSIONS}"
+  echo -e "Versions: ${UBUNTU_VERSIONS}"
   echo ""
 
   check_prerequisites
   verify_govc_connection
   ensure_content_library
-
   mkdir -p "${DOWNLOAD_DIR}"
 
   local failed=0
   for version in ${UBUNTU_VERSIONS}; do
-    if ! process_version "${version}"; then
-      BUILD_STATUS[${version}]="FAILED"
-      failed=1
-    fi
+    process_version "${version}" || { BUILD_STATUS[${version}]="FAILED"; failed=1; }
   done
 
   print_summary
-
-  [[ "${failed}" -eq 0 ]] || { error "One or more uploads failed. Check output above."; exit 1; }
+  [[ "${failed}" -eq 0 ]] || { error "One or more imports failed."; exit 1; }
   success "Done."
 }
 

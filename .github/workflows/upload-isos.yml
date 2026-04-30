@@ -52,10 +52,10 @@ jobs:
       # ── Verify required secrets are present ─────────────────────────────────
       - name: Check required secrets
         env:
-          VSPHERE_SERVER:              ${{ secrets.VSPHERE_SERVER }}
-          VSPHERE_USER:                ${{ secrets.VSPHERE_USER }}
-          VSPHERE_PASSWORD:            ${{ secrets.VSPHERE_PASSWORD }}
-          VSPHERE_DATACENTER:          ${{ secrets.VSPHERE_DATACENTER }}
+          VSPHERE_SERVER:                ${{ secrets.VSPHERE_SERVER }}
+          VSPHERE_USER:                  ${{ secrets.VSPHERE_USER }}
+          VSPHERE_PASSWORD:              ${{ secrets.VSPHERE_PASSWORD }}
+          VSPHERE_DATACENTER:            ${{ secrets.VSPHERE_DATACENTER }}
           VSPHERE_ISO_LIBRARY_DATASTORE: ${{ secrets.VSPHERE_ISO_LIBRARY_DATASTORE }}
         run: |
           missing=()
@@ -65,8 +65,8 @@ jobs:
           [[ -z "${VSPHERE_PASSWORD}"  ]] && missing+=("VSPHERE_PASSWORD")
           [[ -z "${VSPHERE_DATACENTER}" ]] && missing+=("VSPHERE_DATACENTER")
 
-          # VSPHERE_ISO_LIBRARY_DATASTORE is required — it backs the Content Library.
-          # If you haven't set it separately, set it to the same value as VSPHERE_DATASTORE.
+          # VSPHERE_ISO_LIBRARY_DATASTORE is the datastore that backs the Content Library.
+          # Check your Content Library settings in vSphere to find the backing datastore name.
           [[ -z "${VSPHERE_ISO_LIBRARY_DATASTORE}" ]] && missing+=("VSPHERE_ISO_LIBRARY_DATASTORE")
 
           if [[ ${#missing[@]} -gt 0 ]]; then
@@ -76,7 +76,6 @@ jobs:
             done
             echo ""
             echo "Set them via: Settings → Secrets and variables → Actions"
-            echo "Or run: make secrets  (reads from variables.pkrvars.hcl)"
             exit 1
           fi
 
