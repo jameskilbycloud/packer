@@ -159,7 +159,7 @@ verify_govc_connection() {
 # ── Content Library ────────────────────────────────────────────────────────────
 ensure_content_library() {
   header "Content Library: ${CONTENT_LIBRARY}"
-  if govc library.ls "/${CONTENT_LIBRARY}" &>/dev/null; then
+  if [[ -n "$(govc library.ls "/${CONTENT_LIBRARY}" 2>/dev/null)" ]]; then
     success "Library exists: ${CONTENT_LIBRARY}"
   else
     info "Creating Content Library '${CONTENT_LIBRARY}' on datastore '${LIBRARY_DATASTORE}'..."
@@ -229,8 +229,8 @@ download_iso() {
 # ── Library item existence check ───────────────────────────────────────────────
 library_item_exists() {
   local filename="$1"
-  # govc library.ls lists item names under the library path
-  govc library.ls "/${CONTENT_LIBRARY}/${filename}" &>/dev/null
+  # govc library.ls returns exit 0 even for non-existent paths — check output
+  [[ -n "$(govc library.ls "/${CONTENT_LIBRARY}/${filename}" 2>/dev/null)" ]]
 }
 
 # ── Import into Content Library ────────────────────────────────────────────────

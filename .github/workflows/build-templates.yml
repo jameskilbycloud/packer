@@ -241,7 +241,7 @@ jobs:
           echo "Resolving ISO paths on datastore '${LIB_DATASTORE}'..."
 
           # Confirm the library is reachable before searching
-          if ! govc library.ls "/${CONTENT_LIBRARY}" &>/dev/null; then
+          if [[ -z "$(govc library.ls "/${CONTENT_LIBRARY}" 2>/dev/null)" ]]; then
             echo "❌ Content Library '${CONTENT_LIBRARY}' not found. Available libraries:"
             govc library.ls 2>/dev/null | sed 's/^/   /' || echo "   (none visible)"
             echo "   Run the upload-isos workflow first, or fix the CONTENT_LIBRARY repo variable."
