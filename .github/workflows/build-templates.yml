@@ -214,12 +214,10 @@ jobs:
           sudo chmod +x /usr/local/bin/govc
           echo "govc installed: $(govc version)"
 
-      # ── Resolve Content Library ISO paths via govc datastore search ─────────
+      # ── Resolve Content Library ISO paths via govc library.info ─────────────
       # Content Library items live at contentlib-{lib-uuid}/{item-uuid}/{file}
-      # on the backing datastore. govc datastore.find searches the datastore
-      # directly and returns that relative path — no REST API privileges needed.
-      # The resolved path is written to RESOLVED_ISO_<ver>; the Packer HCL
-      # prepends "[${var.vsphere_iso_datastore}]" to build the full iso_paths.
+      # on the backing datastore. We get the UUIDs via govc library.info -json
+      # (which uses the vSphere SDK, not the REST API) and construct the path.
       - name: Resolve ISO paths from Content Library
         env:
           GOVC_URL:        ${{ secrets.VSPHERE_SERVER }}
@@ -238,9 +236,10 @@ jobs:
           )
           declare -A RESOLVED=()
 
-          echo "Resolving ISO paths on datastore '${LIB_DATASTORE}'..."
+          # ── Confirm library exists and list its contents ───────────────────
+          echo "Library '${CONTENT_LIBRARY}' items:"
+          govc library.ls "/${CONTENT_LIBRARY}/" 2>/dev/null | sed 's/^/  /' || true
 
-          # Confirm the library is reachable before searching
           if [[ -z "$(govc library.ls "/${CONTENT_LIBRARY}" 2>/dev/null)" ]]; then
             echo "❌ Content Library '${CONTENT_LIBRARY}' not found. Available libraries:"
             govc library.ls 2>/dev/null | sed 's/^/   /' || echo "   (none visible)"
@@ -248,21 +247,58 @@ jobs:
             exit 1
           fi
 
+          # ── Get library UUID from govc library.info -json ─────────────────
+          lib_id=$(govc library.info -json "/${CONTENT_LIBRARY}" 2>/dev/null \
+            | python3 -c "
+import sys, json
+data = json.load(sys.stdin) or []
+for d in data:
+    for key in ('ID','id','Id'):
+        if key in d:
+            print(d[key]); sys.exit(0)
+" 2>/dev/null || echo "")
+          echo "Library UUID: ${lib_id:-NOT FOUND}"
+
+          # ── For each ISO: get item UUID and construct the datastore path ───
+          echo "ISO_BACKING_DATASTORE=${LIB_DATASTORE}" >> "$GITHUB_ENV"
+
           for ver in 2204 2404 2604; do
             item="${ISO_ITEMS[$ver]}"
-            # govc datastore.find returns e.g. /contentlib-uuid/item-uuid/filename.iso
-            raw=$(govc datastore.find -ds="${LIB_DATASTORE}" -name "${item}" 2>/dev/null | head -1 || true)
-            rel="${raw#/}"   # strip leading slash → contentlib-uuid/item-uuid/filename.iso
-            if [[ -n "${rel}" ]]; then
+            item_stem="${item%.iso}"
+
+            # Try exact name first, then stem without extension
+            item_id=$(govc library.info -json "/${CONTENT_LIBRARY}/${item}" 2>/dev/null \
+              | python3 -c "
+import sys, json
+data = json.load(sys.stdin) or []
+for d in data:
+    for key in ('ID','id','Id'):
+        if key in d:
+            print(d[key]); sys.exit(0)
+" 2>/dev/null || echo "")
+
+            if [[ -z "${item_id}" ]]; then
+              item_id=$(govc library.info -json "/${CONTENT_LIBRARY}/${item_stem}" 2>/dev/null \
+                | python3 -c "
+import sys, json
+data = json.load(sys.stdin) or []
+for d in data:
+    for key in ('ID','id','Id'):
+        if key in d:
+            print(d[key]); sys.exit(0)
+" 2>/dev/null || echo "")
+            fi
+
+            if [[ -n "${item_id}" && -n "${lib_id}" ]]; then
+              rel="contentlib-${lib_id}/${item_id}/${item}"
               echo "  ubuntu-${ver}: ${rel}"
               RESOLVED[$ver]="${rel}"
               echo "RESOLVED_ISO_${ver}=${rel}" >> "$GITHUB_ENV"
             else
-              echo "  ubuntu-${ver}: NOT FOUND on '${LIB_DATASTORE}' (${item})"
+              echo "  ubuntu-${ver}: NOT FOUND (item_id='${item_id}' lib_id='${lib_id}')"
               echo "RESOLVED_ISO_${ver}=" >> "$GITHUB_ENV"
             fi
           done
-          echo "ISO_BACKING_DATASTORE=${LIB_DATASTORE}" >> "$GITHUB_ENV"
 
           # Fail fast if the ISO for this matrix build is missing
           ver="${MATRIX_BUILD%%-*}"
