@@ -199,12 +199,29 @@ jobs:
           fi
           echo "xorriso: $(xorriso --version 2>&1 | head -1)"
 
+      # ── Install govc (required to resolve Content Library ISO paths) ──────────
+      - name: Install govc
+        run: |
+          if command -v govc &>/dev/null; then
+            echo "govc already installed: $(govc version)"
+            exit 0
+          fi
+          GOVC_VERSION=$(curl -fsSL https://api.github.com/repos/vmware/govmomi/releases/latest \
+            | grep '"tag_name"' | cut -d'"' -f4)
+          curl -fsSL \
+            "https://github.com/vmware/govmomi/releases/download/${GOVC_VERSION}/govc_Linux_x86_64.tar.gz" \
+            | sudo tar -xzf - -C /usr/local/bin govc
+          sudo chmod +x /usr/local/bin/govc
+          echo "govc installed: $(govc version)"
+
       # ── Resolve Content Library ISO paths via govc ──────────────────────────
       # ISOs stored in a vSphere Content Library are backed on a datastore at a
-      # UUID-based path (e.g. contentlib-{lib-uuid}/{item-uuid}/{uuid}.iso) that
-      # cannot be predicted from the filename alone.
-      # govc library.info -L /<library>/<item>/<file> resolves the exact path.
-      # Reference: https://discuss.hashicorp.com/t/vsphere-iso-content-library-iso-path/40527/3
+      # UUID-based path (e.g. contentlib-{lib-uuid}/{item-uuid}/{filename}.iso)
+      # that cannot be predicted from the filename alone.
+      # govc library.info -L /<library>/<item>/<file> returns the full path in
+      # the form "[DatastoreName] contentlib-uuid/item-uuid/filename.iso".
+      # We strip the "[DatastoreName] " prefix because the Packer HCL already
+      # prepends "[${var.vsphere_iso_datastore}]" to the iso_paths value.
       - name: Resolve ISO paths from Content Library
         env:
           GOVC_URL:        ${{ secrets.VSPHERE_SERVER }}
@@ -228,13 +245,18 @@ jobs:
 
           for ver in 2204 2404 2604; do
             item="${ISO_ITEMS[$ver]}"
-            # -L returns the relative path on the backing datastore (UUID-based filename)
-            rel=$(govc library.info -L "/${CONTENT_LIBRARY}/${item}/${item}" 2>/dev/null || true)
+            # govc library.info -L returns "[DatastoreName] contentlib-uuid/item-uuid/file"
+            # Try item path with .iso extension (standard govc library.import behaviour),
+            # then without (some vSphere versions strip it from the item name).
+            raw=$(govc library.info -L "/${CONTENT_LIBRARY}/${item}/${item}" 2>/dev/null \
+               || govc library.info -L "/${CONTENT_LIBRARY}/${item%.iso}/${item}" 2>/dev/null \
+               || true)
+            # Strip the leading "[DatastoreName] " if present — Packer adds it via vsphere_iso_datastore
+            rel="${raw#\[*\] }"
             if [[ -n "${rel}" ]]; then
-              full="[${LIB_DATASTORE}] ${rel}"
-              echo "  ubuntu-${ver}: ${full}"
-              RESOLVED[$ver]="${full}"
-              echo "RESOLVED_ISO_${ver}=${full}" >> "$GITHUB_ENV"
+              echo "  ubuntu-${ver}: ${rel}"
+              RESOLVED[$ver]="${rel}"
+              echo "RESOLVED_ISO_${ver}=${rel}" >> "$GITHUB_ENV"
             else
               echo "  ubuntu-${ver}: NOT FOUND — '${item}' not in library '${CONTENT_LIBRARY}'"
               echo "RESOLVED_ISO_${ver}=" >> "$GITHUB_ENV"
