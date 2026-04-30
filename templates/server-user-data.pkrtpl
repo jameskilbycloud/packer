@@ -8,20 +8,11 @@ autoinstall:
     layout: us
     variant: ''
 
-  # ── Network (DHCP on first NIC — adjust if you use static IPs) ────────────
-  # Match any "en*" interface so builds work regardless of the PCI slot
-  # assignment (ens192, ens160, ens224, etc. all match).
-  # Note: dhcp-identifier is intentionally omitted here. Specifying mac causes
-  # autoinstall to re-negotiate DHCP mid-install, which can drop the interface
-  # entirely. ip_settle_timeout in the Packer source handles the IP transition
-  # at the reboot boundary instead.
-  network:
-    version: 2
-    ethernets:
-      any-en:
-        match:
-          name: "en*"
-        dhcp4: true
+  # ── Network ───────────────────────────────────────────────────────────────
+  # No 'network:' key. When omitted, autoinstall copies the live installer's
+  # auto-detected netplan config to the installed system. Specifying a custom
+  # config causes autoinstall to apply it to the live installer mid-boot,
+  # which drops the interface and prevents VMware Tools from reporting an IP.
 
   # ── Storage (LVM, thin-provisioned on the first available disk) ───────────
   storage:
