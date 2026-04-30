@@ -56,4 +56,4 @@ autoinstall:
     - touch /target/etc/cloud/cloud-init.disabled
 
   updates: security
-  shutdown: poweroff
+  shutdown: reboot
