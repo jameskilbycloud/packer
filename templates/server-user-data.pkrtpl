@@ -38,15 +38,14 @@ autoinstall:
     allow-pw: true
     authorized-keys: []
 
+  # ── Timezone ──────────────────────────────────────────────────────────────
+  timezone: Europe/London
+
   # ── Packages ──────────────────────────────────────────────────────────────
+  # Keep this list minimal — curl, wget, vim, git, etc. are installed by
+  # setup.sh to avoid duplicating work in both phases.
   packages:
     - open-vm-tools
-    - curl
-    - wget
-    - vim
-    - git
-    - net-tools
-    - ca-certificates
 
   # ── Post-install ──────────────────────────────────────────────────────────
   late-commands:

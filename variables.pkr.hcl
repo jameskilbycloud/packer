@@ -139,7 +139,7 @@ variable "desktop_disk_gb" {
 variable "vm_hardware_version" {
   type        = number
   description = "VMware hardware version. 19 = vSphere 7.0 U2, 20 = vSphere 8.0, 21 = vSphere 8.0 U2"
-  default     = 19
+  default     = 21
 }
 
 # =============================================================================

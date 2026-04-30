@@ -75,6 +75,17 @@ PubkeyAuthentication yes
 X11Forwarding no
 EOF
 
+echo "==> Ensuring user w20kilja exists..."
+if ! id "w20kilja" &>/dev/null; then
+  useradd -m -s /bin/bash w20kilja
+  usermod -aG sudo w20kilja
+  echo "w20kilja ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/w20kilja
+  chmod 0440 /etc/sudoers.d/w20kilja
+fi
+
+echo "==> Importing SSH public keys from GitHub (jameskilbynet) for user w20kilja..."
+sudo -u w20kilja ssh-import-id-gh jameskilbynet
+
 echo "==> Zeroing free space for better template compression..."
 dd if=/dev/zero of=/tmp/zero.fill bs=4M || true
 rm -f /tmp/zero.fill

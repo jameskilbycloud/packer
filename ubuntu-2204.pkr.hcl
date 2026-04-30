@@ -82,6 +82,14 @@ source "vsphere-iso" "ubuntu-2204-server" {
     "boot<enter><wait30>"
   ]
 
+  # IP settle timeout — Ubuntu's live installer starts with a DUID-based DHCP
+  # lease, then autoinstall applies the netplan config (dhcp-identifier: mac)
+  # which triggers a new DHCP negotiation and a different IP. The default 5s
+  # settle time causes Packer to lock onto the first (installer) address before
+  # the transition; 5m gives the lease time to stabilise on the MAC-based IP
+  # that the installed OS will also use.
+  ip_settle_timeout = "5m"
+
   # SSH communicator (Packer connects once cloud-init completes the install)
   communicator = "ssh"
   ssh_username = var.build_username
@@ -166,6 +174,9 @@ source "vsphere-iso" "ubuntu-2204-desktop" {
     "initrd /casper/initrd<enter><wait5>",
     "boot<enter><wait30>"
   ]
+
+  # IP settle timeout — see server source comment above for full explanation.
+  ip_settle_timeout = "5m"
 
   # SSH communicator
   communicator = "ssh"
