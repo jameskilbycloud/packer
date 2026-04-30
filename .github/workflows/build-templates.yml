@@ -275,12 +275,21 @@ jobs:
           # Find library UUID by name
           lib_ids = get('/api/content/library', tok)
           lib_id = None
+          all_names = []
           for lid in lib_ids:
-              if get(f'/api/content/library/{lid}', tok)['name'] == library:
+              name = get(f'/api/content/library/{lid}', tok)['name']
+              all_names.append(name)
+              if name == library:
                   lib_id = lid
                   break
           if not lib_id:
-              print(f'ERROR: Content Library "{library}" not found in vCenter', file=sys.stderr)
+              print(f'ERROR: Content Library "{library}" not found in vCenter.', file=sys.stderr)
+              if all_names:
+                  print(f'       Visible libraries: {all_names}', file=sys.stderr)
+                  print(f'       Check the CONTENT_LIBRARY repo variable matches one of the above.', file=sys.stderr)
+              else:
+                  print(f'       No content libraries are visible to this user.', file=sys.stderr)
+                  print(f'       Run the upload-isos workflow first to create "{library}".', file=sys.stderr)
               sys.exit(1)
 
           # Build name -> UUID map for all items in the library.
