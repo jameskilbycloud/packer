@@ -35,16 +35,10 @@ on:
   schedule:
     - cron: "0 2 * * 0"
 
-  # Rebuild when Packer files or provisioner scripts are changed on main
-  push:
-    branches:
-      - main
-    paths:
-      - "*.pkr.hcl"
-      - "templates/**"
-      - "scripts/setup.sh"
-      - "scripts/vmtools.sh"
-      - ".github/workflows/build-templates.yml"
+  # Note: push validation is handled by validate.yml (syntax check only, no
+  # vSphere connection). The push trigger has been removed from this workflow
+  # to prevent unintended full builds on every code change — use
+  # workflow_dispatch to trigger a deliberate build.
 
 # ── Concurrency ───────────────────────────────────────────────────────────────
 # Prevent multiple builds running simultaneously (vSphere resource constraint).
