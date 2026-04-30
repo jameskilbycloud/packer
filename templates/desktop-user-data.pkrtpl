@@ -69,7 +69,7 @@ autoinstall:
     # Disable cloud-init on first boot after template clone (re-enable if needed)
     - touch /target/etc/cloud/cloud-init.disabled
 
-  # updates: security intentionally omitted — setup.sh runs apt-get upgrade -y
-  # after Packer connects, so applying updates here would double the install time.
-  updates: none
+  # 'updates' key intentionally omitted — valid values are 'security' and 'all'.
+  # Omitting the key skips the in-install update pass; setup.sh handles
+  # apt-get upgrade -y after Packer connects, avoiding a double update.
   shutdown: reboot
