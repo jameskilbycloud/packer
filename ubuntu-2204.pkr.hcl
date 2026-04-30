@@ -18,8 +18,8 @@ source "vsphere-iso" "ubuntu-2204-server" {
 
   # Placement
   datacenter = var.vsphere_datacenter
-  cluster    = var.vsphere_cluster
-  host       = var.vsphere_host
+  cluster    = var.vsphere_cluster != "" ? var.vsphere_cluster : null
+  host       = var.vsphere_host != "" ? var.vsphere_host : null
   datastore  = var.vsphere_datastore
   folder     = var.vsphere_folder
 
@@ -82,12 +82,8 @@ source "vsphere-iso" "ubuntu-2204-server" {
     "boot<enter><wait30>"
   ]
 
-  # IP settle timeout — Ubuntu's live installer starts with a DUID-based DHCP
-  # lease, then autoinstall applies the netplan config (dhcp-identifier: mac)
-  # which triggers a new DHCP negotiation and a different IP. The default 5s
-  # settle time causes Packer to lock onto the first (installer) address before
-  # the transition; 5m gives the lease time to stabilise on the MAC-based IP
-  # that the installed OS will also use.
+  # IP settle timeout — 5m gives the DHCP lease time to stabilise after the
+  # live installer's initial DUID-based negotiation before Packer locks in.
   ip_settle_timeout = "5m"
 
   # SSH communicator (Packer connects once cloud-init completes the install)
@@ -117,8 +113,8 @@ source "vsphere-iso" "ubuntu-2204-desktop" {
 
   # Placement
   datacenter = var.vsphere_datacenter
-  cluster    = var.vsphere_cluster
-  host       = var.vsphere_host
+  cluster    = var.vsphere_cluster != "" ? var.vsphere_cluster : null
+  host       = var.vsphere_host != "" ? var.vsphere_host : null
   datastore  = var.vsphere_datastore
   folder     = var.vsphere_folder
 

@@ -87,6 +87,7 @@ jobs:
             -var="vsphere_user=ci-validate" \
             -var="vsphere_password=ci-validate" \
             -var="vsphere_datacenter=ci-validate" \
+            -var="vsphere_cluster=ci-validate" \
             -var="vsphere_datastore=ci-validate" \
             -var="vsphere_network=ci-validate" \
             -var="vsphere_iso_datastore=ci-validate" \

@@ -21,8 +21,8 @@ source "vsphere-iso" "ubuntu-2604-server" {
 
   # Placement
   datacenter = var.vsphere_datacenter
-  cluster    = var.vsphere_cluster
-  host       = var.vsphere_host
+  cluster    = var.vsphere_cluster != "" ? var.vsphere_cluster : null
+  host       = var.vsphere_host != "" ? var.vsphere_host : null
   datastore  = var.vsphere_datastore
   folder     = var.vsphere_folder
 
@@ -118,8 +118,8 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
 
   # Placement
   datacenter = var.vsphere_datacenter
-  cluster    = var.vsphere_cluster
-  host       = var.vsphere_host
+  cluster    = var.vsphere_cluster != "" ? var.vsphere_cluster : null
+  host       = var.vsphere_host != "" ? var.vsphere_host : null
   datastore  = var.vsphere_datastore
   folder     = var.vsphere_folder
 

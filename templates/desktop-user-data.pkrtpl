@@ -11,6 +11,10 @@ autoinstall:
   # ── Network (DHCP on first NIC — adjust if you use static IPs) ────────────
   # Match any "en*" interface so builds work regardless of the PCI slot
   # assignment (ens192, ens160, ens224, etc. all match).
+  # Note: dhcp-identifier is intentionally omitted here. Specifying mac causes
+  # autoinstall to re-negotiate DHCP mid-install, which can drop the interface
+  # entirely. ip_settle_timeout in the Packer source handles the IP transition
+  # at the reboot boundary instead.
   network:
     version: 2
     ethernets:
@@ -18,7 +22,6 @@ autoinstall:
         match:
           name: "en*"
         dhcp4: true
-        dhcp-identifier: mac
 
   # ── Storage (LVM, thin-provisioned on the first available disk) ───────────
   storage:
@@ -66,5 +69,7 @@ autoinstall:
     # Disable cloud-init on first boot after template clone (re-enable if needed)
     - touch /target/etc/cloud/cloud-init.disabled
 
-  updates: security
+  # updates: security intentionally omitted — setup.sh runs apt-get upgrade -y
+  # after Packer connects, so applying updates here would double the install time.
+  updates: none
   shutdown: reboot

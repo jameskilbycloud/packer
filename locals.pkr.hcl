@@ -8,6 +8,8 @@ locals {
 
   # SSH timeouts — server builds are faster; desktop installs take longer due
   # to the ubuntu-desktop-minimal package set.
-  ssh_timeout         = "45m"
+  # Note: ssh_timeout counts from when Packer first starts attempting connections
+  # (after ip_settle_timeout completes), not from build start.
+  ssh_timeout         = "90m"
   desktop_ssh_timeout = "120m"
 }
