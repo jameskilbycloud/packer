@@ -70,7 +70,7 @@ source "vsphere-iso" "ubuntu-2404-server" {
   # Boot — press 'e' to edit the highlighted GRUB entry, navigate to the
   # kernel line, append autoinstall params, then F10 to boot. This is more
   # reliable on EFI than the <esc>c command-line approach.
-  boot_order = "cdrom,disk"
+  boot_order = "disk,cdrom"
   boot_wait  = "5s"
   boot_command = [
     "<wait5>",
@@ -159,7 +159,7 @@ source "vsphere-iso" "ubuntu-2404-desktop" {
   # Boot — press 'e' to edit the highlighted GRUB entry, navigate to the
   # kernel line, append autoinstall params, then F10 to boot. This is more
   # reliable on EFI than the <esc>c command-line approach.
-  boot_order = "cdrom,disk"
+  boot_order = "disk,cdrom"
   boot_wait  = "5s"
   boot_command = [
     "<wait5>",

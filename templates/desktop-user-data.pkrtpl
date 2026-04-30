@@ -54,14 +54,13 @@ autoinstall:
     # Passwordless sudo for the build account (Packer needs this for provisioners)
     - echo '${build_username} ALL=(ALL) NOPASSWD:ALL' > /target/etc/sudoers.d/90-packer-${build_username}
     - chmod 440 /target/etc/sudoers.d/90-packer-${build_username}
-    # Ensure VMware tools services start on boot
+    # Explicitly allow SSH password auth — Ubuntu 24.04 defaults to prohibit-password
+    - echo 'PasswordAuthentication yes' > /target/etc/ssh/sshd_config.d/60-packer.conf
+    # Open SSH in UFW if it is active
+    - curtin in-target --target=/target -- ufw allow OpenSSH
+    # Ensure SSH and VMware tools start on boot
+    - curtin in-target --target=/target -- systemctl enable ssh
     - curtin in-target --target=/target -- systemctl enable open-vm-tools
-    # Auto-login on first boot (optional — remove if not wanted)
-    - |
-      cat > /target/etc/gdm3/custom.conf << 'EOF'
-      [daemon]
-      AutomaticLoginEnable=false
-      EOF
     # Disable cloud-init on first boot after template clone (re-enable if needed)
     - touch /target/etc/cloud/cloud-init.disabled
 
