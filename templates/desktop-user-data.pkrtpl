@@ -21,8 +21,6 @@ autoinstall:
   storage:
     layout:
       name: lvm
-      match:
-        ssd: no
 
   # ── Identity ──────────────────────────────────────────────────────────────
   identity:

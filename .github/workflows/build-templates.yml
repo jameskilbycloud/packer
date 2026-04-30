@@ -354,6 +354,46 @@ jobs:
             -timestamp-ui \
             .
 
+      # ── Destroy orphaned VM on failure or cancellation ───────────────────────
+      # Packer's -on-error=cleanup handles Packer-level errors but not GitHub
+      # Actions cancellation. This step finds any VM matching the build name
+      # pattern that was NOT converted to a template (i.e. the build did not
+      # complete) and destroys it so vSphere is left clean.
+      - name: Destroy orphaned VM
+        if: cancelled() || failure()
+        env:
+          GOVC_URL:        ${{ secrets.VSPHERE_SERVER }}
+          GOVC_USERNAME:   ${{ secrets.VSPHERE_USER }}
+          GOVC_PASSWORD:   ${{ secrets.VSPHERE_PASSWORD }}
+          GOVC_INSECURE:   ${{ secrets.VSPHERE_INSECURE || 'false' }}
+          GOVC_DATACENTER: ${{ secrets.VSPHERE_DATACENTER }}
+          MATRIX_BUILD:    ${{ matrix.build }}
+        run: |
+          NAME_PATTERN="ubuntu-${MATRIX_BUILD}-*"
+          echo "Searching for orphaned VMs matching: ${NAME_PATTERN}"
+
+          vms=$(govc find . -type m -name "${NAME_PATTERN}" 2>/dev/null || true)
+          if [[ -z "${vms}" ]]; then
+            echo "No VMs found matching '${NAME_PATTERN}' — nothing to clean up."
+            exit 0
+          fi
+
+          _is_tpl='import sys,json;vms=(json.load(sys.stdin) or {}).get("VirtualMachines",[]);print("true" if vms and vms[0].get("Config",{}).get("Template",False) else "false")'
+
+          while IFS= read -r vm_path; do
+            [[ -z "${vm_path}" ]] && continue
+            is_template=$(govc vm.info -json "${vm_path}" 2>/dev/null \
+              | python3 -c "${_is_tpl}" 2>/dev/null || echo "unknown")
+            if [[ "${is_template}" == "true" ]]; then
+              echo "  Skipping (already a template): ${vm_path}"
+            else
+              echo "  Powering off and destroying: ${vm_path}"
+              govc vm.power -off=true -force=true "${vm_path}" 2>/dev/null || true
+              govc vm.destroy "${vm_path}"
+              echo "  ✔ Destroyed: ${vm_path}"
+            fi
+          done <<< "${vms}"
+
       # ── Upload logs ──────────────────────────────────────────────────────────
       - name: Upload Packer log
         if: always()
