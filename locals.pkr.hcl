@@ -9,5 +9,5 @@ locals {
   # SSH timeouts — server builds are faster; desktop installs take longer due
   # to the ubuntu-desktop-minimal package set.
   ssh_timeout         = "45m"
-  desktop_ssh_timeout = "90m"
+  desktop_ssh_timeout = "120m"
 }

@@ -69,13 +69,13 @@ source "vsphere-iso" "ubuntu-2204-server" {
   }
   cd_label = "cidata"
 
-  # Boot — use the GRUB command-line (esc → c) rather than the entry editor
-  # (e) so the approach is independent of how many lines appear in the GRUB
-  # entry body on a given ISO version.
+  # Boot — type 'c' during the GRUB countdown to open the command line, then
+  # specify the kernel and initrd explicitly. This is version-agnostic and
+  # avoids the entry editor (e) whose line count varies by ISO. Do NOT use
+  # <esc> before 'c' — on EFI GRUB, Escape exits the bootloader entirely.
   boot_order = "disk,cdrom"
   boot_wait  = "5s"
   boot_command = [
-    "<esc><wait2>",
     "c<wait2>",
     "linux /casper/vmlinuz --- autoinstall ds=nocloud<enter><wait5>",
     "initrd /casper/initrd<enter><wait5>",
@@ -161,7 +161,6 @@ source "vsphere-iso" "ubuntu-2204-desktop" {
   boot_order = "disk,cdrom"
   boot_wait  = "5s"
   boot_command = [
-    "<esc><wait2>",
     "c<wait2>",
     "linux /casper/vmlinuz --- autoinstall ds=nocloud<enter><wait5>",
     "initrd /casper/initrd<enter><wait5>",
