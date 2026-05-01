@@ -8,16 +8,19 @@ autoinstall:
     layout: us
     variant: ''
 
+  # ── Early commands ────────────────────────────────────────────────────────
+  # Stop SSH on the live installer so Packer cannot accidentally connect
+  # during the install phase. Packer will SSH into the installed OS after
+  # the VM reboots.
+  early-commands:
+    - sudo systemctl stop ssh
+
   # ── Network ───────────────────────────────────────────────────────────────
-  # Explicitly writing a DHCP netplan config ensures the installed system has
-  # a persistent network configuration after reboot. Without this key,
-  # Ubuntu 24.04 does not reliably write a netplan config to the installed
-  # system, so the OS boots with no network and VMware Tools cannot report
-  # an IP to vCenter.
-  #
-  # Plain dhcp4: true (no dhcp-identifier override) is safe here — autoinstall
-  # applies this config to the live installer mid-boot, but since it matches
-  # the existing DHCP setup the interface stays up and the IP is unchanged.
+  # Explicitly write a DHCP netplan config to the installed system.
+  # Omitting this key does not reliably produce a persistent netplan config
+  # on Ubuntu 24.04, leaving the installed OS with no network after reboot.
+  # Plain dhcp4: true (no dhcp-identifier override) is safe — it matches the
+  # live installer's existing config so the interface stays up mid-install.
   network:
     network:
       version: 2
@@ -25,7 +28,7 @@ autoinstall:
         ens192:
           dhcp4: true
 
-  # ── Storage (LVM, thin-provisioned on the first available disk) ───────────
+  # ── Storage ───────────────────────────────────────────────────────────────
   storage:
     layout:
       name: lvm
@@ -47,8 +50,6 @@ autoinstall:
   timezone: Europe/London
 
   # ── Packages ──────────────────────────────────────────────────────────────
-  # Keep this list minimal — curl, wget, vim, git, etc. are installed by
-  # setup.sh to avoid duplicating work in both phases.
   packages:
     - open-vm-tools
 
@@ -57,17 +58,10 @@ autoinstall:
     # Passwordless sudo for the build account (Packer needs this for provisioners)
     - echo '${build_username} ALL=(ALL) NOPASSWD:ALL' > /target/etc/sudoers.d/90-packer-${build_username}
     - chmod 440 /target/etc/sudoers.d/90-packer-${build_username}
-    # Explicitly allow SSH password auth — Ubuntu 24.04 defaults to prohibit-password
-    - echo 'PasswordAuthentication yes' > /target/etc/ssh/sshd_config.d/60-packer.conf
-    # Open SSH in UFW if it is active
-    - curtin in-target --target=/target -- ufw allow OpenSSH
-    # Ensure SSH and VMware tools start on boot
-    - curtin in-target --target=/target -- systemctl enable ssh
-    - curtin in-target --target=/target -- systemctl enable open-vm-tools
-    # Disable cloud-init on first boot after template clone (re-enable if needed)
-    - touch /target/etc/cloud/cloud-init.disabled
+    # Allow SSH password auth — Ubuntu 24.04 defaults to prohibit-password
+    - sed -i -e 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/g' /target/etc/ssh/sshd_config
 
   # 'updates' key intentionally omitted — valid values are 'security' and 'all'.
-  # Omitting the key skips the in-install update pass; setup.sh handles
-  # apt-get upgrade -y after Packer connects, avoiding a double update.
+  # Omitting skips the in-install update pass; setup.sh runs apt-get upgrade -y
+  # after Packer connects, avoiding a double update pass.
   shutdown: reboot
