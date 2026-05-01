@@ -143,6 +143,22 @@ variable "vm_hardware_version" {
 }
 
 # =============================================================================
+# Admin User (optional)
+# =============================================================================
+
+variable "admin_username" {
+  type        = string
+  description = "Optional persistent admin account to create in the template (e.g. your personal username). Leave empty to skip. A NOPASSWD sudoers entry is added automatically."
+  default     = ""
+}
+
+variable "admin_github_user" {
+  type        = string
+  description = "GitHub username whose public SSH keys are imported for admin_username. Leave empty to skip key import."
+  default     = ""
+}
+
+# =============================================================================
 # ISO Paths (relative to vsphere_iso_datastore)
 # =============================================================================
 

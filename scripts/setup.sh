@@ -75,16 +75,24 @@ PubkeyAuthentication yes
 X11Forwarding no
 EOF
 
-echo "==> Ensuring user w20kilja exists..."
-if ! id "w20kilja" &>/dev/null; then
-  useradd -m -s /bin/bash w20kilja
-  usermod -aG sudo w20kilja
-  echo "w20kilja ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/w20kilja
-  chmod 0440 /etc/sudoers.d/w20kilja
-fi
+if [[ -n "${ADMIN_USERNAME:-}" ]]; then
+  echo "==> Ensuring user ${ADMIN_USERNAME} exists..."
+  if ! id "${ADMIN_USERNAME}" &>/dev/null; then
+    useradd -m -s /bin/bash "${ADMIN_USERNAME}"
+    usermod -aG sudo "${ADMIN_USERNAME}"
+    echo "${ADMIN_USERNAME} ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/${ADMIN_USERNAME}"
+    chmod 0440 "/etc/sudoers.d/${ADMIN_USERNAME}"
+  fi
 
-echo "==> Importing SSH public keys from GitHub (jameskilbynet) for user w20kilja..."
-sudo -u w20kilja ssh-import-id-gh jameskilbynet
+  if [[ -n "${ADMIN_GITHUB_USER:-}" ]]; then
+    echo "==> Importing SSH public keys from GitHub (${ADMIN_GITHUB_USER}) for user ${ADMIN_USERNAME}..."
+    sudo -u "${ADMIN_USERNAME}" ssh-import-id-gh "${ADMIN_GITHUB_USER}"
+  else
+    echo "==> ADMIN_GITHUB_USER not set — skipping SSH key import."
+  fi
+else
+  echo "==> ADMIN_USERNAME not set — skipping admin user creation."
+fi
 
 echo "==> Zeroing free space for better template compression..."
 dd if=/dev/zero of=/tmp/zero.fill bs=4M || true

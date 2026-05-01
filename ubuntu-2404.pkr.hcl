@@ -205,6 +205,10 @@ build {
 
   provisioner "shell" {
     execute_command = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    environment_vars = [
+      "ADMIN_USERNAME=${var.admin_username}",
+      "ADMIN_GITHUB_USER=${var.admin_github_user}",
+    ]
     scripts = [
       "${path.root}/scripts/setup.sh",
       "${path.root}/scripts/vmtools.sh",
@@ -223,6 +227,10 @@ build {
 
   provisioner "shell" {
     execute_command = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    environment_vars = [
+      "ADMIN_USERNAME=${var.admin_username}",
+      "ADMIN_GITHUB_USER=${var.admin_github_user}",
+    ]
     scripts = [
       "${path.root}/scripts/setup.sh",
       "${path.root}/scripts/vmtools.sh",

@@ -319,6 +319,8 @@ jobs:
           ubuntu_2204_iso_path        = "${{ env.RESOLVED_ISO_2204 }}"
           ubuntu_2404_iso_path        = "${{ env.RESOLVED_ISO_2404 }}"
           ubuntu_2604_iso_path        = "${{ env.RESOLVED_ISO_2604 }}"
+          admin_username              = "${{ secrets.ADMIN_USERNAME }}"
+          admin_github_user           = "${{ secrets.ADMIN_GITHUB_USER }}"
           EOF
           # Strip leading whitespace added by the heredoc indentation
           sed -i 's/^[[:space:]]*//' runner.pkrvars.hcl
