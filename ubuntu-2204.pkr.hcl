@@ -175,6 +175,11 @@ source "vsphere-iso" "ubuntu-2204-desktop" {
     "boot<enter><wait30>"
   ]
 
+  # IP wait timeout — how long Packer waits for the VM to first acquire ANY IP.
+  # Default is 30 minutes, which desktop installs exceed (ubuntu-desktop-minimal
+  # adds ~10-20 min vs server). Set to 60m to cover the full install + reboot.
+  ip_wait_timeout = "60m"
+
   # IP settle timeout — must exceed the desktop install time (~20-40 min due to
   # ubuntu-desktop-minimal package set). See server source comment for the full
   # explanation of why settle time > install time is required.
