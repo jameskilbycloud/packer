@@ -82,9 +82,13 @@ source "vsphere-iso" "ubuntu-2204-server" {
     "boot<enter><wait30>"
   ]
 
-  # IP settle timeout — 5m gives the DHCP lease time to stabilise after the
-  # live installer's initial DUID-based negotiation before Packer locks in.
-  ip_settle_timeout = "5m"
+  # IP settle timeout — must be longer than the OS install time. The live
+  # installer holds a stable IP throughout the install (~8-15 min for server),
+  # so a short settle time fires on the installer's IP. After the VM reboots,
+  # the installed OS gets a NEW IP (different DUID from regenerated machine-id),
+  # the settle timer resets, and only fires once that new IP is stable for the
+  # full duration. Packer then targets the correct post-install IP for SSH.
+  ip_settle_timeout = "20m"
 
   # SSH communicator (Packer connects once cloud-init completes the install)
   communicator = "ssh"
@@ -171,8 +175,10 @@ source "vsphere-iso" "ubuntu-2204-desktop" {
     "boot<enter><wait30>"
   ]
 
-  # IP settle timeout — see server source comment above for full explanation.
-  ip_settle_timeout = "5m"
+  # IP settle timeout — must exceed the desktop install time (~20-40 min due to
+  # ubuntu-desktop-minimal package set). See server source comment for the full
+  # explanation of why settle time > install time is required.
+  ip_settle_timeout = "45m"
 
   # SSH communicator
   communicator = "ssh"

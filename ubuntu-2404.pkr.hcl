@@ -80,13 +80,13 @@ source "vsphere-iso" "ubuntu-2404-server" {
     "boot<enter><wait30>"
   ]
 
-  # IP settle timeout — Ubuntu's live installer starts with a DUID-based DHCP
-  # lease, then autoinstall applies the netplan config (dhcp-identifier: mac)
-  # which triggers a new DHCP negotiation and a different IP. The default 5s
-  # settle time causes Packer to lock onto the first (installer) address before
-  # the transition; 5m gives the lease time to stabilise on the MAC-based IP
-  # that the installed OS will also use.
-  ip_settle_timeout = "5m"
+  # IP settle timeout — must be longer than the OS install time. The live
+  # installer holds a stable IP throughout the install (~8-15 min for server),
+  # so a short settle time fires on the installer's IP. After the VM reboots,
+  # the installed OS gets a NEW IP (different DUID from regenerated machine-id),
+  # the settle timer resets, and only fires once that new IP is stable for the
+  # full duration. Packer then targets the correct post-install IP for SSH.
+  ip_settle_timeout = "20m"
 
   # SSH communicator
   communicator = "ssh"
@@ -177,8 +177,10 @@ source "vsphere-iso" "ubuntu-2404-desktop" {
     "boot<enter><wait30>"
   ]
 
-  # IP settle timeout — see server source comment above for full explanation.
-  ip_settle_timeout = "5m"
+  # IP settle timeout — must exceed the desktop install time (~20-40 min due to
+  # ubuntu-desktop-minimal package set). See server source comment for the full
+  # explanation of why settle time > install time is required.
+  ip_settle_timeout = "45m"
 
   # SSH communicator
   communicator = "ssh"
