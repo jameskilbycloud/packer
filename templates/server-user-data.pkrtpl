@@ -14,16 +14,6 @@ autoinstall:
   # config causes autoinstall to apply it to the live installer mid-boot,
   # which drops the interface and prevents VMware Tools from reporting an IP.
 
-  # ── Debug (remove once builds are stable) ────────────────────────────────
-  # Prints network state to the installer console immediately on start.
-  # Watch the VM console in vCenter to see these lines appear.
-  early-commands:
-    - echo "=== PACKER-DEBUG: network interfaces ===" | tee /dev/console
-    - ip -br addr | tee /dev/console
-    - ip route | tee /dev/console
-    - systemctl status systemd-networkd --no-pager | tee /dev/console || true
-    - systemctl status NetworkManager --no-pager | tee /dev/console || true
-
   # ── Storage (LVM, thin-provisioned on the first available disk) ───────────
   storage:
     layout:
