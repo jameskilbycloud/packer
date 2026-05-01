@@ -25,7 +25,9 @@ autoinstall:
     network:
       version: 2
       ethernets:
-        ens192:
+        mainif:
+          match:
+            driver: vmxnet3
           dhcp4: true
 
   # ── Storage ───────────────────────────────────────────────────────────────
