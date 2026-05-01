@@ -15,8 +15,9 @@ crash.log
 # For built boxes
 *.box
 
-# Packer build manifests (generated on each run)
-manifests/
+# Packer build manifests (generated on each run — ignore the JSON outputs but
+# keep the directory itself so the post-processor can write into it)
+manifests/*.json
 
 # Temporary runner vars file written by CI
 runner.pkrvars.hcl
