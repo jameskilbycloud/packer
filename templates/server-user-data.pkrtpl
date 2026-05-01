@@ -62,10 +62,13 @@ autoinstall:
     - chmod 440 /target/etc/sudoers.d/90-packer-${build_username}
     # Allow SSH password auth — Ubuntu 24.04 defaults to prohibit-password
     - sed -i -e 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/g' /target/etc/ssh/sshd_config
-    # Disable cloud-init on deployed VMs — network is handled by the netplan
-    # config written above; leaving cloud-init enabled causes it to re-run on
-    # every clone (new machine-id = new instance) and can overwrite users/keys.
-    - touch /target/etc/cloud/cloud-init.disabled
+    # Neutralise cloud-init on deployed VMs without disabling its systemd units.
+    # cloud-init.disabled breaks network on Ubuntu 24.04 because cloud-init's
+    # boot units are in the dependency chain. Instead, datasource_list: [None]
+    # makes cloud-init a no-op (no user-data, no key/user management) while
+    # still letting its units complete — network comes up normally via netplan.
+    - mkdir -p /target/etc/cloud/cloud.cfg.d
+    - "echo 'datasource_list: [ None ]' > /target/etc/cloud/cloud.cfg.d/99-packer.cfg"
 
   # 'updates' key intentionally omitted — valid values are 'security' and 'all'.
   # Omitting skips the in-install update pass; setup.sh runs apt-get upgrade -y
