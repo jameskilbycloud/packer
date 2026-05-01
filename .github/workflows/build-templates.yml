@@ -107,7 +107,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v4.3.1
 
       # ── Verify required secrets are present ─────────────────────────────────
       # Fail fast with a clear message rather than letting Packer error on
