@@ -99,7 +99,7 @@ jobs:
     name: Build ${{ matrix.build }}
     needs: resolve-targets
     runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
-    timeout-minutes: 120              # desktop builds take ~60-90 min
+    timeout-minutes: 180              # desktop builds: ~65 min install + 75 min settle + provisioners
 
     strategy:
       matrix: ${{ fromJson(needs.resolve-targets.outputs.matrix) }}

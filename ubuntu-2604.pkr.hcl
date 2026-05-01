@@ -180,15 +180,23 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
     "boot<enter><wait30>"
   ]
 
-  # IP wait timeout — how long Packer waits for the VM to first acquire ANY IP.
-  # Default is 30 minutes, which desktop installs exceed (ubuntu-desktop-minimal
-  # adds ~10-20 min vs server). Set to 60m to cover the full install + reboot.
-  ip_wait_timeout = "60m"
-
-  # IP settle timeout — must exceed the desktop install time (~20-40 min due to
-  # ubuntu-desktop-minimal package set). See server source comment for the full
-  # explanation of why settle time > install time is required.
-  ip_settle_timeout = "45m"
+  # ip_wait_timeout and ip_settle_timeout run CONCURRENTLY from when the VM
+  # first reports any IP via VMware Tools (typically ~3 min after boot).
+  #
+  # ip_settle_timeout is the intended gate: Packer waits this long before
+  # attempting SSH, ensuring the live installer has finished and rebooted into
+  # the installed OS. It MUST be longer than the actual install time, otherwise
+  # Packer tries SSH against the live installer where early-commands stopped SSH
+  # (connection refused → ssh_timeout exhausted → "SSH timeout").
+  #
+  # ip_wait_timeout must be GREATER than ip_settle_timeout — they run
+  # concurrently and if ip_wait fires first you get "timeout waiting for IP".
+  #
+  # Desktop install time in this environment: ~50-65 min (ubuntu-desktop-minimal
+  # pulls significant packages from the internet). 75m settle gives ~10-25 min
+  # of margin. ip_wait at 120m ensures it never fires before settle completes.
+  ip_wait_timeout   = "120m"
+  ip_settle_timeout = "75m"
 
   # SSH communicator
   communicator = "ssh"
