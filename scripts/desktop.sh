@@ -2,10 +2,10 @@
 # =============================================================================
 # desktop.sh — Desktop-specific package installation
 # Runs inside the VM during the Packer build via shell provisioner, after
-# setup.sh. Installs ubuntu-desktop-minimal here rather than via autoinstall
-# packages: because its postinst scripts (snapd seeding, GDM3 D-Bus init)
-# hang the subiquity installer in a headless chroot environment. Installing
-# on a fully-booted system avoids this entirely.
+# setup.sh. Installs desktop packages here rather than via autoinstall
+# packages: because their postinst scripts (GDM3/X session hooks, snapd
+# seeding) deadlock in subiquity's headless chroot. Installing on a
+# fully-booted system avoids this entirely.
 # =============================================================================
 set -euo pipefail
 
@@ -14,8 +14,9 @@ while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
   sleep 2
 done
 
-echo "==> Installing ubuntu-desktop-minimal..."
+echo "==> Installing desktop packages..."
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
+  open-vm-tools-desktop \
   ubuntu-desktop-minimal
 
 echo "==> Disabling snapd auto-refresh (template should not auto-update)..."

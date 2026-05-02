@@ -64,13 +64,12 @@ autoinstall:
   timezone: Europe/London
 
   # ── Packages ──────────────────────────────────────────────────────────────
-  # ubuntu-desktop-minimal removed during testing — its postinst scripts
-  # (snapd seeding, GDM3 D-Bus init) hang the autoinstall in a headless VM.
-  # Restore once the base SSH build is proven. Desktop packages will be
-  # installed via the shell provisioner instead.
+  # Only plain open-vm-tools here. open-vm-tools-desktop and ubuntu-desktop-minimal
+  # are installed via desktop.sh after Packer connects to the running system.
+  # Their postinst scripts (GDM3/X session hooks, snapd seeding) deadlock in
+  # subiquity's headless chroot where no display manager is running.
   packages:
     - open-vm-tools
-    - open-vm-tools-desktop
 
   # ── Post-install ──────────────────────────────────────────────────────────
   late-commands:
