@@ -12,8 +12,15 @@ autoinstall:
   # Stop SSH on the live installer so Packer cannot accidentally connect
   # during the install phase. Desktop installs take 50-65 min so this
   # is especially important.
+  #
+  # Ubuntu 22.04+ uses socket-activated SSH: ssh.socket listens on port 22
+  # and spawns sshd per-connection even when ssh.service is stopped. Stopping
+  # only ssh.service leaves ssh.socket active — Packer connects to the live
+  # installer's SSH (which rejects password auth) for the entire install.
+  # Stopping ssh.socket closes port 22 completely, so Packer gets ECONNREFUSED
+  # during the install and only connects once the installed OS boots.
   early-commands:
-    - sudo systemctl stop ssh
+    - sudo systemctl stop ssh.socket ssh 2>/dev/null || true
 
   # ── Network ───────────────────────────────────────────────────────────────
   # Explicitly write a DHCP netplan config to the installed system.

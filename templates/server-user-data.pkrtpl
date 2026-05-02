@@ -12,8 +12,12 @@ autoinstall:
   # Stop SSH on the live installer so Packer cannot accidentally connect
   # during the install phase. Packer will SSH into the installed OS after
   # the VM reboots.
+  #
+  # Ubuntu 22.04+ uses socket-activated SSH: stop ssh.socket as well as
+  # ssh.service, otherwise ssh.socket keeps port 22 open and Packer may
+  # connect to the live installer's SSH (which rejects password auth).
   early-commands:
-    - sudo systemctl stop ssh
+    - sudo systemctl stop ssh.socket ssh 2>/dev/null || true
 
   # ── Network ───────────────────────────────────────────────────────────────
   # Explicitly write a DHCP netplan config to the installed system.
