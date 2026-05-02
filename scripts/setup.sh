@@ -85,8 +85,9 @@ if [[ -n "${ADMIN_USERNAME:-}" ]]; then
   fi
 
   if [[ -n "${ADMIN_GITHUB_USER:-}" ]]; then
-    echo "==> Importing SSH public keys from GitHub (${ADMIN_GITHUB_USER}) for user ${ADMIN_USERNAME}..."
-    sudo -u "${ADMIN_USERNAME}" ssh-import-id-gh "${ADMIN_GITHUB_USER}"
+    # ssh-import-id-gh skipped during test builds — re-enable before production
+    echo "==> Skipping SSH key import from GitHub (test build)."
+    # sudo -u "${ADMIN_USERNAME}" ssh-import-id-gh "${ADMIN_GITHUB_USER}"
   else
     echo "==> ADMIN_GITHUB_USER not set — skipping SSH key import."
   fi
@@ -94,9 +95,10 @@ else
   echo "==> ADMIN_USERNAME not set — skipping admin user creation."
 fi
 
-echo "==> Zeroing free space for better template compression..."
-dd if=/dev/zero of=/tmp/zero.fill bs=4M || true
-rm -f /tmp/zero.fill
-sync
+# Disk zeroing skipped during test builds — re-enable before production
+# echo "==> Zeroing free space for better template compression..."
+# dd if=/dev/zero of=/tmp/zero.fill bs=4M || true
+# rm -f /tmp/zero.fill
+# sync
 
 echo "==> setup.sh complete."
