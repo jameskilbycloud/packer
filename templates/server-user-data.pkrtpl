@@ -60,8 +60,13 @@ autoinstall:
     # Passwordless sudo for the build account (Packer needs this for provisioners)
     - echo '${build_username} ALL=(ALL) NOPASSWD:ALL' > /target/etc/sudoers.d/90-packer-${build_username}
     - chmod 440 /target/etc/sudoers.d/90-packer-${build_username}
-    # Allow SSH password auth — Ubuntu 24.04 defaults to prohibit-password
-    - sed -i -e 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/g' /target/etc/ssh/sshd_config
+    # Allow SSH password auth for Packer's build connection.
+    # Ubuntu ships /etc/ssh/sshd_config.d/50-cloud-init.conf which sets
+    # PasswordAuthentication no. Because OpenSSH uses first-match-wins and the
+    # Include directive appears at the top of sshd_config, a sed on sshd_config
+    # alone has no effect. Create a lower-numbered drop-in (10 < 50) so it is
+    # processed first and wins.
+    - "echo 'PasswordAuthentication yes' > /target/etc/ssh/sshd_config.d/10-packer-pwauth.conf"
     # Neutralise cloud-init on deployed VMs without disabling its systemd units.
     # cloud-init.disabled breaks network on Ubuntu 24.04 because cloud-init's
     # boot units are in the dependency chain. Instead, datasource_list: [None]
