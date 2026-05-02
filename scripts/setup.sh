@@ -13,30 +13,30 @@ done
 echo "==> Updating package index..."
 apt-get update -y
 
-echo "==> Upgrading installed packages..."
-DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
-  -o Dpkg::Options::="--force-confnew" \
-  -o Dpkg::Options::="--force-confdef"
+# apt-get upgrade intentionally skipped during test builds — re-enable before production
+# DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
+#   -o Dpkg::Options::="--force-confnew" \
+#   -o Dpkg::Options::="--force-confdef"
 
-echo "==> Installing common utilities..."
-DEBIAN_FRONTEND=noninteractive apt-get install -y \
-  curl \
-  wget \
-  vim \
-  git \
-  unzip \
-  net-tools \
-  dnsutils \
-  htop \
-  ca-certificates \
-  gnupg \
-  lsb-release \
-  software-properties-common
+# apt-get install of utilities skipped during test builds — re-enable before production
+# DEBIAN_FRONTEND=noninteractive apt-get install -y \
+#   curl \
+#   wget \
+#   vim \
+#   git \
+#   unzip \
+#   net-tools \
+#   dnsutils \
+#   htop \
+#   ca-certificates \
+#   gnupg \
+#   lsb-release \
+#   software-properties-common
 
-echo "==> Cleaning up apt cache..."
-apt-get autoremove -y
-apt-get clean
-rm -rf /var/lib/apt/lists/*
+# apt-get autoremove/clean skipped during test builds — re-enable before production
+# apt-get autoremove -y
+# apt-get clean
+# rm -rf /var/lib/apt/lists/*
 
 echo "==> Disabling swap..."
 swapoff -a
