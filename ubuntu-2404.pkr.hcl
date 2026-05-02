@@ -239,6 +239,7 @@ build {
     ]
     scripts = [
       "${path.root}/scripts/setup.sh",
+      "${path.root}/scripts/desktop.sh",
       "${path.root}/scripts/vmtools.sh",
     ]
   }
