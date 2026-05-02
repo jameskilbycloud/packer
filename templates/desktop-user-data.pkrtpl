@@ -57,10 +57,13 @@ autoinstall:
   timezone: Europe/London
 
   # ── Packages ──────────────────────────────────────────────────────────────
+  # ubuntu-desktop-minimal removed during testing — its postinst scripts
+  # (snapd seeding, GDM3 D-Bus init) hang the autoinstall in a headless VM.
+  # Restore once the base SSH build is proven. Desktop packages will be
+  # installed via the shell provisioner instead.
   packages:
     - open-vm-tools
-    - open-vm-tools-desktop   # Clipboard / drag-and-drop for GUI sessions
-    - ubuntu-desktop-minimal  # GNOME desktop (use ubuntu-desktop for the full set)
+    - open-vm-tools-desktop
 
   # ── Post-install ──────────────────────────────────────────────────────────
   late-commands:
