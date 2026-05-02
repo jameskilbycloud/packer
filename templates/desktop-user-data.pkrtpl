@@ -20,14 +20,14 @@ autoinstall:
   # Omitting this key does not reliably produce a persistent netplan config
   # on Ubuntu 24.04, leaving the installed OS with no network after reboot.
   #
-  # renderer: NetworkManager is required for desktop builds. ubuntu-desktop-minimal
-  # installs NetworkManager, and without an explicit renderer netplan may route
-  # traffic through networkd instead, causing a conflict that prevents the
-  # interface from coming up cleanly after the first reboot of the installed OS.
+  # NOTE: Do NOT set renderer: NetworkManager here. This config is applied by
+  # the live installer (subiquity) which uses networkd. Specifying NetworkManager
+  # causes 'netplan apply' to fail with exit code 1 during install because
+  # NetworkManager is not running in the live environment → installer crash.
+  # The installed desktop OS manages its own NM config independently.
   network:
     network:
       version: 2
-      renderer: NetworkManager
       ethernets:
         mainif:
           match:
