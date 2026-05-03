@@ -237,11 +237,22 @@ build {
       "ADMIN_USERNAME=${var.admin_username}",
       "ADMIN_GITHUB_USER=${var.admin_github_user}",
     ]
-    scripts = [
-      "${path.root}/scripts/setup.sh",
-      "${path.root}/scripts/desktop.sh",
-      "${path.root}/scripts/vmtools.sh",
-    ]
+    scripts = ["${path.root}/scripts/setup.sh"]
+  }
+
+  # desktop.sh installs ubuntu-desktop-minimal which upgrades systemd.
+  # The systemd postinst runs daemon-reexec, killing the SSH session (exit 2300218).
+  # Isolate this provisioner and mark 2300218 as a valid exit so Packer
+  # reconnects cleanly for the vmtools step rather than treating it as a failure.
+  provisioner "shell" {
+    execute_command  = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    valid_exit_codes = [0, 2300218]
+    scripts          = ["${path.root}/scripts/desktop.sh"]
+  }
+
+  provisioner "shell" {
+    execute_command = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    scripts         = ["${path.root}/scripts/vmtools.sh"]
   }
 
   post-processor "manifest" {

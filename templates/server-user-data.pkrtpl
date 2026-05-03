@@ -78,6 +78,10 @@ autoinstall:
     # still letting its units complete — network comes up normally via netplan.
     - mkdir -p /target/etc/cloud/cloud.cfg.d
     - "echo 'datasource_list: [ None ]' > /target/etc/cloud/cloud.cfg.d/99-packer.cfg"
+    # Ensure UFW is not blocking SSH. Ubuntu 26.04 server enables UFW by default
+    # which blocks port 22, causing Packer to get ECONNREFUSED on the installed OS.
+    # The template is a build artifact — firewall posture should be applied post-clone.
+    - curtin in-target --target=/target -- bash -c 'command -v ufw && ufw disable || true'
 
   # 'updates' key intentionally omitted — valid values are 'security' and 'all'.
   # Omitting skips the in-install update pass; setup.sh runs apt-get upgrade -y
