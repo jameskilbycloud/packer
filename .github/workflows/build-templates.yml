@@ -52,7 +52,7 @@ jobs:
   # ── Resolve which builds to run based on the trigger / input ────────────────
   resolve-targets:
     name: Resolve build targets
-    runs-on: ubuntu-latest   # lightweight — just resolves the matrix
+    runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       dry_run: ${{ steps.set-dry-run.outputs.dry_run }}
