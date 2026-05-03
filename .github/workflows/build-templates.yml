@@ -407,6 +407,52 @@ jobs:
           path: manifests/ubuntu-${{ matrix.build }}.json
           retention-days: 90
 
+      # ── Slack notifications ──────────────────────────────────────────────────
+      - name: Notify Slack — success
+        if: success() && needs.resolve-targets.outputs.dry_run == 'false'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          curl -fsSL -X POST "${SLACK_WEBHOOK_URL}" \
+            -H 'Content-Type: application/json' \
+            -d "{
+              \"text\": \"✅ *Packer build succeeded* — \`ubuntu-${{ matrix.build }}\`\",
+              \"attachments\": [{
+                \"color\": \"good\",
+                \"fields\": [
+                  { \"title\": \"Template\",    \"value\": \"ubuntu-${{ matrix.build }}\", \"short\": true },
+                  { \"title\": \"Triggered by\", \"value\": \"${{ github.actor }}\",         \"short\": true },
+                  { \"title\": \"Run\",
+                    \"value\": \"<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|#${{ github.run_number }}>\",
+                    \"short\": true }
+                ]
+              }]
+            }"
+
+      - name: Notify Slack — failure
+        if: (failure() || cancelled()) && env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          EMOJI="❌"
+          [[ "${JOB_STATUS}" == "cancelled" ]] && EMOJI="⚠️"
+          curl -fsSL -X POST "${SLACK_WEBHOOK_URL}" \
+            -H 'Content-Type: application/json' \
+            -d "{
+              \"text\": \"${EMOJI} *Packer build ${JOB_STATUS}* — \`ubuntu-${{ matrix.build }}\`\",
+              \"attachments\": [{
+                \"color\": \"danger\",
+                \"fields\": [
+                  { \"title\": \"Template\",    \"value\": \"ubuntu-${{ matrix.build }}\", \"short\": true },
+                  { \"title\": \"Triggered by\", \"value\": \"${{ github.actor }}\",         \"short\": true },
+                  { \"title\": \"Run\",
+                    \"value\": \"<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|#${{ github.run_number }}>\",
+                    \"short\": true }
+                ]
+              }]
+            }"
+
       # ── Always clean up credentials ──────────────────────────────────────────
       - name: Remove variables file
         if: always()
