@@ -413,6 +413,7 @@ jobs:
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
+          [[ -z "${SLACK_WEBHOOK_URL}" ]] && { echo "SLACK_WEBHOOK_URL not set — skipping."; exit 0; }
           curl -fsSL -X POST "${SLACK_WEBHOOK_URL}" \
             -H 'Content-Type: application/json' \
             -d "{
@@ -430,11 +431,12 @@ jobs:
             }"
 
       - name: Notify Slack — failure
-        if: (failure() || cancelled()) && env.SLACK_WEBHOOK_URL != ''
+        if: failure() || cancelled()
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           JOB_STATUS: ${{ job.status }}
         run: |
+          [[ -z "${SLACK_WEBHOOK_URL}" ]] && { echo "SLACK_WEBHOOK_URL not set — skipping."; exit 0; }
           EMOJI="❌"
           [[ "${JOB_STATUS}" == "cancelled" ]] && EMOJI="⚠️"
           curl -fsSL -X POST "${SLACK_WEBHOOK_URL}" \
