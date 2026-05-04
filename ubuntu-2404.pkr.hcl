@@ -242,12 +242,14 @@ build {
 
   # desktop.sh installs ubuntu-desktop-minimal which upgrades systemd.
   # The systemd postinst runs daemon-reexec, killing the SSH session (exit 2300218).
-  # Isolate this provisioner and mark 2300218 as a valid exit so Packer
+  # expect_disconnect=true tells Packer the disconnect is intentional so it
   # reconnects cleanly for the vmtools step rather than treating it as a failure.
+  # valid_exit_codes kept as belt-and-suspenders for versions that honour it.
   provisioner "shell" {
-    execute_command  = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
-    valid_exit_codes = [0, 2300218]
-    scripts          = ["${path.root}/scripts/desktop.sh"]
+    execute_command   = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    expect_disconnect = true
+    valid_exit_codes  = [0, 2300218]
+    scripts           = ["${path.root}/scripts/desktop.sh"]
   }
 
   provisioner "shell" {
