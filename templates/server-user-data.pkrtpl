@@ -80,15 +80,12 @@ autoinstall:
     - "echo 'datasource_list: [ None ]' > /target/etc/cloud/cloud.cfg.d/99-packer.cfg"
     # Ensure UFW is not blocking SSH. Ubuntu 26.04 server enables UFW by default
     # which blocks port 22, causing Packer to get ECONNREFUSED on the installed OS.
-    # We edit /etc/ufw/ufw.conf directly rather than running 'ufw disable' because
-    # ufw disable needs live iptables/nftables access which fails silently in a
-    # curtin chroot. Writing ENABLED=no to the config achieves the same effect and
-    # survives the reboot. The template is a build artifact — firewall posture
-    # should be applied post-clone.
-    - "test -f /target/etc/ufw/ufw.conf && sed -i 's/^ENABLED=yes/ENABLED=no/' /target/etc/ufw/ufw.conf || true"
-    # Belt-and-suspenders: explicitly enable SSH so it starts on the next boot
-    # even if autoinstall's systemd enable step was skipped (Ubuntu 26.04 change).
-    - curtin in-target --target=/target -- systemctl enable ssh 2>/dev/null || true
+    # The template is a build artifact — firewall posture should be applied post-clone.
+    # NOTE: do NOT call 'systemctl enable ssh' here via curtin in-target. On Ubuntu
+    # 26.04, systemctl in a chroot tries to communicate with D-Bus and deadlocks
+    # indefinitely, preventing the installer from ever reaching 'shutdown: reboot'.
+    # ssh: install-server: true already enables the service via subiquity's SSH module.
+    - curtin in-target --target=/target -- bash -c 'command -v ufw && ufw disable || true'
 
   # 'updates' key intentionally omitted — valid values are 'security' and 'all'.
   # Omitting skips the in-install update pass; setup.sh runs apt-get upgrade -y
