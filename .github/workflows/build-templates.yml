@@ -348,6 +348,7 @@ jobs:
             -only="*.vsphere-iso.ubuntu-${{ matrix.build }}" \
             -on-error=cleanup \
             -timestamp-ui \
+            -force \
             .
 
       # ── Destroy orphaned VM on failure or cancellation ───────────────────────
