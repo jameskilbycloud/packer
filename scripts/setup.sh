@@ -13,30 +13,30 @@ done
 echo "==> Updating package index..."
 apt-get update -y
 
-# apt-get upgrade intentionally skipped during test builds — re-enable before production
-# DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
-#   -o Dpkg::Options::="--force-confnew" \
-#   -o Dpkg::Options::="--force-confdef"
+echo "==> Upgrading installed packages..."
+DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
+  -o Dpkg::Options::="--force-confnew" \
+  -o Dpkg::Options::="--force-confdef"
 
-# apt-get install of utilities skipped during test builds — re-enable before production
-# DEBIAN_FRONTEND=noninteractive apt-get install -y \
-#   curl \
-#   wget \
-#   vim \
-#   git \
-#   unzip \
-#   net-tools \
-#   dnsutils \
-#   htop \
-#   ca-certificates \
-#   gnupg \
-#   lsb-release \
-#   software-properties-common
+echo "==> Installing common utilities..."
+DEBIAN_FRONTEND=noninteractive apt-get install -y \
+  curl \
+  wget \
+  vim \
+  git \
+  unzip \
+  net-tools \
+  dnsutils \
+  htop \
+  ca-certificates \
+  gnupg \
+  lsb-release \
+  software-properties-common
 
-# apt-get autoremove/clean skipped during test builds — re-enable before production
-# apt-get autoremove -y
-# apt-get clean
-# rm -rf /var/lib/apt/lists/*
+echo "==> Cleaning up package cache..."
+apt-get autoremove -y
+apt-get clean
+rm -rf /var/lib/apt/lists/*
 
 echo "==> Disabling swap..."
 swapoff -a
@@ -54,17 +54,11 @@ sysctl --system
 
 echo "==> Removing SSH host keys (will be regenerated on first boot of each clone)..."
 rm -f /etc/ssh/ssh_host_*
-
-echo "==> Configuring SSH to regenerate host keys on first boot..."
-cat > /etc/rc.local << 'RCEOF'
-#!/bin/bash
-# Regenerate SSH host keys on first boot (after template clone)
-if [ ! -f /etc/ssh/ssh_host_rsa_key ]; then
-  dpkg-reconfigure openssh-server
-fi
-exit 0
-RCEOF
-chmod +x /etc/rc.local
+# On Ubuntu 22.04+, openssh-server's ssh-keygen@.service template units are
+# Wanted by ssh.service. They carry ConditionPathExists=!/etc/ssh/ssh_host_%i_key
+# so they regenerate any missing key type before sshd starts — no rc.local needed.
+# On Ubuntu 20.04 and earlier the same behaviour is provided by the openssh-server
+# postinst/init script. In both cases no custom key-regen hook is required.
 
 echo "==> Hardening SSH configuration..."
 cat >> /etc/ssh/sshd_config.d/99-packer-hardening.conf << 'EOF'
@@ -85,9 +79,8 @@ if [[ -n "${ADMIN_USERNAME:-}" ]]; then
   fi
 
   if [[ -n "${ADMIN_GITHUB_USER:-}" ]]; then
-    # ssh-import-id-gh skipped during test builds — re-enable before production
-    echo "==> Skipping SSH key import from GitHub (test build)."
-    # sudo -u "${ADMIN_USERNAME}" ssh-import-id-gh "${ADMIN_GITHUB_USER}"
+    echo "==> Importing SSH keys from GitHub for ${ADMIN_GITHUB_USER}..."
+    sudo -u "${ADMIN_USERNAME}" ssh-import-id-gh "${ADMIN_GITHUB_USER}"
   else
     echo "==> ADMIN_GITHUB_USER not set — skipping SSH key import."
   fi
@@ -95,10 +88,9 @@ else
   echo "==> ADMIN_USERNAME not set — skipping admin user creation."
 fi
 
-# Disk zeroing skipped during test builds — re-enable before production
-# echo "==> Zeroing free space for better template compression..."
-# dd if=/dev/zero of=/tmp/zero.fill bs=4M || true
-# rm -f /tmp/zero.fill
-# sync
+echo "==> Zeroing free space for better template compression..."
+dd if=/dev/zero of=/tmp/zero.fill bs=4M || true
+rm -f /tmp/zero.fill
+sync
 
 echo "==> setup.sh complete."

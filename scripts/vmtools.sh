@@ -32,7 +32,7 @@ if dpkg -l gdm3 2>/dev/null | grep -q '^ii'; then
 fi
 
 echo "==> Enabling and starting open-vm-tools service..."
-systemctl enable open-vm-tools
+systemctl enable open-vm-tools || true
 systemctl start open-vm-tools || true
 
 echo "==> Verifying vmtoolsd is running..."

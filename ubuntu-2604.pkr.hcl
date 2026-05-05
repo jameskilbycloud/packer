@@ -66,6 +66,7 @@ source "vsphere-iso" "ubuntu-2604-server" {
       vm_hostname              = "ubuntu-2604-server"
       build_username           = var.build_username
       build_password_encrypted = var.build_password_encrypted
+      timezone                 = var.timezone
     })
   }
   cd_label = "cidata"
@@ -163,6 +164,7 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
       vm_hostname              = "ubuntu-2604-desktop"
       build_username           = var.build_username
       build_password_encrypted = var.build_password_encrypted
+      timezone                 = var.timezone
     })
   }
   cd_label = "cidata"

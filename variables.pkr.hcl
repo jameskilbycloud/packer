@@ -159,6 +159,16 @@ variable "admin_github_user" {
 }
 
 # =============================================================================
+# OS Configuration
+# =============================================================================
+
+variable "timezone" {
+  type        = string
+  description = "Timezone to configure in the installed OS (e.g. Europe/London, America/New_York)"
+  default     = "Europe/London"
+}
+
+# =============================================================================
 # ISO Paths (relative to vsphere_iso_datastore)
 # =============================================================================
 

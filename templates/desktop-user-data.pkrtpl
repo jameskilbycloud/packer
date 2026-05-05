@@ -61,7 +61,7 @@ autoinstall:
     authorized-keys: []
 
   # ── Timezone ──────────────────────────────────────────────────────────────
-  timezone: Europe/London
+  timezone: ${timezone}
 
   # ── Packages ──────────────────────────────────────────────────────────────
   # Only plain open-vm-tools here. open-vm-tools-desktop and ubuntu-desktop-minimal
@@ -77,11 +77,14 @@ autoinstall:
     - echo '${build_username} ALL=(ALL) NOPASSWD:ALL' > /target/etc/sudoers.d/90-packer-${build_username}
     - chmod 440 /target/etc/sudoers.d/90-packer-${build_username}
     # Allow SSH password auth for Packer's build connection.
-    # Ubuntu 26.04 ships /etc/ssh/sshd_config.d/50-cloud-init.conf which sets
+    # Ubuntu ships /etc/ssh/sshd_config.d/50-cloud-init.conf which sets
     # PasswordAuthentication no. Because OpenSSH uses first-match-wins and the
     # Include directive appears at the top of sshd_config, a sed on sshd_config
     # alone has no effect. Create a lower-numbered drop-in (10 < 50) so it is
     # processed first and wins.
+    # mkdir -p guards against the unlikely case where openssh-server's postinst
+    # has not yet created the sshd_config.d directory.
+    - mkdir -p /target/etc/ssh/sshd_config.d
     - "echo 'PasswordAuthentication yes' > /target/etc/ssh/sshd_config.d/10-packer-pwauth.conf"
     # Neutralise cloud-init on deployed VMs without disabling its systemd units.
     # cloud-init.disabled breaks network on Ubuntu 24.04 because cloud-init's

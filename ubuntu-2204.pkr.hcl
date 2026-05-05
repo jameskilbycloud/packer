@@ -65,6 +65,7 @@ source "vsphere-iso" "ubuntu-2204-server" {
       vm_hostname              = "ubuntu-2204-server"
       build_username           = var.build_username
       build_password_encrypted = var.build_password_encrypted
+      timezone                 = var.timezone
     })
   }
   cd_label = "cidata"
@@ -161,6 +162,7 @@ source "vsphere-iso" "ubuntu-2204-desktop" {
       vm_hostname              = "ubuntu-2204-desktop"
       build_username           = var.build_username
       build_password_encrypted = var.build_password_encrypted
+      timezone                 = var.timezone
     })
   }
   cd_label = "cidata"
