@@ -41,7 +41,11 @@ on:
   # workflow_dispatch to trigger a deliberate build.
 
 # ── Concurrency ───────────────────────────────────────────────────────────────
-# Prevent multiple builds running simultaneously (vSphere resource constraint).
+# Workflow-level serialisation — only one Packer build run at a time. Inside a
+# single run, parallelism happens at the Packer level (one `build {}` block
+# with multiple sources + `-parallel-builds=N`), not via the matrix. Using a
+# workflow-level concurrency group means a second `workflow_dispatch` queues
+# instead of stomping on an in-flight build.
 concurrency:
   group: packer-build
   cancel-in-progress: false   # queue rather than cancel — don't orphan VMs
@@ -78,32 +82,61 @@ jobs:
             TARGET="all"
           fi
 
+          # Each matrix entry has:
+          #   version  — Ubuntu major version (used for VM-name globs, manifest
+          #              filename, log filename, friendly Slack name).
+          #   only     — Packer `-only` glob. For combined builds, use the
+          #              build name `ubuntu-XXXX.*` so both sources run; for
+          #              single-target builds, name the source explicitly.
+          #   parallel — value for `-parallel-builds`. 2 for combined (server
+          #              + desktop together), 1 for single-target (no need to
+          #              spawn a second worker).
+          #   label    — short human label for log/manifest artifact names.
           case "${TARGET}" in
-            2204-server)  BUILDS='["2204-server"]' ;;
-            2204-desktop) BUILDS='["2204-desktop"]' ;;
-            2404-server)  BUILDS='["2404-server"]' ;;
-            2404-desktop) BUILDS='["2404-desktop"]' ;;
-            2604-server)  BUILDS='["2604-server"]' ;;
-            2604-desktop) BUILDS='["2604-desktop"]' ;;
-            all-servers)  BUILDS='["2204-server","2404-server","2604-server"]' ;;
-            all-desktops) BUILDS='["2204-desktop","2404-desktop","2604-desktop"]' ;;
-            all)          BUILDS='["2204-server","2204-desktop","2404-server","2404-desktop","2604-server","2604-desktop"]' ;;
-            *)            BUILDS='["2404-server"]' ;;
+            2204-server)  BUILDS='[{"version":"2204","label":"2204-server", "only":"ubuntu-2204.vsphere-iso.ubuntu-2204-server", "parallel":1}]' ;;
+            2204-desktop) BUILDS='[{"version":"2204","label":"2204-desktop","only":"ubuntu-2204.vsphere-iso.ubuntu-2204-desktop","parallel":1}]' ;;
+            2404-server)  BUILDS='[{"version":"2404","label":"2404-server", "only":"ubuntu-2404.vsphere-iso.ubuntu-2404-server", "parallel":1}]' ;;
+            2404-desktop) BUILDS='[{"version":"2404","label":"2404-desktop","only":"ubuntu-2404.vsphere-iso.ubuntu-2404-desktop","parallel":1}]' ;;
+            2604-server)  BUILDS='[{"version":"2604","label":"2604-server", "only":"ubuntu-2604.vsphere-iso.ubuntu-2604-server", "parallel":1}]' ;;
+            2604-desktop) BUILDS='[{"version":"2604","label":"2604-desktop","only":"ubuntu-2604.vsphere-iso.ubuntu-2604-desktop","parallel":1}]' ;;
+            all-servers)  BUILDS='[
+                            {"version":"2204","label":"2204-server","only":"ubuntu-2204.vsphere-iso.ubuntu-2204-server","parallel":1},
+                            {"version":"2404","label":"2404-server","only":"ubuntu-2404.vsphere-iso.ubuntu-2404-server","parallel":1},
+                            {"version":"2604","label":"2604-server","only":"ubuntu-2604.vsphere-iso.ubuntu-2604-server","parallel":1}
+                          ]' ;;
+            all-desktops) BUILDS='[
+                            {"version":"2204","label":"2204-desktop","only":"ubuntu-2204.vsphere-iso.ubuntu-2204-desktop","parallel":1},
+                            {"version":"2404","label":"2404-desktop","only":"ubuntu-2404.vsphere-iso.ubuntu-2404-desktop","parallel":1},
+                            {"version":"2604","label":"2604-desktop","only":"ubuntu-2604.vsphere-iso.ubuntu-2604-desktop","parallel":1}
+                          ]' ;;
+            all)          BUILDS='[
+                            {"version":"2204","label":"2204","only":"ubuntu-2204.*","parallel":2},
+                            {"version":"2404","label":"2404","only":"ubuntu-2404.*","parallel":2},
+                            {"version":"2604","label":"2604","only":"ubuntu-2604.*","parallel":2}
+                          ]' ;;
+            *)            BUILDS='[{"version":"2404","label":"2404-server","only":"ubuntu-2404.vsphere-iso.ubuntu-2404-server","parallel":1}]' ;;
           esac
 
-          echo "matrix={\"build\":${BUILDS}}" >> "$GITHUB_OUTPUT"
-          echo "Resolved targets: ${BUILDS}"
+          # Collapse multi-line JSON onto one line so GitHub-Actions parses it.
+          BUILDS_ONELINE=$(echo "${BUILDS}" | tr -d '\n' | tr -s ' ')
+          echo "matrix={\"include\":${BUILDS_ONELINE}}" >> "$GITHUB_OUTPUT"
+          echo "Resolved targets: ${BUILDS_ONELINE}"
 
-  # ── Packer build (one job per template) ─────────────────────────────────────
+  # ── Packer build (one job per matrix entry) ─────────────────────────────────
+  # For "all" builds, each matrix entry covers a whole Ubuntu version (server +
+  # desktop) and Packer runs both sources in parallel inside that one job. For
+  # single-target inputs (e.g. "2404-server") the matrix entry has parallel=1
+  # and `only` names just one source.
   build:
-    name: Build ${{ matrix.build }}
+    name: Build ubuntu-${{ matrix.label }}
     needs: resolve-targets
     runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
-    timeout-minutes: 180              # desktop builds: ~65 min install + 75 min settle + provisioners
+    timeout-minutes: 240              # combined builds: server (~90m) and desktop (~140m) run in parallel — wall-clock ~140m + buffer
 
     strategy:
       matrix: ${{ fromJson(needs.resolve-targets.outputs.matrix) }}
-      fail-fast: false   # let other builds continue if one fails
+      fail-fast: false   # let other matrix entries continue if one fails
+      max-parallel: 1    # one Packer process per runner — vSphere parallelism is inside the process
 
     steps:
       - name: Checkout
@@ -221,7 +254,7 @@ jobs:
           GOVC_DATACENTER: ${{ secrets.VSPHERE_DATACENTER }}
           LIB_DATASTORE:   ${{ secrets.VSPHERE_ISO_LIBRARY_DATASTORE }}
           CONTENT_LIBRARY: ${{ vars.CONTENT_LIBRARY || 'Packer-ISOs' }}
-          MATRIX_BUILD:    ${{ matrix.build }}
+          MATRIX_VERSION:  ${{ matrix.version }}
         run: |
           declare -A ISO_ITEMS=(
             [2204]="ubuntu-22.04.5-live-server-amd64.iso"
@@ -285,10 +318,9 @@ jobs:
             fi
           done
 
-          # Fail fast if the ISO for this matrix build is missing
-          ver="${MATRIX_BUILD%%-*}"
-          if [[ -n "${ISO_ITEMS[$ver]:-}" && -z "${RESOLVED[$ver]:-}" ]]; then
-            echo "❌ ${ISO_ITEMS[$ver]} not found — run the upload-isos workflow first"
+          # Fail fast if the ISO for this matrix entry's version is missing
+          if [[ -n "${ISO_ITEMS[$MATRIX_VERSION]:-}" && -z "${RESOLVED[$MATRIX_VERSION]:-}" ]]; then
+            echo "❌ ${ISO_ITEMS[$MATRIX_VERSION]} not found — run the upload-isos workflow first"
             exit 1
           fi
 
@@ -332,20 +364,24 @@ jobs:
         run: |
           packer validate \
             -var-file=runner.pkrvars.hcl \
-            -only="*.vsphere-iso.ubuntu-${{ matrix.build }}" \
+            -only="${{ matrix.only }}" \
             .
 
       # ── Build ────────────────────────────────────────────────────────────────
+      # `-parallel-builds` controls how many sources Packer builds simultaneously
+      # within this single Packer process. For combined "all" runs it's 2 (server
+      # + desktop together); for single-target runs it's 1.
       - name: Packer build
         if: needs.resolve-targets.outputs.dry_run == 'false'
         env:
           PACKER_LOG: 1
-          PACKER_LOG_PATH: packer-${{ matrix.build }}.log
+          PACKER_LOG_PATH: packer-${{ matrix.label }}.log
           TMPDIR: /var/tmp   # /tmp is a small tmpfs; Packer writes CD images here
         run: |
           packer build \
             -var-file=runner.pkrvars.hcl \
-            -only="*.vsphere-iso.ubuntu-${{ matrix.build }}" \
+            -only="${{ matrix.only }}" \
+            -parallel-builds="${{ matrix.parallel }}" \
             -on-error=cleanup \
             -timestamp-ui \
             -force \
@@ -364,9 +400,12 @@ jobs:
           GOVC_PASSWORD:   ${{ secrets.VSPHERE_PASSWORD }}
           GOVC_INSECURE:   ${{ secrets.VSPHERE_INSECURE || 'false' }}
           GOVC_DATACENTER: ${{ secrets.VSPHERE_DATACENTER }}
-          MATRIX_BUILD:    ${{ matrix.build }}
+          MATRIX_LABEL:    ${{ matrix.label }}
         run: |
-          NAME_PATTERN="ubuntu-${MATRIX_BUILD}-*"
+          # MATRIX_LABEL is "2204" for combined builds (matches both server &
+          # desktop VMs) or "2204-server" / "2204-desktop" for single-target.
+          # The trailing "-*" matches the build_date suffix on VM names.
+          NAME_PATTERN="ubuntu-${MATRIX_LABEL}-*"
           echo "Searching for orphaned VMs matching: ${NAME_PATTERN}"
 
           vms=$(govc find . -type m -name "${NAME_PATTERN}" 2>/dev/null || true)
@@ -396,16 +435,18 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: packer-log-${{ matrix.build }}-${{ github.run_number }}
-          path: packer-${{ matrix.build }}.log
+          name: packer-log-${{ matrix.label }}-${{ github.run_number }}
+          path: packer-${{ matrix.label }}.log
           retention-days: 30
 
+      # The manifest filename is keyed on the version (one manifest per
+      # `build {}` block), even when only one source ran.
       - name: Upload build manifest
         if: success() && needs.resolve-targets.outputs.dry_run == 'false'
         uses: actions/upload-artifact@v4
         with:
-          name: manifest-${{ matrix.build }}-${{ github.run_number }}
-          path: manifests/ubuntu-${{ matrix.build }}.json
+          name: manifest-${{ matrix.label }}-${{ github.run_number }}
+          path: manifests/ubuntu-${{ matrix.version }}.json
           retention-days: 90
 
       # ── Slack notifications ──────────────────────────────────────────────────
@@ -418,11 +459,11 @@ jobs:
           curl -fsSL -X POST "${SLACK_WEBHOOK_URL}" \
             -H 'Content-Type: application/json' \
             -d "{
-              \"text\": \"✅ *Packer build succeeded* — \`ubuntu-${{ matrix.build }}\`\",
+              \"text\": \"✅ *Packer build succeeded* — \`ubuntu-${{ matrix.label }}\`\",
               \"attachments\": [{
                 \"color\": \"good\",
                 \"fields\": [
-                  { \"title\": \"Template\",    \"value\": \"ubuntu-${{ matrix.build }}\", \"short\": true },
+                  { \"title\": \"Template\",    \"value\": \"ubuntu-${{ matrix.label }}\", \"short\": true },
                   { \"title\": \"Triggered by\", \"value\": \"${{ github.actor }}\",         \"short\": true },
                   { \"title\": \"Run\",
                     \"value\": \"<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|#${{ github.run_number }}>\",
@@ -443,11 +484,11 @@ jobs:
           curl -fsSL -X POST "${SLACK_WEBHOOK_URL}" \
             -H 'Content-Type: application/json' \
             -d "{
-              \"text\": \"${EMOJI} *Packer build ${JOB_STATUS}* — \`ubuntu-${{ matrix.build }}\`\",
+              \"text\": \"${EMOJI} *Packer build ${JOB_STATUS}* — \`ubuntu-${{ matrix.label }}\`\",
               \"attachments\": [{
                 \"color\": \"danger\",
                 \"fields\": [
-                  { \"title\": \"Template\",    \"value\": \"ubuntu-${{ matrix.build }}\", \"short\": true },
+                  { \"title\": \"Template\",    \"value\": \"ubuntu-${{ matrix.label }}\", \"short\": true },
                   { \"title\": \"Triggered by\", \"value\": \"${{ github.actor }}\",         \"short\": true },
                   { \"title\": \"Run\",
                     \"value\": \"<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|#${{ github.run_number }}>\",

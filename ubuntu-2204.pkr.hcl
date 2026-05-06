@@ -1,9 +1,16 @@
 # =============================================================================
 # Ubuntu 22.04 LTS (Jammy Jellyfish) — Server & Desktop
 # =============================================================================
-# Run a single build (glob required — build label prefix varies):
-#   packer build -var-file=variables.pkrvars.hcl -only='*.vsphere-iso.ubuntu-2204-server' .
-#   packer build -var-file=variables.pkrvars.hcl -only='*.vsphere-iso.ubuntu-2204-desktop' .
+# Server + desktop are defined as two sources inside a single `build {}` block,
+# which lets Packer run them in parallel from one runner. Cap concurrency with
+# `-parallel-builds=N` so vSphere isn't overwhelmed.
+#
+# Run server + desktop in parallel (one Packer process):
+#   packer build -var-file=variables.pkrvars.hcl -parallel-builds=2 -only='ubuntu-2204.*' .
+#
+# Run a single source:
+#   packer build -var-file=variables.pkrvars.hcl -only='ubuntu-2204.vsphere-iso.ubuntu-2204-server'  .
+#   packer build -var-file=variables.pkrvars.hcl -only='ubuntu-2204.vsphere-iso.ubuntu-2204-desktop' .
 # =============================================================================
 
 # ── Ubuntu 22.04 Server ───────────────────────────────────────────────────────
@@ -204,13 +211,22 @@ source "vsphere-iso" "ubuntu-2204-desktop" {
   convert_to_template = true
 }
 
-# ── Builds ────────────────────────────────────────────────────────────────────
+# ── Build ─────────────────────────────────────────────────────────────────────
+# Single build with both sources. Packer runs them in parallel when invoked
+# with `-parallel-builds=N` (N>=2). Provisioners that only apply to one source
+# are scoped with `only = [...]`. Provisioners without `only` apply to every
+# source in the build.
 
 build {
-  name    = "ubuntu-2204-server"
-  sources = ["source.vsphere-iso.ubuntu-2204-server"]
+  name = "ubuntu-2204"
+  sources = [
+    "source.vsphere-iso.ubuntu-2204-server",
+    "source.vsphere-iso.ubuntu-2204-desktop",
+  ]
 
+  # Server: setup.sh + vmtools.sh in one provisioner step.
   provisioner "shell" {
+    only            = ["vsphere-iso.ubuntu-2204-server"]
     execute_command = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
     environment_vars = [
       "ADMIN_USERNAME=${var.admin_username}",
@@ -222,17 +238,9 @@ build {
     ]
   }
 
-  post-processor "manifest" {
-    output     = "${path.root}/manifests/ubuntu-2204-server.json"
-    strip_path = true
-  }
-}
-
-build {
-  name    = "ubuntu-2204-desktop"
-  sources = ["source.vsphere-iso.ubuntu-2204-desktop"]
-
+  # Desktop: setup.sh first.
   provisioner "shell" {
+    only            = ["vsphere-iso.ubuntu-2204-desktop"]
     execute_command = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
     environment_vars = [
       "ADMIN_USERNAME=${var.admin_username}",
@@ -241,25 +249,29 @@ build {
     scripts = ["${path.root}/scripts/setup.sh"]
   }
 
-  # desktop.sh installs ubuntu-desktop-minimal which upgrades systemd.
+  # Desktop: desktop.sh installs ubuntu-desktop-minimal which upgrades systemd.
   # The systemd postinst runs daemon-reexec, killing the SSH session (exit 2300218).
   # expect_disconnect=true tells Packer the disconnect is intentional so it
   # reconnects cleanly for the vmtools step rather than treating it as a failure.
   # valid_exit_codes kept as belt-and-suspenders for versions that honour it.
   provisioner "shell" {
+    only              = ["vsphere-iso.ubuntu-2204-desktop"]
     execute_command   = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
     expect_disconnect = true
     valid_exit_codes  = [0, 2300218]
     scripts           = ["${path.root}/scripts/desktop.sh"]
   }
 
+  # Desktop: vmtools.sh after the desktop install completes.
   provisioner "shell" {
+    only            = ["vsphere-iso.ubuntu-2204-desktop"]
     execute_command = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
     scripts         = ["${path.root}/scripts/vmtools.sh"]
   }
 
+  # One manifest covers both sources (entries appear in builds[]).
   post-processor "manifest" {
-    output     = "${path.root}/manifests/ubuntu-2204-desktop.json"
+    output     = "${path.root}/manifests/ubuntu-2204.json"
     strip_path = true
   }
 }
