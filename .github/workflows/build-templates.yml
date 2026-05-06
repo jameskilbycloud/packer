@@ -112,8 +112,13 @@ jobs:
             all)          BUILDS='[
                             {"version":"2204","label":"2204","only":"ubuntu-2204.*","parallel":2},
                             {"version":"2404","label":"2404","only":"ubuntu-2404.*","parallel":2},
-                            {"version":"2604","label":"2604","only":"ubuntu-2604.*","parallel":2}
+                            {"version":"2604","label":"2604","only":"ubuntu-2604.*","parallel":1}
                           ]' ;;
+                          # NOTE: 2604 uses parallel=1 (sequential server then desktop) because
+                          # Ubuntu 26.04 installs are heavier than 22.04/24.04. Running both
+                          # simultaneously on a single ESXi host causes resource contention severe
+                          # enough that neither install completes within the SSH timeout windows.
+                          # Sequential adds ~23m (server) but makes both builds reliable.
             *)            BUILDS='[{"version":"2404","label":"2404-server","only":"ubuntu-2404.vsphere-iso.ubuntu-2404-server","parallel":1}]' ;;
           esac
 
