@@ -14,10 +14,14 @@ while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
   sleep 2
 done
 
+# setup.sh cleans /var/lib/apt/lists/* at the end — refresh before installing.
+echo "==> Updating package index..."
+apt-get update -y
+
 echo "==> Installing desktop packages..."
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
-  open-vm-tools-desktop \
-  ubuntu-desktop-minimal
+  ubuntu-desktop-minimal \
+  open-vm-tools-desktop
 
 echo "==> Disabling snapd auto-refresh (template should not auto-update)..."
 snap set system refresh.hold="$(date --date='today + 60 days' +%Y-%m-%dT%H:%M:%S+00:00)" 2>/dev/null || true

@@ -54,11 +54,37 @@ sysctl --system
 
 echo "==> Removing SSH host keys (will be regenerated on first boot of each clone)..."
 rm -f /etc/ssh/ssh_host_*
-# On Ubuntu 22.04+, openssh-server's ssh-keygen@.service template units are
-# Wanted by ssh.service. They carry ConditionPathExists=!/etc/ssh/ssh_host_%i_key
-# so they regenerate any missing key type before sshd starts — no rc.local needed.
-# On Ubuntu 20.04 and earlier the same behaviour is provided by the openssh-server
-# postinst/init script. In both cases no custom key-regen hook is required.
+
+# Install a oneshot systemd service to regenerate SSH host keys on the first boot
+# after a VM is cloned from this template.
+#
+# WHY NOT rely on ssh-keygen@.service:
+#   ssh-keygen@.service is Wanted= by ssh.service (the persistent daemon).
+#   On Ubuntu 22.04+ with socket activation, ssh.service is never started —
+#   ssh.socket listens on :22 and spawns per-connection ssh@.service instances.
+#   Because ssh.service is not running, ssh-keygen@.service is never triggered,
+#   and cloned VMs have no host keys → sshd refuses all connections.
+#
+# This oneshot service runs before ssh.socket AND ssh.service, covers both
+# socket-activated and traditional sshd configurations, and disables itself
+# after the first successful run so subsequent boots are unaffected.
+echo "==> Installing SSH host key regeneration service for cloned VMs..."
+cat > /etc/systemd/system/ssh-host-keygen.service << 'UNIT'
+[Unit]
+Description=Regenerate SSH host keys on first boot after cloning
+DefaultDependencies=no
+Before=ssh.socket ssh.service sshd.service network.target
+ConditionPathExists=!/etc/ssh/ssh_host_rsa_key
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ssh-keygen -A
+ExecStartPost=/bin/systemctl disable ssh-host-keygen.service
+
+[Install]
+WantedBy=sysinit.target
+UNIT
+systemctl enable ssh-host-keygen.service
 
 echo "==> Hardening SSH configuration..."
 cat >> /etc/ssh/sshd_config.d/99-packer-hardening.conf << 'EOF'
