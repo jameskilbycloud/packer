@@ -93,10 +93,19 @@ autoinstall:
     # still letting its units complete — network comes up normally via netplan.
     - mkdir -p /target/etc/cloud/cloud.cfg.d
     - "echo 'datasource_list: [ None ]' > /target/etc/cloud/cloud.cfg.d/99-packer.cfg"
-    # Ensure UFW is not blocking SSH. ubuntu-desktop-minimal can pull in ufw
-    # or ubuntu-desktop-minimal-default-settings may enable it. The template
-    # is a build artifact — any firewall posture should be applied post-clone.
-    - curtin in-target --target=/target -- bash -c 'command -v ufw && ufw disable || true'
+    # Ensure UFW is not blocking SSH. The template is a build artifact —
+    # firewall posture should be applied post-clone.
+    #
+    # NOTE: do NOT call `ufw disable` via curtin in-target. ufw calls systemctl
+    # inside the chroot, which tries to talk to D-Bus and deadlocks indefinitely
+    # on Ubuntu 26.04, preventing the installer from ever reaching shutdown: reboot.
+    # Instead edit /etc/ufw/ufw.conf directly and mask the unit by symlinking to
+    # /dev/null — the systemd-native equivalent of `systemctl mask` with no
+    # systemctl invocation required.
+    - mkdir -p /target/etc/ufw
+    - "if [ -f /target/etc/ufw/ufw.conf ]; then sed -i 's/^ENABLED=.*/ENABLED=no/' /target/etc/ufw/ufw.conf; else echo 'ENABLED=no' > /target/etc/ufw/ufw.conf; fi"
+    - mkdir -p /target/etc/systemd/system
+    - ln -sf /dev/null /target/etc/systemd/system/ufw.service
 
   # 'updates' key intentionally omitted — valid values are 'security' and 'all'.
   # Omitting skips the in-install update pass; setup.sh runs apt-get upgrade -y
