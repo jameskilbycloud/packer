@@ -17,8 +17,12 @@ on:
           - 2404-desktop
           - 2604-server
           - 2604-desktop
+          - windows-server-2022
+          - windows-server-2025
+          - windows-10
           - all-servers
           - all-desktops
+          - all-windows
           - all
 
       dry_run:
@@ -92,34 +96,53 @@ jobs:
           #              + desktop together), 1 for single-target (no need to
           #              spawn a second worker).
           #   label    — short human label for log/manifest artifact names.
+          # Windows entries use "version":"win{label}" so the matrix step can
+          # tell Linux and Windows apart when resolving ISO paths and naming
+          # the manifest artifact.
+          # Each matrix entry carries:
+          #   version  — "2204"/"2404"/"2604" (Ubuntu) or "win-srv-2022"/"win-srv-2025"/"win-10"
+          #   label    — short human label used in artifact names
+          #   only     — Packer -only glob
+          #   parallel — value for -parallel-builds
+          #   manifest — manifest filename stem (matches `name` in build {} block)
+          #   vm_glob  — VM-name pattern used when destroying orphans on failure
           case "${TARGET}" in
-            2204-server)  BUILDS='[{"version":"2204","label":"2204-server", "only":"ubuntu-2204.vsphere-iso.ubuntu-2204-server", "parallel":1}]' ;;
-            2204-desktop) BUILDS='[{"version":"2204","label":"2204-desktop","only":"ubuntu-2204.vsphere-iso.ubuntu-2204-desktop","parallel":1}]' ;;
-            2404-server)  BUILDS='[{"version":"2404","label":"2404-server", "only":"ubuntu-2404.vsphere-iso.ubuntu-2404-server", "parallel":1}]' ;;
-            2404-desktop) BUILDS='[{"version":"2404","label":"2404-desktop","only":"ubuntu-2404.vsphere-iso.ubuntu-2404-desktop","parallel":1}]' ;;
-            2604-server)  BUILDS='[{"version":"2604","label":"2604-server", "only":"ubuntu-2604.vsphere-iso.ubuntu-2604-server", "parallel":1}]' ;;
-            2604-desktop) BUILDS='[{"version":"2604","label":"2604-desktop","only":"ubuntu-2604.vsphere-iso.ubuntu-2604-desktop","parallel":1}]' ;;
+            2204-server)  BUILDS='[{"version":"2204","label":"2204-server", "only":"ubuntu-2204.vsphere-iso.ubuntu-2204-server", "parallel":1,"manifest":"ubuntu-2204","vm_glob":"ubuntu-2204-server-*"}]' ;;
+            2204-desktop) BUILDS='[{"version":"2204","label":"2204-desktop","only":"ubuntu-2204.vsphere-iso.ubuntu-2204-desktop","parallel":1,"manifest":"ubuntu-2204","vm_glob":"ubuntu-2204-desktop-*"}]' ;;
+            2404-server)  BUILDS='[{"version":"2404","label":"2404-server", "only":"ubuntu-2404.vsphere-iso.ubuntu-2404-server", "parallel":1,"manifest":"ubuntu-2404","vm_glob":"ubuntu-2404-server-*"}]' ;;
+            2404-desktop) BUILDS='[{"version":"2404","label":"2404-desktop","only":"ubuntu-2404.vsphere-iso.ubuntu-2404-desktop","parallel":1,"manifest":"ubuntu-2404","vm_glob":"ubuntu-2404-desktop-*"}]' ;;
+            2604-server)  BUILDS='[{"version":"2604","label":"2604-server", "only":"ubuntu-2604.vsphere-iso.ubuntu-2604-server", "parallel":1,"manifest":"ubuntu-2604","vm_glob":"ubuntu-2604-server-*"}]' ;;
+            2604-desktop) BUILDS='[{"version":"2604","label":"2604-desktop","only":"ubuntu-2604.vsphere-iso.ubuntu-2604-desktop","parallel":1,"manifest":"ubuntu-2604","vm_glob":"ubuntu-2604-desktop-*"}]' ;;
+            windows-server-2022) BUILDS='[{"version":"win-srv-2022","label":"windows-server-2022","only":"windows-server-2022.*","parallel":1,"manifest":"windows-server-2022","vm_glob":"windows-server-2022-*"}]' ;;
+            windows-server-2025) BUILDS='[{"version":"win-srv-2025","label":"windows-server-2025","only":"windows-server-2025.*","parallel":1,"manifest":"windows-server-2025","vm_glob":"windows-server-2025-*"}]' ;;
+            windows-10)          BUILDS='[{"version":"win-10",      "label":"windows-10",          "only":"windows-10.*",          "parallel":1,"manifest":"windows-10",          "vm_glob":"windows-10-*"}]' ;;
             all-servers)  BUILDS='[
-                            {"version":"2204","label":"2204-server","only":"ubuntu-2204.vsphere-iso.ubuntu-2204-server","parallel":1},
-                            {"version":"2404","label":"2404-server","only":"ubuntu-2404.vsphere-iso.ubuntu-2404-server","parallel":1},
-                            {"version":"2604","label":"2604-server","only":"ubuntu-2604.vsphere-iso.ubuntu-2604-server","parallel":1}
+                            {"version":"2204","label":"2204-server","only":"ubuntu-2204.vsphere-iso.ubuntu-2204-server","parallel":1,"manifest":"ubuntu-2204","vm_glob":"ubuntu-2204-server-*"},
+                            {"version":"2404","label":"2404-server","only":"ubuntu-2404.vsphere-iso.ubuntu-2404-server","parallel":1,"manifest":"ubuntu-2404","vm_glob":"ubuntu-2404-server-*"},
+                            {"version":"2604","label":"2604-server","only":"ubuntu-2604.vsphere-iso.ubuntu-2604-server","parallel":1,"manifest":"ubuntu-2604","vm_glob":"ubuntu-2604-server-*"},
+                            {"version":"win-srv-2022","label":"windows-server-2022","only":"windows-server-2022.*","parallel":1,"manifest":"windows-server-2022","vm_glob":"windows-server-2022-*"},
+                            {"version":"win-srv-2025","label":"windows-server-2025","only":"windows-server-2025.*","parallel":1,"manifest":"windows-server-2025","vm_glob":"windows-server-2025-*"}
                           ]' ;;
             all-desktops) BUILDS='[
-                            {"version":"2204","label":"2204-desktop","only":"ubuntu-2204.vsphere-iso.ubuntu-2204-desktop","parallel":1},
-                            {"version":"2404","label":"2404-desktop","only":"ubuntu-2404.vsphere-iso.ubuntu-2404-desktop","parallel":1},
-                            {"version":"2604","label":"2604-desktop","only":"ubuntu-2604.vsphere-iso.ubuntu-2604-desktop","parallel":1}
+                            {"version":"2204","label":"2204-desktop","only":"ubuntu-2204.vsphere-iso.ubuntu-2204-desktop","parallel":1,"manifest":"ubuntu-2204","vm_glob":"ubuntu-2204-desktop-*"},
+                            {"version":"2404","label":"2404-desktop","only":"ubuntu-2404.vsphere-iso.ubuntu-2404-desktop","parallel":1,"manifest":"ubuntu-2404","vm_glob":"ubuntu-2404-desktop-*"},
+                            {"version":"2604","label":"2604-desktop","only":"ubuntu-2604.vsphere-iso.ubuntu-2604-desktop","parallel":1,"manifest":"ubuntu-2604","vm_glob":"ubuntu-2604-desktop-*"},
+                            {"version":"win-10","label":"windows-10","only":"windows-10.*","parallel":1,"manifest":"windows-10","vm_glob":"windows-10-*"}
+                          ]' ;;
+            all-windows)  BUILDS='[
+                            {"version":"win-srv-2022","label":"windows-server-2022","only":"windows-server-2022.*","parallel":1,"manifest":"windows-server-2022","vm_glob":"windows-server-2022-*"},
+                            {"version":"win-srv-2025","label":"windows-server-2025","only":"windows-server-2025.*","parallel":1,"manifest":"windows-server-2025","vm_glob":"windows-server-2025-*"},
+                            {"version":"win-10","label":"windows-10","only":"windows-10.*","parallel":1,"manifest":"windows-10","vm_glob":"windows-10-*"}
                           ]' ;;
             all)          BUILDS='[
-                            {"version":"2204","label":"2204","only":"ubuntu-2204.*","parallel":2},
-                            {"version":"2404","label":"2404","only":"ubuntu-2404.*","parallel":2},
-                            {"version":"2604","label":"2604","only":"ubuntu-2604.*","parallel":1}
+                            {"version":"2204","label":"2204","only":"ubuntu-2204.*","parallel":2,"manifest":"ubuntu-2204","vm_glob":"ubuntu-2204-*"},
+                            {"version":"2404","label":"2404","only":"ubuntu-2404.*","parallel":2,"manifest":"ubuntu-2404","vm_glob":"ubuntu-2404-*"},
+                            {"version":"2604","label":"2604","only":"ubuntu-2604.*","parallel":2,"manifest":"ubuntu-2604","vm_glob":"ubuntu-2604-*"},
+                            {"version":"win-srv-2022","label":"windows-server-2022","only":"windows-server-2022.*","parallel":1,"manifest":"windows-server-2022","vm_glob":"windows-server-2022-*"},
+                            {"version":"win-srv-2025","label":"windows-server-2025","only":"windows-server-2025.*","parallel":1,"manifest":"windows-server-2025","vm_glob":"windows-server-2025-*"},
+                            {"version":"win-10","label":"windows-10","only":"windows-10.*","parallel":1,"manifest":"windows-10","vm_glob":"windows-10-*"}
                           ]' ;;
-                          # NOTE: 2604 uses parallel=1 (sequential server then desktop) because
-                          # Ubuntu 26.04 installs are heavier than 22.04/24.04. Running both
-                          # simultaneously on a single ESXi host causes resource contention severe
-                          # enough that neither install completes within the SSH timeout windows.
-                          # Sequential adds ~23m (server) but makes both builds reliable.
-            *)            BUILDS='[{"version":"2404","label":"2404-server","only":"ubuntu-2404.vsphere-iso.ubuntu-2404-server","parallel":1}]' ;;
+            *)            BUILDS='[{"version":"2404","label":"2404-server","only":"ubuntu-2404.vsphere-iso.ubuntu-2404-server","parallel":1,"manifest":"ubuntu-2404","vm_glob":"ubuntu-2404-server-*"}]' ;;
           esac
 
           # Collapse multi-line JSON onto one line so GitHub-Actions parses it.
@@ -152,6 +175,7 @@ jobs:
       # cryptic vcenter_server / username / password / host / ssh_username errors.
       - name: Check required secrets
         env:
+          MATRIX_VERSION:    ${{ matrix.version }}
           VSPHERE_SERVER:    ${{ secrets.VSPHERE_SERVER }}
           VSPHERE_USER:      ${{ secrets.VSPHERE_USER }}
           VSPHERE_PASSWORD:  ${{ secrets.VSPHERE_PASSWORD }}
@@ -164,6 +188,7 @@ jobs:
           BUILD_USERNAME:    ${{ secrets.BUILD_USERNAME }}
           BUILD_PASSWORD:    ${{ secrets.BUILD_PASSWORD }}
           BUILD_PASSWORD_ENCRYPTED: ${{ secrets.BUILD_PASSWORD_ENCRYPTED }}
+          WINDOWS_ADMIN_PASSWORD: ${{ secrets.WINDOWS_ADMIN_PASSWORD }}
         run: |
           missing=()
 
@@ -182,10 +207,20 @@ jobs:
             missing+=("VSPHERE_HOST (or VSPHERE_CLUSTER — at least one required)")
           fi
 
-          # Build credentials
+          # Linux build credentials always required because variables.pkr.hcl
+          # declares them with no default. Windows-only runs still need them
+          # set (any non-empty placeholder is fine; Packer only reads the ones
+          # used by the selected `-only` source).
           [[ -z "${BUILD_USERNAME}"   ]] && missing+=("BUILD_USERNAME")
           [[ -z "${BUILD_PASSWORD}"   ]] && missing+=("BUILD_PASSWORD")
           [[ -z "${BUILD_PASSWORD_ENCRYPTED}" ]] && missing+=("BUILD_PASSWORD_ENCRYPTED")
+
+          # Windows admin password is required when this matrix entry targets
+          # a Windows source. The variable is declared without a default, so
+          # `packer validate` fails for any Windows -only filter unless set.
+          if [[ "${MATRIX_VERSION}" == win-* ]]; then
+            [[ -z "${WINDOWS_ADMIN_PASSWORD}" ]] && missing+=("WINDOWS_ADMIN_PASSWORD (required for Windows builds)")
+          fi
 
           if [[ ${#missing[@]} -gt 0 ]]; then
             echo "❌ The following required secrets are not set:"
@@ -260,12 +295,22 @@ jobs:
           LIB_DATASTORE:   ${{ secrets.VSPHERE_ISO_LIBRARY_DATASTORE }}
           CONTENT_LIBRARY: ${{ vars.CONTENT_LIBRARY || 'Packer-ISOs' }}
           MATRIX_VERSION:  ${{ matrix.version }}
+          # Windows ISO filenames come from secrets because the actual filename
+          # varies (Eval Center vs licensed media, language SKU, build number).
+          WIN_SRV_2022_ISO: ${{ secrets.WINDOWS_SERVER_2022_ISO }}
+          WIN_SRV_2025_ISO: ${{ secrets.WINDOWS_SERVER_2025_ISO }}
+          WIN_10_ISO:       ${{ secrets.WINDOWS_10_ISO }}
         run: |
           declare -A ISO_ITEMS=(
             [2204]="ubuntu-22.04.5-live-server-amd64.iso"
             [2404]="ubuntu-24.04.4-live-server-amd64.iso"
             [2604]="ubuntu-26.04-live-server-amd64.iso"
           )
+          # Windows entries are added only when the corresponding secret is
+          # set. This keeps Linux-only deployments unaffected by Windows config.
+          [[ -n "${WIN_SRV_2022_ISO}" ]] && ISO_ITEMS[win-srv-2022]="${WIN_SRV_2022_ISO}"
+          [[ -n "${WIN_SRV_2025_ISO}" ]] && ISO_ITEMS[win-srv-2025]="${WIN_SRV_2025_ISO}"
+          [[ -n "${WIN_10_ISO}"       ]] && ISO_ITEMS[win-10]="${WIN_10_ISO}"
           declare -A RESOLVED=()
 
           # ── Confirm library exists and list its contents ───────────────────
@@ -288,9 +333,15 @@ jobs:
           # ── For each ISO: get item UUID and construct the datastore path ───
           echo "ISO_BACKING_DATASTORE=${LIB_DATASTORE}" >> "$GITHUB_ENV"
 
-          for ver in 2204 2404 2604; do
+          # Iterate every key in ISO_ITEMS so Windows entries are resolved when
+          # their secrets are set. Each result is exported as an env var named
+          # RESOLVED_ISO_<KEY>, where <KEY> is uppercased with dashes turned
+          # into underscores (GitHub env-var names cannot contain dashes).
+          # e.g. win-srv-2022 → RESOLVED_ISO_WIN_SRV_2022.
+          for ver in "${!ISO_ITEMS[@]}"; do
             item="${ISO_ITEMS[$ver]}"
             item_stem="${item%.iso}"
+            ver_key="${ver^^}"; ver_key="${ver_key//-/_}"
 
             # Try exact name first, then stem without extension
             item_id=$(govc library.info -json "/${CONTENT_LIBRARY}/${item}" 2>/dev/null \
@@ -308,24 +359,24 @@ jobs:
                 | grep -i '\.iso$' | head -1 || true)
               if [[ -n "${actual_file}" ]]; then
                 rel="${item_dir}/${actual_file}"
-                echo "  ubuntu-${ver}: ${rel}"
+                echo "  ${ver}: ${rel}"
                 RESOLVED[$ver]="${rel}"
-                echo "RESOLVED_ISO_${ver}=${rel}" >> "$GITHUB_ENV"
+                echo "RESOLVED_ISO_${ver_key}=${rel}" >> "$GITHUB_ENV"
               else
-                echo "  ubuntu-${ver}: item dir found (${item_dir}) but no .iso file listed"
-                echo "  ubuntu-${ver}: datastore.ls output:"
+                echo "  ${ver}: item dir found (${item_dir}) but no .iso file listed"
+                echo "  ${ver}: datastore.ls output:"
                 govc datastore.ls -ds="${LIB_DATASTORE}" "${item_dir}/" 2>&1 | sed 's/^/    /' || true
-                echo "RESOLVED_ISO_${ver}=" >> "$GITHUB_ENV"
+                echo "RESOLVED_ISO_${ver_key}=" >> "$GITHUB_ENV"
               fi
             else
-              echo "  ubuntu-${ver}: NOT FOUND (item_id='${item_id}' lib_id='${lib_id}')"
-              echo "RESOLVED_ISO_${ver}=" >> "$GITHUB_ENV"
+              echo "  ${ver}: NOT FOUND (item_id='${item_id}' lib_id='${lib_id}')"
+              echo "RESOLVED_ISO_${ver_key}=" >> "$GITHUB_ENV"
             fi
           done
 
           # Fail fast if the ISO for this matrix entry's version is missing
           if [[ -n "${ISO_ITEMS[$MATRIX_VERSION]:-}" && -z "${RESOLVED[$MATRIX_VERSION]:-}" ]]; then
-            echo "❌ ${ISO_ITEMS[$MATRIX_VERSION]} not found — run the upload-isos workflow first"
+            echo "❌ ${ISO_ITEMS[$MATRIX_VERSION]} not found — run the upload-isos workflow first (or upload the Windows ISO manually)"
             exit 1
           fi
 
@@ -358,7 +409,25 @@ jobs:
           ubuntu_2604_iso_path        = "${{ env.RESOLVED_ISO_2604 }}"
           admin_username              = "${{ secrets.ADMIN_USERNAME }}"
           admin_github_user           = "${{ secrets.ADMIN_GITHUB_USER }}"
+          windows_admin_password      = "${{ secrets.WINDOWS_ADMIN_PASSWORD }}"
+          windows_server_2022_iso_path = "${{ env.RESOLVED_ISO_WIN_SRV_2022 }}"
+          windows_server_2025_iso_path = "${{ env.RESOLVED_ISO_WIN_SRV_2025 }}"
+          windows_10_iso_path          = "${{ env.RESOLVED_ISO_WIN_10 }}"
           EOF
+          # Optional Windows image-name overrides (fall back to variables.pkr.hcl
+          # defaults when the secret is unset).
+          if [[ -n "${{ secrets.WINDOWS_SERVER_2022_IMAGE_NAME }}" ]]; then
+            echo 'windows_server_2022_image_name = "${{ secrets.WINDOWS_SERVER_2022_IMAGE_NAME }}"' >> runner.pkrvars.hcl
+          fi
+          if [[ -n "${{ secrets.WINDOWS_SERVER_2025_IMAGE_NAME }}" ]]; then
+            echo 'windows_server_2025_image_name = "${{ secrets.WINDOWS_SERVER_2025_IMAGE_NAME }}"' >> runner.pkrvars.hcl
+          fi
+          if [[ -n "${{ secrets.WINDOWS_10_IMAGE_NAME }}" ]]; then
+            echo 'windows_10_image_name = "${{ secrets.WINDOWS_10_IMAGE_NAME }}"' >> runner.pkrvars.hcl
+          fi
+          if [[ -n "${{ secrets.WINDOWS_TIMEZONE }}" ]]; then
+            echo 'windows_timezone = "${{ secrets.WINDOWS_TIMEZONE }}"' >> runner.pkrvars.hcl
+          fi
           # Strip leading whitespace added by the heredoc indentation
           sed -i 's/^[[:space:]]*//' runner.pkrvars.hcl
 
@@ -405,12 +474,11 @@ jobs:
           GOVC_PASSWORD:   ${{ secrets.VSPHERE_PASSWORD }}
           GOVC_INSECURE:   ${{ secrets.VSPHERE_INSECURE || 'false' }}
           GOVC_DATACENTER: ${{ secrets.VSPHERE_DATACENTER }}
-          MATRIX_LABEL:    ${{ matrix.label }}
+          NAME_PATTERN:    ${{ matrix.vm_glob }}
         run: |
-          # MATRIX_LABEL is "2204" for combined builds (matches both server &
-          # desktop VMs) or "2204-server" / "2204-desktop" for single-target.
-          # The trailing "-*" matches the build_date suffix on VM names.
-          NAME_PATTERN="ubuntu-${MATRIX_LABEL}-*"
+          # vm_glob comes from the matrix entry (e.g. "ubuntu-2204-*",
+          # "windows-server-2022-*"). The trailing "-*" matches the build_date
+          # suffix on VM names.
           echo "Searching for orphaned VMs matching: ${NAME_PATTERN}"
 
           vms=$(govc find . -type m -name "${NAME_PATTERN}" 2>/dev/null || true)
@@ -444,14 +512,16 @@ jobs:
           path: packer-${{ matrix.label }}.log
           retention-days: 30
 
-      # The manifest filename is keyed on the version (one manifest per
-      # `build {}` block), even when only one source ran.
+      # The manifest filename is keyed on the build {} `name` attribute. The
+      # matrix carries this as `manifest` so the same workflow handles both
+      # the Ubuntu builds (manifests/ubuntu-2204.json etc.) and the Windows
+      # builds (manifests/windows-server-2022.json etc.).
       - name: Upload build manifest
         if: success() && needs.resolve-targets.outputs.dry_run == 'false'
         uses: actions/upload-artifact@v4
         with:
           name: manifest-${{ matrix.label }}-${{ github.run_number }}
-          path: manifests/ubuntu-${{ matrix.version }}.json
+          path: manifests/${{ matrix.manifest }}.json
           retention-days: 90
 
       # ── Slack notifications ──────────────────────────────────────────────────

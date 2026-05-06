@@ -32,6 +32,20 @@
 #   DOWNLOAD_DIR      — Local temp dir for ISO downloads      (default: /var/tmp/packer-isos)
 #   KEEP_DOWNLOADS    — Set to "true" to keep local ISOs      (default: false)
 #   SKIP_CHECKSUM     — Set to "true" to skip SHA256 check    (default: false)
+#   CHECK_WINDOWS     — Set to "true" to also report on Windows ISO presence
+#                        (Windows ISOs are NOT auto-downloaded — see below)
+#   WINDOWS_ISOS      — Space-separated list of Windows ISO filenames to look
+#                        for in the library when CHECK_WINDOWS=true
+#                        (default: SERVER_EVAL_x64FRE_en-us.iso
+#                                  SERVER_2025_EVAL_x64FRE_en-us.iso
+#                                  Win10_22H2_EnglishInternational_x64.iso)
+#
+# Windows ISO handling:
+#   Microsoft requires accepting a EULA and uses session-bound URLs, so the
+#   Windows ISOs cannot be scripted. Download manually from the Microsoft
+#   Evaluation Center, then upload via vSphere UI or:
+#       govc library.import Packer-ISOs /path/to/SERVER_EVAL_x64FRE_en-us.iso
+#   Set CHECK_WINDOWS=true here to confirm they're present.
 # =============================================================================
 set -euo pipefail
 
@@ -65,6 +79,8 @@ UBUNTU_VERSIONS="${UBUNTU_VERSIONS:-2204 2404 2604}"
 DOWNLOAD_DIR="${DOWNLOAD_DIR:-/var/tmp/packer-isos}"
 KEEP_DOWNLOADS="${KEEP_DOWNLOADS:-false}"
 SKIP_CHECKSUM="${SKIP_CHECKSUM:-false}"
+CHECK_WINDOWS="${CHECK_WINDOWS:-false}"
+WINDOWS_ISOS="${WINDOWS_ISOS:-SERVER_EVAL_x64FRE_en-us.iso SERVER_2025_EVAL_x64FRE_en-us.iso Win10_22H2_EnglishInternational_x64.iso}"
 
 # ── ISO catalogue ──────────────────────────────────────────────────────────────
 declare -A ISO_FILENAME=(
@@ -312,6 +328,39 @@ print_summary() {
   echo ""
 }
 
+# ── Windows ISO presence check ─────────────────────────────────────────────────
+# Microsoft ISOs are not scriptable. We just confirm they're in the library
+# and remind the user how to upload anything missing.
+check_windows_isos() {
+  header "Windows ISOs"
+  info "Windows ISOs are not auto-downloaded. Reporting presence only."
+  echo ""
+
+  printf "  %-50s  %s\n" "ISO" "STATUS"
+  printf "  %-50s  %s\n" "---" "------"
+
+  local missing=0
+  for filename in ${WINDOWS_ISOS}; do
+    if library_item_exists "${filename}"; then
+      printf "  %-50s  ${GREEN}%s${RESET}\n" "${filename}" "PRESENT"
+    else
+      printf "  %-50s  ${YELLOW}%s${RESET}\n" "${filename}" "MISSING"
+      missing=$((missing + 1))
+    fi
+  done
+  echo ""
+
+  if [[ "${missing}" -gt 0 ]]; then
+    warn "${missing} Windows ISO(s) not in '${CONTENT_LIBRARY}'."
+    echo ""
+    echo "  Download from the Microsoft Evaluation Center and import with:"
+    echo "    govc library.import ${CONTENT_LIBRARY} /path/to/<filename>.iso"
+    echo ""
+    echo "  Override the expected list with:"
+    echo "    WINDOWS_ISOS=\"file1.iso file2.iso\" CHECK_WINDOWS=true ./scripts/upload-isos.sh"
+  fi
+}
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 main() {
   echo ""
@@ -330,6 +379,11 @@ main() {
   done
 
   print_summary
+
+  if [[ "${CHECK_WINDOWS}" == "true" ]]; then
+    check_windows_isos
+  fi
+
   [[ "${failed}" -eq 0 ]] || { error "One or more imports failed."; exit 1; }
   success "Done."
 }

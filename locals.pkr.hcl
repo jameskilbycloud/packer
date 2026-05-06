@@ -12,4 +12,12 @@ locals {
   # (after ip_settle_timeout completes), not from build start.
   ssh_timeout         = "90m"
   desktop_ssh_timeout = "120m"
+
+  # Windows timeouts — WinRM connection retries from the moment the IP is
+  # reported by VMware Tools (after autounattend's autologon + bootstrap.ps1
+  # have enabled WinRM). Generous to absorb cumulative-update-driven first-boot
+  # delays. Shutdown timeout is long because sysprep generalize takes 5-10 min
+  # before it actually issues the power-off.
+  windows_winrm_timeout    = "120m"
+  windows_shutdown_timeout = "30m"
 }

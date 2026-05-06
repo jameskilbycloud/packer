@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  windows-server-autounattend.pkrtpl — unattended install for Windows Server 2022 / 2025
+
+  Rendered at build time by Packer's templatefile() and attached to the VM as
+  a secondary CD (cd_label "cidata"). The Windows installer auto-detects an
+  Autounattend.xml at the root of any removable media and consumes it.
+
+  Variables:
+    image_name    — /IMAGE/NAME from `Get-WindowsImage` (e.g. "Windows Server 2022 SERVERSTANDARD")
+    product_key   — generic KMS Client Setup Key for the chosen edition (does NOT activate; just suppresses the install prompt)
+    admin_password — built-in Administrator password (plaintext; build artifact only)
+    computer_name  — hostname pre-sysprep (sysprep /generalize resets this)
+    timezone       — Windows time-zone name (e.g. "GMT Standard Time")
+
+  After install + first logon, Packer's WinRM communicator takes over. The
+  bootstrap.ps1 from the same secondary CD enables WinRM HTTP for that.
+-->
+<unattend xmlns="urn:schemas-microsoft-com:unattend">
+
+  <!-- ── windowsPE pass — disk layout, image select, product key ─────────── -->
+  <settings pass="windowsPE">
+
+    <component name="Microsoft-Windows-International-Core-WinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+      <SetupUILanguage>
+        <UILanguage>en-US</UILanguage>
+      </SetupUILanguage>
+      <InputLocale>en-US</InputLocale>
+      <SystemLocale>en-US</SystemLocale>
+      <UILanguage>en-US</UILanguage>
+      <UserLocale>en-US</UserLocale>
+    </component>
+
+    <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+      <DiskConfiguration>
+        <Disk wcm:action="add">
+          <DiskID>0</DiskID>
+          <WillWipeDisk>true</WillWipeDisk>
+          <CreatePartitions>
+            <CreatePartition wcm:action="add">
+              <Order>1</Order>
+              <Type>EFI</Type>
+              <Size>300</Size>
+            </CreatePartition>
+            <CreatePartition wcm:action="add">
+              <Order>2</Order>
+              <Type>MSR</Type>
+              <Size>16</Size>
+            </CreatePartition>
+            <CreatePartition wcm:action="add">
+              <Order>3</Order>
+              <Type>Primary</Type>
+              <Extend>true</Extend>
+            </CreatePartition>
+          </CreatePartitions>
+          <ModifyPartitions>
+            <ModifyPartition wcm:action="add">
+              <Order>1</Order>
+              <PartitionID>1</PartitionID>
+              <Format>FAT32</Format>
+              <Label>System</Label>
+            </ModifyPartition>
+            <ModifyPartition wcm:action="add">
+              <Order>2</Order>
+              <PartitionID>2</PartitionID>
+            </ModifyPartition>
+            <ModifyPartition wcm:action="add">
+              <Order>3</Order>
+              <PartitionID>3</PartitionID>
+              <Format>NTFS</Format>
+              <Label>Windows</Label>
+              <Letter>C</Letter>
+            </ModifyPartition>
+          </ModifyPartitions>
+        </Disk>
+      </DiskConfiguration>
+      <ImageInstall>
+        <OSImage>
+          <InstallFrom>
+            <MetaData wcm:action="add">
+              <Key>/IMAGE/NAME</Key>
+              <Value>${image_name}</Value>
+            </MetaData>
+          </InstallFrom>
+          <InstallTo>
+            <DiskID>0</DiskID>
+            <PartitionID>3</PartitionID>
+          </InstallTo>
+        </OSImage>
+      </ImageInstall>
+      <UserData>
+        <ProductKey>
+          <Key>${product_key}</Key>
+          <WillShowUI>OnError</WillShowUI>
+        </ProductKey>
+        <AcceptEula>true</AcceptEula>
+        <FullName>Administrator</FullName>
+        <Organization>Packer</Organization>
+      </UserData>
+    </component>
+
+  </settings>
+
+  <!-- ── specialize pass — hostname, timezone ─────────────────────────────── -->
+  <settings pass="specialize">
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+      <ComputerName>${computer_name}</ComputerName>
+      <TimeZone>${timezone}</TimeZone>
+      <RegisteredOrganization>Packer</RegisteredOrganization>
+      <RegisteredOwner>Administrator</RegisteredOwner>
+    </component>
+
+    <!-- Disable Server Manager auto-launch on every Administrator logon —
+         it's noisy in templates and slows down sysprep audit/first-boot. -->
+    <component name="Microsoft-Windows-ServerManager-SvrMgrNc" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+      <DoNotOpenServerManagerAtLogon>true</DoNotOpenServerManagerAtLogon>
+    </component>
+  </settings>
+
+  <!-- ── oobeSystem pass — admin password, OOBE bypass, FirstLogonCommands ─ -->
+  <settings pass="oobeSystem">
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+
+      <UserAccounts>
+        <AdministratorPassword>
+          <Value>${admin_password}</Value>
+          <PlainText>true</PlainText>
+        </AdministratorPassword>
+      </UserAccounts>
+
+      <!-- AutoLogon as Administrator one time so FirstLogonCommands fire and
+           Packer's bootstrap.ps1 can enable WinRM. -->
+      <AutoLogon>
+        <Username>Administrator</Username>
+        <Password>
+          <Value>${admin_password}</Value>
+          <PlainText>true</PlainText>
+        </Password>
+        <Enabled>true</Enabled>
+        <LogonCount>1</LogonCount>
+      </AutoLogon>
+
+      <OOBE>
+        <HideEULAPage>true</HideEULAPage>
+        <HideLocalAccountScreen>true</HideLocalAccountScreen>
+        <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
+        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+        <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
+        <NetworkLocation>Work</NetworkLocation>
+        <ProtectYourPC>3</ProtectYourPC>
+        <SkipMachineOOBE>true</SkipMachineOOBE>
+        <SkipUserOOBE>true</SkipUserOOBE>
+      </OOBE>
+
+      <!-- Locate bootstrap.ps1 on whichever drive letter the secondary CD
+           ended up at, then run it. The CD is created from cd_files in the
+           Packer source. Output is logged to C:\Windows\Temp for debugging. -->
+      <FirstLogonCommands>
+        <SynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Description>Run Packer bootstrap from secondary CD</Description>
+          <CommandLine>powershell.exe -ExecutionPolicy Bypass -NoProfile -Command "$d=(Get-PSDrive -PSProvider FileSystem | Where-Object { Test-Path ($_.Root + 'bootstrap.ps1') } | Select-Object -First 1).Root; Start-Process powershell.exe -ArgumentList '-ExecutionPolicy','Bypass','-NoProfile','-File',($d + 'bootstrap.ps1') -Wait -RedirectStandardOutput C:\Windows\Temp\bootstrap.log -RedirectStandardError C:\Windows\Temp\bootstrap.err"</CommandLine>
+        </SynchronousCommand>
+      </FirstLogonCommands>
+
+      <TimeZone>${timezone}</TimeZone>
+      <RegisteredOrganization>Packer</RegisteredOrganization>
+      <RegisteredOwner>Administrator</RegisteredOwner>
+    </component>
+
+    <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+      <InputLocale>en-US</InputLocale>
+      <SystemLocale>en-US</SystemLocale>
+      <UILanguage>en-US</UILanguage>
+      <UserLocale>en-US</UserLocale>
+    </component>
+  </settings>
+
+</unattend>
