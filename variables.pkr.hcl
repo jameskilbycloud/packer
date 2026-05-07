@@ -58,7 +58,7 @@ variable "vsphere_network" {
 variable "vsphere_folder" {
   type        = string
   description = "VM inventory folder path for finished templates"
-  default     = "Templates"
+  default     = "packer"
 }
 
 variable "vsphere_iso_datastore" {

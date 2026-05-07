@@ -18,7 +18,7 @@ vsphere_cluster       = "Cluster01"   # Leave as "" to target a specific host in
 vsphere_host          = ""            # e.g. "esxi01.example.com" (only if cluster is "")
 vsphere_datastore     = "datastore1"
 vsphere_network       = "VM Network"
-vsphere_folder        = "Templates/Ubuntu"
+vsphere_folder        = "packer"
 
 # ── Build Credentials ─────────────────────────────────────────────────────────
 build_username = "ubuntu"

@@ -386,6 +386,29 @@ jobs:
             exit 1
           fi
 
+      # ── Ensure vSphere VM folder exists ─────────────────────────────────────
+      # govc folder.create is idempotent-ish but errors on existing folders.
+      # We walk each path component and create it individually, swallowing
+      # "already exists" errors with `|| true`. Nested paths (e.g. "a/b/c")
+      # are handled by creating each level in turn.
+      - name: Ensure vSphere VM folder exists
+        env:
+          GOVC_URL:        ${{ secrets.VSPHERE_SERVER }}
+          GOVC_USERNAME:   ${{ secrets.VSPHERE_USER }}
+          GOVC_PASSWORD:   ${{ secrets.VSPHERE_PASSWORD }}
+          GOVC_INSECURE:   ${{ secrets.VSPHERE_INSECURE || 'false' }}
+          GOVC_DATACENTER: ${{ secrets.VSPHERE_DATACENTER }}
+          VSPHERE_FOLDER:  ${{ secrets.VSPHERE_FOLDER || 'packer' }}
+        run: |
+          current="/${GOVC_DATACENTER}/vm"
+          IFS='/' read -ra parts <<< "${VSPHERE_FOLDER}"
+          for part in "${parts[@]}"; do
+            [[ -z "${part}" ]] && continue
+            current="${current}/${part}"
+            govc folder.create "${current}" 2>/dev/null || true
+          done
+          echo "✅ Folder path ensured: /${GOVC_DATACENTER}/vm/${VSPHERE_FOLDER}"
+
       # ── Install plugin ───────────────────────────────────────────────────────
       - name: Packer init (download vsphere plugin)
         run: packer init .
