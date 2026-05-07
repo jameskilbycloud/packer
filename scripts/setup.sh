@@ -114,6 +114,14 @@ else
   echo "==> ADMIN_USERNAME not set — skipping admin user creation."
 fi
 
+echo "==> Clearing machine-id so each clone gets a unique ID on first boot..."
+# The Packer build copied the live-installer's machine-id into the installed
+# OS (via late-commands) to ensure the installed OS gets the same DHCP lease
+# as the live installer — critical for Packer's SSH connection after reboot.
+# Now that provisioning is complete, truncate machine-id so systemd generates
+# a fresh unique ID when each clone boots, preventing DHCP collisions.
+truncate -s 0 /etc/machine-id
+
 echo "==> Zeroing free space for better template compression..."
 dd if=/dev/zero of=/tmp/zero.fill bs=4M || true
 rm -f /tmp/zero.fill
