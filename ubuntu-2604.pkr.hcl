@@ -91,19 +91,23 @@ source "vsphere-iso" "ubuntu-2604-server" {
     "boot<enter><wait30>"
   ]
 
-  # IP settle timeout — must be longer than the OS install time. The live
-  # installer holds a stable IP throughout the install (~8-15 min for server),
-  # so a short settle time fires on the installer's IP. After the VM reboots,
-  # the installed OS gets a NEW IP (different DUID from regenerated machine-id),
-  # the settle timer resets, and only fires once that new IP is stable for the
-  # full duration. Packer then targets the correct post-install IP for SSH.
-  ip_settle_timeout = "20m"
+  # IP settle timeout — kept short so it fires during the live install phase,
+  # not after the reboot. Packer starts SSH retries early (hitting ECONNREFUSED
+  # while early-commands hold port 22 closed), then connects once the installed
+  # OS boots. This works because late-commands copies /run/machine-id into the
+  # installed OS, giving it the same DUID as the live installer → same DHCP
+  # lease → same IP after reboot → Packer's retries succeed.
+  # Ubuntu 26.04's install takes longer than 22.04/24.04 (~30-50 min vs ~10 min)
+  # so a 20m settle timeout would fire post-install on 22.04/24.04 but mid-install
+  # on 26.04. 5m fires consistently during the live phase on all versions.
+  ip_settle_timeout = "5m"
 
-  # SSH communicator
+  # SSH communicator — 120m covers the full install + reboot + SSH-up window
+  # (ip_settle_timeout fires at ~5 min; installed OS SSH is up ~35-55 min later).
   communicator = "ssh"
   ssh_username = var.build_username
   ssh_password = var.build_password
-  ssh_timeout  = local.ssh_timeout
+  ssh_timeout  = "120m"
   ssh_port     = 22
 
   # Shutdown
