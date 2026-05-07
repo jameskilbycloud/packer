@@ -23,7 +23,5 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y \
   ubuntu-desktop-minimal \
   open-vm-tools-desktop
 
-echo "==> Disabling snapd auto-refresh (template should not auto-update)..."
-snap set system refresh.hold="$(date --date='today + 60 days' +%Y-%m-%dT%H:%M:%S+00:00)" 2>/dev/null || true
 
 echo "==> desktop.sh complete."

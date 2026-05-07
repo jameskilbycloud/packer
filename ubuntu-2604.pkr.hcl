@@ -198,17 +198,18 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
   # installed OS). ip_settle_timeout is therefore kept short — Packer starts
   # SSH retries early, hits connection refused while the installer runs
   # (early-commands stopped SSH), then connects once the installed OS boots
-  # on the same IP (~65-76 min into the build).
-  # desktop_ssh_timeout = "120m" covers the full install + reboot window.
+  # on the same IP. Ubuntu 26.04 desktop builds take longer than 24.04 due to
+  # the larger package set and snap-related first boot work, so extend the
+  # wait window for the post-install SSH phase.
   # ip_wait_timeout must remain > ip_settle_timeout.
-  ip_wait_timeout   = "120m"
+  ip_wait_timeout   = "150m"
   ip_settle_timeout = "10m"
 
   # SSH communicator
   communicator = "ssh"
   ssh_username = var.build_username
   ssh_password = var.build_password
-  ssh_timeout  = local.desktop_ssh_timeout
+  ssh_timeout  = local.desktop_2604_ssh_timeout
   ssh_port     = 22
 
   # Shutdown

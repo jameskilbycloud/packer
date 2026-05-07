@@ -7,11 +7,13 @@ locals {
   shutdown_timeout = "15m"
 
   # SSH timeouts — server builds are faster; desktop installs take longer due
-  # to the ubuntu-desktop-minimal package set.
+  # to the ubuntu-desktop-minimal package set. Ubuntu 26.04 desktop can take
+  # longer again due to the expanded package/snap footprint.
   # Note: ssh_timeout counts from when Packer first starts attempting connections
   # (after ip_settle_timeout completes), not from build start.
-  ssh_timeout         = "90m"
-  desktop_ssh_timeout = "120m"
+  ssh_timeout              = "90m"
+  desktop_ssh_timeout      = "120m"
+  desktop_2604_ssh_timeout = "150m"
 
   # Windows timeouts — WinRM connection retries from the moment the IP is
   # reported by VMware Tools (after autounattend's autologon + bootstrap.ps1

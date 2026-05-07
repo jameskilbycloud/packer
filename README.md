@@ -503,7 +503,7 @@ Local (one-time)                GitHub Actions (ongoing, automated)
                                     fmt check + packer validate
                                     (ubuntu-latest, no secrets needed)
 
-                                Merge to main / manual trigger / weekly cron
+                                Manual trigger / weekly cron
                                 └─► build-templates.yml
                                     packer build → vSphere template
                                     (self-hosted runner)
@@ -514,7 +514,7 @@ Local (one-time)                GitHub Actions (ongoing, automated)
     if runner has govc locally)
 ```
 
-> **Steps 1–3 are one-time setup.** After that, builds run automatically on push to `main`, on a weekly schedule, or on demand from the Actions UI. No local tooling is needed day-to-day.
+> **Steps 1–3 are one-time setup.** After that, builds run automatically on the weekly schedule or on demand from the Actions UI. Push to `main` deliberately does *not* trigger a full build — PR validation is handled by `validate.yml`, and full builds are reserved for the schedule or an explicit `workflow_dispatch` so a routine code change cannot accidentally rebuild every template. No local tooling is needed day-to-day.
 
 ### Why a self-hosted runner
 
@@ -621,8 +621,9 @@ This gives fast feedback (typically under 2 minutes) on every PR with no infrast
 **Triggers:**
 
 - **Manual** (`workflow_dispatch`) — choose a specific template or `all`, with an optional dry-run (validate only) toggle
-- **Push to `main`** — automatically rebuilds when any `.pkr.hcl` file, template, or provisioner script changes
 - **Schedule** — rebuilds all templates every Sunday at 02:00 UTC, picking up the latest security updates
+
+> **No push trigger.** Push to `main` runs `validate.yml` only. Full builds require an explicit `workflow_dispatch` or the weekly cron, so routine code changes do not rebuild every template.
 
 **What it does:**
 
