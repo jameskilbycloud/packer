@@ -429,7 +429,6 @@ jobs:
           vsphere_datastore           = "${{ secrets.VSPHERE_DATASTORE }}"
           vsphere_network             = "${{ secrets.VSPHERE_NETWORK }}"
           vsphere_folder              = "${{ secrets.VSPHERE_FOLDER }}"
-          git_commit                  = "${GITHUB_SHA:0:8}"
           vsphere_iso_datastore       = "${{ env.ISO_BACKING_DATASTORE }}"
           build_username              = "${{ secrets.BUILD_USERNAME }}"
           build_password              = "${{ secrets.BUILD_PASSWORD }}"
@@ -458,6 +457,10 @@ jobs:
           if [[ -n "${{ secrets.WINDOWS_TIMEZONE }}" ]]; then
             echo 'windows_timezone = "${{ secrets.WINDOWS_TIMEZONE }}"' >> runner.pkrvars.hcl
           fi
+          # git_commit must be appended outside the single-quoted heredoc so
+          # bash expands ${GITHUB_SHA:0:8}. Inside 'EOF' no expansion occurs
+          # and Packer rejects the raw bash slice syntax as invalid HCL.
+          echo "git_commit = \"${GITHUB_SHA:0:8}\"" >> runner.pkrvars.hcl
           # Strip leading whitespace added by the heredoc indentation
           sed -i 's/^[[:space:]]*//' runner.pkrvars.hcl
 
