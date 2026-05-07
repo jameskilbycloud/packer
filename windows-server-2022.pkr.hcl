@@ -38,7 +38,7 @@ source "vsphere-iso" "windows-server-2022" {
   # VM identity
   vm_name       = "windows-server-2022-${local.build_date}"
   guest_os_type = "windows2019srv_64Guest" # vSphere lacks an explicit 2022 type; 2019 is forward-compatible
-  notes         = "Windows Server 2022 — built by Packer on ${local.build_timestamp}"
+  notes         = "Windows Server 2022 — built by Packer on ${local.build_timestamp} | git: ${var.git_commit}"
   vm_version    = var.vm_hardware_version
 
   # CPU / RAM

@@ -429,6 +429,7 @@ jobs:
           vsphere_datastore           = "${{ secrets.VSPHERE_DATASTORE }}"
           vsphere_network             = "${{ secrets.VSPHERE_NETWORK }}"
           vsphere_folder              = "${{ secrets.VSPHERE_FOLDER }}"
+          git_commit                  = "${GITHUB_SHA:0:8}"
           vsphere_iso_datastore       = "${{ env.ISO_BACKING_DATASTORE }}"
           build_username              = "${{ secrets.BUILD_USERNAME }}"
           build_password              = "${{ secrets.BUILD_PASSWORD }}"

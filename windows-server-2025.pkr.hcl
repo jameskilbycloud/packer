@@ -38,7 +38,7 @@ source "vsphere-iso" "windows-server-2025" {
   # VM identity
   vm_name       = "windows-server-2025-${local.build_date}"
   guest_os_type = "windows2019srv_64Guest" # vSphere lacks an explicit 2025 type until 8.0 U3+; 2019 is forward-compatible
-  notes         = "Windows Server 2025 — built by Packer on ${local.build_timestamp}"
+  notes         = "Windows Server 2025 — built by Packer on ${local.build_timestamp} | git: ${var.git_commit}"
   vm_version    = var.vm_hardware_version
 
   # CPU / RAM

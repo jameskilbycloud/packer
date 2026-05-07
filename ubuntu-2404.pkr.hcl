@@ -33,7 +33,7 @@ source "vsphere-iso" "ubuntu-2404-server" {
   # VM identity
   vm_name       = "ubuntu-2404-server-${local.build_date}"
   guest_os_type = "ubuntu64Guest"
-  notes         = "Ubuntu 24.04 LTS Server — built by Packer on ${local.build_timestamp}"
+  notes         = "Ubuntu 24.04 LTS Server — built by Packer on ${local.build_timestamp} | git: ${var.git_commit}"
   vm_version    = var.vm_hardware_version
 
   # CPU / RAM
@@ -131,7 +131,7 @@ source "vsphere-iso" "ubuntu-2404-desktop" {
   # VM identity
   vm_name       = "ubuntu-2404-desktop-${local.build_date}"
   guest_os_type = "ubuntu64Guest"
-  notes         = "Ubuntu 24.04 LTS Desktop — built by Packer on ${local.build_timestamp}"
+  notes         = "Ubuntu 24.04 LTS Desktop — built by Packer on ${local.build_timestamp} | git: ${var.git_commit}"
   vm_version    = var.vm_hardware_version
 
   # CPU / RAM

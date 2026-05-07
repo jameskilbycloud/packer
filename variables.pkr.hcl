@@ -61,6 +61,12 @@ variable "vsphere_folder" {
   default     = "packer"
 }
 
+variable "git_commit" {
+  type        = string
+  description = "Short git commit SHA stamped into the VM notes field. Set automatically by the GitHub Actions workflow via GITHUB_SHA. Defaults to 'unknown' for local builds."
+  default     = "unknown"
+}
+
 variable "vsphere_iso_datastore" {
   type        = string
   description = "Datastore OR Content Library name that holds the Ubuntu ISO files. The builder uses the vSphere bracket notation [name] for both — just set this to the datastore or content library name without brackets."

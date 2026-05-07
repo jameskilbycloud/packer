@@ -38,7 +38,7 @@ source "vsphere-iso" "windows-10" {
   # VM identity
   vm_name       = "windows-10-${local.build_date}"
   guest_os_type = "windows9_64Guest" # vSphere's identifier for Windows 10 / 11
-  notes         = "Windows 10 — built by Packer on ${local.build_timestamp}"
+  notes         = "Windows 10 — built by Packer on ${local.build_timestamp} | git: ${var.git_commit}"
   vm_version    = var.vm_hardware_version
 
   # CPU / RAM
