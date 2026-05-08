@@ -1,5 +1,9 @@
 # Packer — vSphere Templates
 
+## Quality checks
+
+[![Build Packer Templates](https://github.com/jameskilbycloud/packer/actions/workflows/build-templates.yml/badge.svg)](https://github.com/jameskilbycloud/packer/actions/workflows/build-templates.yml)
+
 Automated golden-image pipeline that builds Ubuntu and Windows VM templates directly in vSphere using [HashiCorp Packer](https://www.packer.io/). Supports three Ubuntu LTS versions (22.04, 24.04, 26.04) with server and desktop variants, plus Windows Server 2022, Windows Server 2025, and Windows 10 — nine templates in total.
 
 ---
