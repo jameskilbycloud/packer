@@ -23,5 +23,11 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y \
   ubuntu-desktop-minimal \
   open-vm-tools-desktop
 
+# Hold snap auto-refresh for 60 days so it does not race with the remaining
+# Packer provisioners (vmtools.sh). This runs on the fully-booted system where
+# snapd is available — it cannot be done in autoinstall late-commands because
+# snapd is not installed until this script runs.
+echo "==> Holding snap auto-refresh for 60 days..."
+snap set system refresh.hold="$(date -u -d '+60 days' '+%Y-%m-%dT%H:%M:%S+00:00')" || true
 
 echo "==> desktop.sh complete."

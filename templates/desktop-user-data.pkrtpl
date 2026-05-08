@@ -103,28 +103,6 @@ autoinstall:
     # still letting its units complete — network comes up normally via netplan.
     - mkdir -p /target/etc/cloud/cloud.cfg.d
     - "echo 'datasource_list: [ None ]' > /target/etc/cloud/cloud.cfg.d/99-packer.cfg"
-    # Hold snap refreshes before the first boot into the installed system.
-    # This reduces the chance of snapd auto-refresh racing with Packer's
-    # desktop package provisioning on Ubuntu 26.04. Write a systemd oneshot
-    # plus an enablement symlink directly into the target root so no systemctl
-    # call is needed inside curtin's chroot.
-    - mkdir -p /target/etc/systemd/system /target/etc/systemd/system/multi-user.target.wants
-    - |
-      cat > /target/etc/systemd/system/picker-snap-refresh-hold.service <<'EOF'
-      [Unit]
-      Description=Hold snap auto-refresh during Packer image build
-      After=snapd.service
-      Wants=snapd.service
-
-      [Service]
-      Type=oneshot
-      ExecStart=/bin/sh -c 'snap set system refresh.hold="$(date -u -d "+60 days" +%%Y-%%m-%%dT%%H:%%M:%%S+00:00)" || true'
-      RemainAfterExit=yes
-
-      [Install]
-      WantedBy=multi-user.target
-      EOF
-    - ln -sf /etc/systemd/system/picker-snap-refresh-hold.service /target/etc/systemd/system/multi-user.target.wants/picker-snap-refresh-hold.service
     # Ensure UFW is not blocking SSH. The template is a build artifact —
     # firewall posture should be applied post-clone.
     #
