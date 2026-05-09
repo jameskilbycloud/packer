@@ -184,15 +184,6 @@ main() {
   UBUNTU_2204_ISO_PATH=$(get_hcl_value "ubuntu_2204_iso_path" "${VARS_FILE}")
   UBUNTU_2404_ISO_PATH=$(get_hcl_value "ubuntu_2404_iso_path" "${VARS_FILE}")
   UBUNTU_2604_ISO_PATH=$(get_hcl_value "ubuntu_2604_iso_path" "${VARS_FILE}")
-  # Windows ISOs and credentials — only pushed when present in the vars file.
-  WINDOWS_SERVER_2022_ISO=$(get_hcl_value "windows_server_2022_iso_path" "${VARS_FILE}")
-  WINDOWS_SERVER_2025_ISO=$(get_hcl_value "windows_server_2025_iso_path" "${VARS_FILE}")
-  WINDOWS_10_ISO=$(get_hcl_value "windows_10_iso_path" "${VARS_FILE}")
-  WINDOWS_SERVER_2022_IMAGE_NAME=$(get_hcl_value "windows_server_2022_image_name" "${VARS_FILE}")
-  WINDOWS_SERVER_2025_IMAGE_NAME=$(get_hcl_value "windows_server_2025_image_name" "${VARS_FILE}")
-  WINDOWS_10_IMAGE_NAME=$(get_hcl_value "windows_10_image_name" "${VARS_FILE}")
-  WINDOWS_ADMIN_PASSWORD=$(get_hcl_value "windows_admin_password" "${VARS_FILE}")
-  WINDOWS_TIMEZONE=$(get_hcl_value "windows_timezone" "${VARS_FILE}")
 
   # VSPHERE_ISO_LIBRARY_DATASTORE is the backing datastore for the Content Library
   # (used by the upload-isos workflow). It defaults to vsphere_datastore if not set
@@ -228,16 +219,6 @@ main() {
   set_secret "UBUNTU_2204_ISO_PATH"         "${UBUNTU_2204_ISO_PATH}"         "${REPO}"
   set_secret "UBUNTU_2404_ISO_PATH"         "${UBUNTU_2404_ISO_PATH}"         "${REPO}"
   set_secret "UBUNTU_2604_ISO_PATH"         "${UBUNTU_2604_ISO_PATH}"         "${REPO}"
-  # Windows secrets — set_secret skips entries with empty values so users who
-  # never configure Windows in their vars file simply don't push these.
-  set_secret "WINDOWS_SERVER_2022_ISO"        "${WINDOWS_SERVER_2022_ISO}"        "${REPO}"
-  set_secret "WINDOWS_SERVER_2025_ISO"        "${WINDOWS_SERVER_2025_ISO}"        "${REPO}"
-  set_secret "WINDOWS_10_ISO"                 "${WINDOWS_10_ISO}"                 "${REPO}"
-  set_secret "WINDOWS_SERVER_2022_IMAGE_NAME" "${WINDOWS_SERVER_2022_IMAGE_NAME}" "${REPO}"
-  set_secret "WINDOWS_SERVER_2025_IMAGE_NAME" "${WINDOWS_SERVER_2025_IMAGE_NAME}" "${REPO}"
-  set_secret "WINDOWS_10_IMAGE_NAME"          "${WINDOWS_10_IMAGE_NAME}"          "${REPO}"
-  set_secret "WINDOWS_ADMIN_PASSWORD"         "${WINDOWS_ADMIN_PASSWORD}"         "${REPO}"
-  set_secret "WINDOWS_TIMEZONE"               "${WINDOWS_TIMEZONE}"               "${REPO}"
 
   # ── Summary ────────────────────────────────────────────────────────────────
   header "Summary"

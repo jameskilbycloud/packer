@@ -174,12 +174,6 @@ variable "timezone" {
   default     = "Europe/London"
 }
 
-variable "windows_timezone" {
-  type        = string
-  description = "Windows timezone name. Windows uses different IDs to IANA — e.g. 'GMT Standard Time' (London), 'Eastern Standard Time' (NY), 'UTC'. Run `tzutil /l` on a Windows host for the full list."
-  default     = "GMT Standard Time"
-}
-
 # =============================================================================
 # ISO Paths (relative to vsphere_iso_datastore)
 # =============================================================================
@@ -200,102 +194,4 @@ variable "ubuntu_2604_iso_path" {
   type        = string
   description = "ISO filename/path within the datastore or content library. For a datastore use a folder path (e.g. ISOs/ubuntu-26.04-live-server-amd64.iso). For a content library use the filename only (e.g. ubuntu-26.04-live-server-amd64.iso)."
   default     = "ISOs/ubuntu-26.04-live-server-amd64.iso"
-}
-
-variable "windows_server_2022_iso_path" {
-  type        = string
-  description = "Windows Server 2022 ISO filename/path within the datastore or content library. ISOs are not auto-downloaded — upload manually (e.g. from the Microsoft Evaluation Center)."
-  default     = "ISOs/SERVER_EVAL_x64FRE_en-us.iso"
-}
-
-variable "windows_server_2025_iso_path" {
-  type        = string
-  description = "Windows Server 2025 ISO filename/path within the datastore or content library. ISOs are not auto-downloaded — upload manually (e.g. from the Microsoft Evaluation Center)."
-  default     = "ISOs/SERVER_2025_EVAL_x64FRE_en-us.iso"
-}
-
-variable "windows_10_iso_path" {
-  type        = string
-  description = "Windows 10 ISO filename/path within the datastore or content library. ISOs are not auto-downloaded — upload manually (e.g. Win10 Enterprise Evaluation from the Microsoft Evaluation Center)."
-  default     = "ISOs/Win10_22H2_EnglishInternational_x64.iso"
-}
-
-# =============================================================================
-# Windows — image / edition selection
-# =============================================================================
-# Each ISO contains multiple images selectable by index. Use Get-WindowsImage
-# (PowerShell) or the Microsoft Evaluation Center release notes to confirm
-# the exact NAME for the edition you want, then set it here. The autounattend
-# template uses the Name (more stable than Index across rebuilds).
-
-variable "windows_server_2022_image_name" {
-  type        = string
-  description = "Image name for Windows Server 2022 (e.g. 'Windows Server 2022 SERVERSTANDARD' for Standard with Desktop Experience, or 'Windows Server 2022 SERVERDATACENTER' for Datacenter)"
-  default     = "Windows Server 2022 SERVERSTANDARD"
-}
-
-variable "windows_server_2025_image_name" {
-  type        = string
-  description = "Image name for Windows Server 2025 (e.g. 'Windows Server 2025 SERVERSTANDARD' for Standard with Desktop Experience)"
-  default     = "Windows Server 2025 SERVERSTANDARD"
-}
-
-variable "windows_10_image_name" {
-  type        = string
-  description = "Image name for Windows 10 (e.g. 'Windows 10 Enterprise Evaluation', 'Windows 10 Pro')"
-  default     = "Windows 10 Enterprise Evaluation"
-}
-
-# =============================================================================
-# Windows — credentials
-# =============================================================================
-# Windows uses WinRM rather than SSH during the build. The build always uses
-# the built-in Administrator account; the password set here is consumed by
-# autounattend.xml at install time and by Packer's WinRM connection thereafter.
-
-variable "windows_admin_password" {
-  type        = string
-  description = "Plaintext password for the Windows built-in Administrator account. Must satisfy Windows complexity rules (≥ 8 chars, 3 of 4 character classes). Default is empty so `packer validate` succeeds for Linux-only builds — the GitHub Actions workflow enforces a real value for Windows runs."
-  sensitive   = true
-  default     = ""
-}
-
-# =============================================================================
-# VM Hardware — Windows
-# =============================================================================
-
-variable "windows_server_cpu_count" {
-  type        = number
-  description = "Number of vCPUs for Windows Server images"
-  default     = 2
-}
-
-variable "windows_server_ram_mb" {
-  type        = number
-  description = "RAM in MB for Windows Server images"
-  default     = 4096
-}
-
-variable "windows_server_disk_gb" {
-  type        = number
-  description = "OS disk size in GB for Windows Server images"
-  default     = 60
-}
-
-variable "windows_desktop_cpu_count" {
-  type        = number
-  description = "Number of vCPUs for Windows Desktop (Win 10) images"
-  default     = 2
-}
-
-variable "windows_desktop_ram_mb" {
-  type        = number
-  description = "RAM in MB for Windows Desktop (Win 10) images"
-  default     = 4096
-}
-
-variable "windows_desktop_disk_gb" {
-  type        = number
-  description = "OS disk size in GB for Windows Desktop (Win 10) images"
-  default     = 60
 }
