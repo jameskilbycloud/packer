@@ -86,6 +86,90 @@ WantedBy=sysinit.target
 UNIT
 systemctl enable ssh-host-keygen.service
 
+echo "==> Installing first-boot hostname uniquification service for cloned VMs..."
+# The autoinstall sets the hostname to the build target name (e.g.
+# `ubuntu-2604-server`). Without intervention, every clone of the template
+# boots with that same hostname → DNS / monitoring / Slack collisions on
+# any shared network. Cloud-init is intentionally neutralised on this
+# stack (datasource_list: [None]) so we cannot rely on its set_hostname
+# module — instead, install a oneshot systemd unit that runs once on the
+# first boot of each clone and appends a 6-hex-char suffix derived from
+# the vSphere VM UUID.
+#
+# Why the VM UUID:
+#   - Always present on vSphere VMs (DMI table, /sys/class/dmi/id/product_uuid).
+#   - vSphere assigns a fresh UUID per clone by default → unique per clone.
+#   - Stable across reboots of the same VM → same VM always gets the same
+#     hostname (idempotent).
+#   - No external dependency (no DHCP option 12, no guestinfo, no random).
+mkdir -p /usr/local/sbin /var/lib/packer-firstboot
+cat > /usr/local/sbin/firstboot-hostname.sh << 'SCRIPT'
+#!/bin/bash
+# Append a 6-hex-char suffix derived from the vSphere VM UUID to the
+# template's hostname so cloned VMs do not collide on a shared network.
+# Runs once on the first boot of each clone, gated by the systemd unit's
+# ConditionPathExists guard.
+set -euo pipefail
+
+current=$(hostnamectl --static)
+uuid_file="/sys/class/dmi/id/product_uuid"
+
+if [[ ! -r "${uuid_file}" ]]; then
+  echo "firstboot-hostname: ${uuid_file} not readable; leaving hostname as ${current}" >&2
+  touch /var/lib/packer-firstboot/hostname.done
+  exit 0
+fi
+
+uuid=$(tr -d '-\n' < "${uuid_file}" | tr 'A-Z' 'a-z')
+suffix="${uuid: -6}"
+
+if [[ -z "${suffix}" || ${#suffix} -lt 6 ]]; then
+  echo "firstboot-hostname: empty/short suffix from ${uuid_file}; leaving hostname as ${current}" >&2
+  touch /var/lib/packer-firstboot/hostname.done
+  exit 0
+fi
+
+new="${current}-${suffix}"
+if [[ "${current}" == "${new}" ]]; then
+  echo "firstboot-hostname: hostname already '${new}', nothing to do"
+  touch /var/lib/packer-firstboot/hostname.done
+  exit 0
+fi
+
+echo "firstboot-hostname: ${current} -> ${new}"
+hostnamectl set-hostname "${new}"
+
+# Update /etc/hosts so loopback resolution matches the new hostname.
+if grep -qE '^127\.0\.1\.1[[:space:]]' /etc/hosts; then
+  sed -i "s/^127\.0\.1\.1.*/127.0.1.1\t${new}/" /etc/hosts
+else
+  printf '127.0.1.1\t%s\n' "${new}" >> /etc/hosts
+fi
+
+touch /var/lib/packer-firstboot/hostname.done
+SCRIPT
+chmod +x /usr/local/sbin/firstboot-hostname.sh
+
+# Mirror the ssh-host-keygen.service pattern: oneshot, runs early, gated
+# by a sentinel path, disables itself after success.
+cat > /etc/systemd/system/firstboot-hostname.service << 'UNIT'
+[Unit]
+Description=Append a unique suffix to the hostname on first boot of each clone
+DefaultDependencies=no
+Before=network-pre.target sysinit.target
+ConditionPathExists=!/var/lib/packer-firstboot/hostname.done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/firstboot-hostname.sh
+ExecStartPost=/bin/systemctl disable firstboot-hostname.service
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target
+UNIT
+systemctl enable firstboot-hostname.service
+
 echo "==> Hardening SSH configuration..."
 cat >> /etc/ssh/sshd_config.d/99-packer-hardening.conf << 'EOF'
 # Packer build hardening — adjust after deployment as needed

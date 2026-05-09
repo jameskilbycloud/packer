@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Per-clone hostname uniquification via a `firstboot-hostname.service`
+  oneshot systemd unit installed by `setup.sh`. Each clone boots with
+  `<template-hostname>-<6-hex-suffix>` (e.g.
+  `ubuntu-2604-server-3a4f5b`), where the suffix is the last six hex
+  characters of the vSphere VM UUID (`/sys/class/dmi/id/product_uuid`).
+  Stable across reboots of the same VM, unique across clones — eliminates
+  the duplicate-hostname collision when multiple clones boot on a shared
+  network. Runs once, gated by a sentinel at
+  `/var/lib/packer-firstboot/hostname.done`, then disables itself.
+
 ## [1.0.0] — 2026-05-10
 
 First production-ready cut of the Linux-only pipeline. All six Ubuntu LTS
