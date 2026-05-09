@@ -42,7 +42,7 @@ The machine running Packer must be able to reach the vCenter API (port 443) and 
 
 ```
 packer/
-├── packer.pkr.hcl                  # Plugin requirements (vsphere ≥ 1.3.0)
+├── packer.pkr.hcl                  # Plugin requirements (vsphere ≥ 2.1.2 from vmware/vsphere)
 ├── variables.pkr.hcl               # All variable declarations with descriptions
 ├── locals.pkr.hcl                  # Shared locals: build_date, build_timestamp
 │
@@ -155,7 +155,7 @@ make build-all
 | `LIBRARY_DATASTORE` | yes | — | Datastore to back the Content Library |
 | `CONTENT_LIBRARY` | no | `Packer-ISOs` | Content Library name to create or reuse |
 | `UBUNTU_VERSIONS` | no | `2204 2404 2604` | Space-separated versions to process |
-| `DOWNLOAD_DIR` | no | `/tmp/packer-isos` | Local directory for ISO downloads |
+| `DOWNLOAD_DIR` | no | `/var/tmp/packer-isos` | Local directory for ISO downloads |
 | `KEEP_DOWNLOADS` | no | `false` | Set `true` to keep local ISOs after upload |
 | `SKIP_CHECKSUM` | no | `false` | Set `true` to skip SHA256 verification |
 
@@ -187,7 +187,7 @@ The script is idempotent — if an ISO is already present in the library it is s
 
 > **Note on 26.04:** Ubuntu 26.04 was released in April 2026. If the ISO filename differs from the placeholder in the script, update `ISO_FILENAME[2604]` near the top of `scripts/upload-isos.sh`.
 
-All builds use the **live-server ISO** for both server and desktop images. The desktop environment (`ubuntu-desktop-minimal`) is installed via the autoinstall package list — there is no separate desktop ISO to manage.
+All builds use the **live-server ISO** for both server and desktop images. The desktop environment (`ubuntu-desktop-minimal`) is installed by the `desktop.sh` provisioner after the OS install completes — there is no separate desktop ISO to manage.
 
 ---
 
@@ -213,7 +213,7 @@ All variables are declared in `variables.pkr.hcl`. Set them in `variables.pkrvar
 | `vsphere_host` | no | `""` | ESXi host. Required if `vsphere_cluster` is empty |
 | `vsphere_datastore` | yes | — | Datastore for VM storage |
 | `vsphere_network` | yes | — | Port group / network name for the VM NIC |
-| `vsphere_folder` | no | `"Templates"` | VM folder path for finished templates |
+| `vsphere_folder` | no | `"packer"` | VM folder path for finished templates |
 | `vsphere_iso_datastore` | yes | — | Datastore **or** Content Library name holding the ISOs |
 
 ### Build credentials
@@ -315,11 +315,11 @@ Each build produces:
 |---|---|
 | OS | Ubuntu Server (minimal) |
 | vCPUs | 2 (1 socket × 2 cores) |
-| RAM | 2 GB |
+| RAM | 4 GB |
 | Disk | 40 GB thin-provisioned (LVM) |
 | Network | vmxnet3, DHCP |
-| Firmware | EFI Secure Boot |
-| Extra packages | open-vm-tools, curl, wget, vim, git, net-tools |
+| Firmware | EFI (Secure Boot disabled — needed so Packer can inject autoinstall args via the GRUB command line) |
+| Extra packages | open-vm-tools, curl, wget, vim, git, net-tools (installed by `setup.sh` / `vmtools.sh`, not autoinstall) |
 
 ### Desktop images
 
@@ -327,11 +327,11 @@ Each build produces:
 |---|---|
 | OS | Ubuntu Desktop (ubuntu-desktop-minimal + GNOME) |
 | vCPUs | 4 (1 socket × 4 cores) |
-| RAM | 4 GB |
+| RAM | 8 GB |
 | Disk | 60 GB thin-provisioned (LVM) |
 | Network | vmxnet3, DHCP |
-| Firmware | EFI Secure Boot |
-| Extra packages | open-vm-tools, open-vm-tools-desktop, curl, wget, vim, git |
+| Firmware | EFI (Secure Boot disabled) |
+| Extra packages | open-vm-tools, open-vm-tools-desktop, ubuntu-desktop-minimal, curl, wget, vim, git (installed by `setup.sh` / `desktop.sh` / `vmtools.sh`, not autoinstall) |
 
 All sizes are configurable via variables.
 
@@ -346,21 +346,29 @@ The autoinstall seed is written to a small ISO (labelled `cidata`) at build time
 Key autoinstall steps:
 - LVM storage layout on the first available disk
 - SSH server enabled (`allow-pw: true`) so Packer can connect
-- `open-vm-tools` (and `open-vm-tools-desktop` for desktop builds) installed
 - Passwordless sudo granted to the build user for provisioner scripts
-- `cloud-init.disabled` created so cloud-init does not run again on cloned VMs
+- `datasource_list: [None]` written to `/etc/cloud/cloud.cfg.d/99-packer.cfg` — neutralises cloud-init on cloned VMs without disabling its systemd units (the older `cloud-init.disabled` approach broke 24.04 networking because cloud-init's boot units are in the dependency chain)
+- UFW disabled and the unit masked to `/dev/null` so the firewall does not block SSH on first boot of clones
+
+`packages: []` and `snaps: []` are explicitly empty — every package or snap that needs `systemctl` or D-Bus during install would deadlock inside subiquity's headless chroot on 26.04, so all post-install work is moved to the shell provisioners below.
 
 ### Shell provisioners (`scripts/`)
 
-**`setup.sh`** — runs after the OS install completes:
+**`setup.sh`** — runs after the OS install completes (every variant):
 - `apt-get update && apt-get upgrade` (full security upgrade)
-- Installs common utilities
+- Installs common utilities (curl, wget, vim, git, net-tools, etc.)
 - Disables swap and tunes `vm.swappiness`
-- Removes SSH host keys (regenerated on first boot of each clone)
+- Removes SSH host keys, then installs a oneshot `ssh-host-keygen.service` systemd unit that regenerates them before `ssh.socket` / `ssh.service` on the first boot of each clone (needed because socket-activated SSH on 22.04+ never triggers `ssh-keygen@.service`)
 - Appends SSH hardening config (`PermitRootLogin no`, etc.)
+- Truncates `/etc/machine-id` so each clone gets a fresh ID + DHCP lease
+- Optionally creates a persistent admin user and imports SSH keys via `ssh-import-id-gh`
 - Zeroes free disk space for smaller template storage footprint
 
-**`vmtools.sh`** — verifies open-vm-tools:
+**`desktop.sh`** — runs only for the desktop variants, after `setup.sh`:
+- Installs `ubuntu-desktop-minimal` and `open-vm-tools-desktop`
+- Holds snap auto-refresh for 60 days so it does not race with the remaining provisioners
+
+**`vmtools.sh`** — runs last (every variant):
 - Installs `open-vm-tools` if not already present
 - Installs `open-vm-tools-desktop` if a display manager is detected
 - Enables and starts the service
@@ -396,7 +404,9 @@ ansible = {
 
 ### Static IP instead of DHCP
 
-Edit the network section in the relevant `templates/*-user-data.pkrtpl`:
+Edit the network section in the relevant `templates/*-user-data.pkrtpl`. The 22.04 / 24.04 templates use the legacy doubly-nested form (`network: { network: { version: 2, ... } }`); the 26.04 templates use the single-level form documented by current subiquity.
+
+For 22.04 / 24.04 (`templates/{server,desktop}-user-data.pkrtpl`):
 
 ```yaml
 network:
@@ -409,6 +419,20 @@ network:
         gateway4: 192.168.1.1
         nameservers:
           addresses: [1.1.1.1, 8.8.8.8]
+```
+
+For 26.04 (`templates/{server,desktop}-2604-user-data.pkrtpl`):
+
+```yaml
+network:
+  version: 2
+  ethernets:
+    ens192:
+      dhcp4: false
+      addresses: [192.168.1.50/24]
+      gateway4: 192.168.1.1
+      nameservers:
+        addresses: [1.1.1.1, 8.8.8.8]
 ```
 
 ### Different storage layout
@@ -587,7 +611,7 @@ This gives fast feedback (typically under 2 minutes) on every PR with no infrast
 **What it does:**
 
 1. Resolves which builds to run into a matrix based on the trigger/input
-2. Each matrix entry runs in parallel on the self-hosted runner (up to vSphere resource limits)
+2. Matrix entries run **sequentially** on the self-hosted runner (`max-parallel: 1`) — one Packer process at a time. Where applicable, parallelism happens *inside* a single Packer process via `-parallel-builds=2` (combined "ubuntu-XXXX.*" runs build server + desktop together)
 3. **Pre-flight secrets check** — fails immediately with a clear list of any missing secrets before any tools are installed
 4. Installs Packer via direct binary download (codename-independent — works on any Ubuntu release), runs `packer init`, then `packer validate`
 5. Runs `packer build` with `PACKER_LOG=1` for full debug output
@@ -616,6 +640,7 @@ workflow_dispatch inputs:
 workflow_dispatch inputs:
   ubuntu_versions  → "2204 2404 2604" (default) or any subset
   content_library  → "Packer-ISOs" (default)
+  download_dir     → "/var/tmp/packer-isos" (default)
   keep_downloads   → false | true
   skip_checksum    → false | true
 ```
@@ -656,13 +681,13 @@ Ensure the datastore has enough free space for the ISO (typically 1–2 GB each)
 Disk size is specified in MB internally (`var.server_disk_gb * 1024`). If you see validation errors, confirm your `server_disk_gb` / `desktop_disk_gb` values are plain integers with no units.
 
 **Desktop build times out on SSH**
-Installing `ubuntu-desktop-minimal` takes significantly longer than a server install. The desktop source blocks use a 90-minute SSH timeout. If your environment is slow, increase `ssh_timeout` in the relevant source block.
+Installing `ubuntu-desktop-minimal` takes significantly longer than a server install. SSH timeouts live in `locals.pkr.hcl` — `desktop_ssh_timeout = 120m` for 22.04 / 24.04 desktop, `desktop_2604_ssh_timeout = 180m` for 26.04 desktop, `server_2604_ssh_timeout = 180m` for 26.04 server (which also has a longer install on the GA kernel), and `ssh_timeout = 90m` for 22.04 / 24.04 server. If your environment is slow, raise the relevant local.
 
 ---
 
 ## Security notes
 
 - `variables.pkrvars.hcl` contains credentials — never commit it. The `.gitignore` entry is set up in the quick start.
-- The build user is granted passwordless sudo during the build. `setup.sh` does **not** remove this — if you want to lock it down in the final template, add a `late-commands` step or a provisioner that removes `/etc/sudoers.d/90-packer-ubuntu`.
-- SSH host keys are wiped by `setup.sh` and regenerated on the first boot of each cloned VM via `/etc/rc.local`.
-- `cloud-init.disabled` prevents cloud-init from resetting the hostname or reconfiguring the network on clone. Remove this file if your deployment workflow relies on cloud-init.
+- The build user is granted passwordless sudo during the build. `setup.sh` does **not** remove this — if you want to lock it down in the final template, add a `late-commands` step or a provisioner that removes `/etc/sudoers.d/90-packer-${build_username}`.
+- SSH host keys are wiped by `setup.sh` and regenerated on the first boot of each cloned VM by a oneshot systemd unit (`ssh-host-keygen.service`) that runs before `ssh.socket` and `ssh.service`, then disables itself. This works around the fact that 22.04+ socket-activated SSH never triggers the stock `ssh-keygen@.service`.
+- Cloud-init is neutralised on cloned VMs via `/etc/cloud/cloud.cfg.d/99-packer.cfg` containing `datasource_list: [None]` (a no-op datasource). Cloud-init's systemd units still run but do nothing — they are intentionally **not** disabled because cloud-init's boot units are in the dependency chain on 24.04 and disabling them breaks networking. To re-enable cloud-init in your deployment workflow, remove that file.
