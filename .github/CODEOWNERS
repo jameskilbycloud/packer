@@ -1,0 +1,6 @@
+# CODEOWNERS — auto-assigns review on every PR.
+# Syntax: <pattern> <owner...>  — last matching pattern wins.
+# https://docs.github.com/en/repositories/managing-your-repositories-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything
+*       @jameskilbycloud

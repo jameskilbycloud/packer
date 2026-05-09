@@ -1,0 +1,80 @@
+name: Bug report
+description: A build is failing, behaviour is wrong, or the docs are inaccurate.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report. Please fill in as much as you
+        can — the more specific the failure, the faster it can be reproduced.
+
+        For *security* issues, please do **not** open a public issue.
+        See [SECURITY.md](../SECURITY.md) for the private reporting channel.
+
+  - type: input
+    id: build_target
+    attributes:
+      label: Affected build
+      description: Which template / matrix entry is failing?
+      placeholder: "e.g. 2604-server, all-linux"
+    validations:
+      required: true
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit SHA on `main`
+      description: |
+        Output of `git rev-parse --short HEAD` from the commit you built
+        against. Helps narrow down recent changes.
+      placeholder: "e.g. 51c600c"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened?
+      description: What did Packer / the workflow / the produced template do?
+      placeholder: |
+        Packer hung at "Waiting for SSH". The build VM was visible in vCenter
+        but never got an IP. After 60 minutes the workflow failed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: what_expected
+    attributes:
+      label: What did you expect?
+      placeholder: |
+        Packer to connect within ~10 minutes (per the existing 22.04 build
+        which uses the same credentials).
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log excerpt
+      description: |
+        Either inline (use \`\`\`backticks\`\`\` for a code block) or a link
+        to the GitHub Actions run. Workflow logs are retained for 30 days
+        as the `packer-log-<label>-<run>` artifact.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: |
+        - vCenter / ESXi version
+        - VM hardware version (`vm_hardware_version` in your vars file)
+        - Self-hosted runner OS
+        - Packer version (output of `packer version`)
+        - Anything customised from the defaults
+      render: markdown
+    validations:
+      required: false

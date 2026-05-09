@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # GitHub Actions versions used in .github/workflows/*.yml. Dependabot opens
+  # a PR for each updated action; review and merge as you'd handle any other
+  # dependency bump. The Packer plugin pin in `packer.pkr.hcl` is hand-managed
+  # because Dependabot has no native support for the HCL plugin block.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/London"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
