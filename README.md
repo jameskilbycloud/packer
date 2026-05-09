@@ -616,7 +616,8 @@ This gives fast feedback (typically under 2 minutes) on every PR with no infrast
 4. Installs Packer via direct binary download (codename-independent — works on any Ubuntu release), runs `packer init`, then `packer validate`
 5. Runs `packer build` with `PACKER_LOG=1` for full debug output
 6. Uploads the Packer log and build manifest as workflow artifacts
-7. Always deletes the temporary credentials file, even on failure
+7. **Prunes old templates** — retains the most-recent N templates per `(version, type)` group and destroys the rest (see [Template lifecycle](#template-lifecycle))
+8. Always deletes the temporary credentials file, even on failure
 
 **Running manually:**
 
@@ -627,6 +628,24 @@ workflow_dispatch inputs:
   build_target → 2404-server | 2404-desktop | all-servers | all | …
   dry_run      → false (default) | true
 ```
+
+### Template lifecycle
+
+After every successful build the workflow prunes older templates so vSphere does not silently accumulate ~52 dated templates per variant per year. Pruning is grouped by `(version, type)` — `ubuntu-2604-server-*` and `ubuntu-2604-desktop-*` are independent groups, so a combined "build both" run keeps N of each, not N total interleaved.
+
+Configure via repository variables (**Settings → Secrets and variables → Actions → Variables**):
+
+| Variable | Default | Effect |
+|---|---|---|
+| `TEMPLATE_RETENTION_COUNT` | `4` | Templates kept per `(version, type)`. With the weekly cron, `4` ≈ one month of history. |
+| `TEMPLATE_PRUNE_DRY_RUN` | `false` | Set `true` to log the destroy plan without executing it. Useful for the first run to confirm the right entries are matched. |
+
+Safety properties of the prune step:
+
+- Only runs after `success() && dry_run == false` — a failed build, or a packer dry-run, never destroys anything.
+- Only acts on items that are actually templates (`Config.Template == true`) — a concurrent build's WIP VM cannot be pruned.
+- Sorts by name descending; because the `YYYYMMDD` suffix is zero-padded, lex desc is equivalent to newest-first, so the just-built template is always retained.
+- A failure to destroy any single template is logged and the loop continues — one stuck template does not block pruning of the rest.
 
 ### Workflow: upload-isos
 
