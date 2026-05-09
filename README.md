@@ -237,7 +237,7 @@ All variables are declared in `variables.pkr.hcl`. Set them in `variables.pkrvar
 | Variable | Default | Description |
 |---|---|---|
 | `server_cpu_count` | `2` | vCPU cores |
-| `server_ram_mb` | `2048` | RAM in MB |
+| `server_ram_mb` | `4096` | RAM in MB |
 | `server_disk_gb` | `40` | OS disk size in GB |
 
 ### VM hardware — desktop
@@ -245,7 +245,7 @@ All variables are declared in `variables.pkr.hcl`. Set them in `variables.pkrvar
 | Variable | Default | Description |
 |---|---|---|
 | `desktop_cpu_count` | `4` | vCPU cores |
-| `desktop_ram_mb` | `4096` | RAM in MB |
+| `desktop_ram_mb` | `8192` | RAM in MB |
 | `desktop_disk_gb` | `60` | OS disk size in GB |
 
 ### VM hardware — general

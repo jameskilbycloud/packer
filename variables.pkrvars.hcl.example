@@ -30,12 +30,12 @@ build_password_encrypted = "$6$rounds=4096$REPLACE_WITH_REAL_SALT$REPLACE_WITH_R
 
 # ── VM Hardware — Server ──────────────────────────────────────────────────────
 server_cpu_count = 2
-server_ram_mb    = 2048
+server_ram_mb    = 4096
 server_disk_gb   = 40
 
 # ── VM Hardware — Desktop ─────────────────────────────────────────────────────
 desktop_cpu_count = 4
-desktop_ram_mb    = 4096
+desktop_ram_mb    = 8192
 desktop_disk_gb   = 60
 
 # ── VM Hardware — General ─────────────────────────────────────────────────────
