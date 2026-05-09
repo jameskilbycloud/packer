@@ -107,7 +107,7 @@ variable "server_cpu_count" {
 variable "server_ram_mb" {
   type        = number
   description = "RAM in MB for server images"
-  default     = 2048
+  default     = 4096
 }
 
 variable "server_disk_gb" {
@@ -129,7 +129,7 @@ variable "desktop_cpu_count" {
 variable "desktop_ram_mb" {
   type        = number
   description = "RAM in MB for desktop images"
-  default     = 4096
+  default     = 8192
 }
 
 variable "desktop_disk_gb" {
