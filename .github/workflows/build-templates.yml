@@ -493,7 +493,7 @@ jobs:
       # ── Upload logs ──────────────────────────────────────────────────────────
       - name: Upload Packer log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: packer-log-${{ matrix.label }}-${{ github.run_number }}
           path: packer-${{ matrix.label }}.log
@@ -503,7 +503,7 @@ jobs:
       # matrix carries this as `manifest` (e.g. ubuntu-2204, ubuntu-2604).
       - name: Upload build manifest
         if: success() && needs.resolve-targets.outputs.dry_run == 'false'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: manifest-${{ matrix.label }}-${{ github.run_number }}
           path: manifests/${{ matrix.manifest }}.json
