@@ -86,11 +86,18 @@ source "vsphere-iso" "ubuntu-2604-server" {
   # initrd explicitly. This avoids the entry editor (e) whose line count
   # varies by ISO. Do NOT use <esc> before 'c' — on EFI GRUB, Escape exits
   # the bootloader entirely.
+  #
+  # overlay.metacopy=off, overlay.redirect_dir=off: workaround for a kernel
+  # oops in ovl_iterate_merged that fires during curtin's image-extract step
+  # (rsync from a squashfs-backed OverlayFS mount, exiting with irqs disabled
+  # → install hangs). Disabling these two OverlayFS features avoids the
+  # buggy code path in 26.04's GA kernel. Live-installer-only — does not
+  # affect the installed OS.
   boot_order = "disk,cdrom"
   boot_wait  = "5s"
   boot_command = [
     "<spacebar><wait>c<wait3s>",
-    "linux /casper/vmlinuz --- autoinstall ds=nocloud<enter><wait5>",
+    "linux /casper/vmlinuz --- autoinstall ds=nocloud overlay.metacopy=off overlay.redirect_dir=off<enter><wait5>",
     "initrd /casper/initrd<enter><wait5>",
     "boot<enter><wait30>"
   ]
@@ -197,11 +204,18 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
   # initrd explicitly. This avoids the entry editor (e) whose line count
   # varies by ISO. Do NOT use <esc> before 'c' — on EFI GRUB, Escape exits
   # the bootloader entirely.
+  #
+  # overlay.metacopy=off, overlay.redirect_dir=off: workaround for a kernel
+  # oops in ovl_iterate_merged that fires during curtin's image-extract step
+  # (rsync from a squashfs-backed OverlayFS mount, exiting with irqs disabled
+  # → install hangs). Disabling these two OverlayFS features avoids the
+  # buggy code path in 26.04's GA kernel. Live-installer-only — does not
+  # affect the installed OS.
   boot_order = "disk,cdrom"
   boot_wait  = "5s"
   boot_command = [
     "<spacebar><wait>c<wait3s>",
-    "linux /casper/vmlinuz --- autoinstall ds=nocloud<enter><wait5>",
+    "linux /casper/vmlinuz --- autoinstall ds=nocloud overlay.metacopy=off overlay.redirect_dir=off<enter><wait5>",
     "initrd /casper/initrd<enter><wait5>",
     "boot<enter><wait30>"
   ]
