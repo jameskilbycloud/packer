@@ -359,6 +359,7 @@ Key autoinstall steps:
 - Installs common utilities (curl, wget, vim, git, net-tools, etc.)
 - Disables swap and tunes `vm.swappiness`
 - Removes SSH host keys, then installs a oneshot `ssh-host-keygen.service` systemd unit that regenerates them before `ssh.socket` / `ssh.service` on the first boot of each clone (needed because socket-activated SSH on 22.04+ never triggers `ssh-keygen@.service`)
+- Installs a oneshot `firstboot-hostname.service` that appends a 6-hex-char suffix derived from the vSphere VM UUID to the hostname (e.g. `ubuntu-2604-server-3a4f5b`) on the first boot of each clone — stable across reboots of the same VM, unique across clones. Avoids DNS / monitoring / Slack collisions when multiple clones boot on the same network. Runs before `network-pre.target` so DHCP announces the unique name; disables itself after the first successful run via a sentinel at `/var/lib/packer-firstboot/hostname.done`.
 - Appends SSH hardening config (`PermitRootLogin no`, etc.)
 - Truncates `/etc/machine-id` so each clone gets a fresh ID + DHCP lease
 - Optionally creates a persistent admin user and imports SSH keys via `ssh-import-id-gh`
