@@ -66,10 +66,12 @@ source "vsphere-iso" "ubuntu-2604-server" {
   # ISO
   iso_paths = ["[${var.vsphere_iso_datastore}] ${var.ubuntu_2604_iso_path}"]
 
-  # Cloud-init / autoinstall seed
+  # Cloud-init / autoinstall seed — 26.04 uses a forked template with the
+  # un-nested netplan form, snap-seed dir cleanup, and extra firewall unit
+  # masks (see templates/server-2604-user-data.pkrtpl).
   cd_content = {
     "meta-data" = ""
-    "user-data" = templatefile("${path.root}/templates/server-user-data.pkrtpl", {
+    "user-data" = templatefile("${path.root}/templates/server-2604-user-data.pkrtpl", {
       vm_hostname              = "ubuntu-2604-server"
       build_username           = var.build_username
       build_password_encrypted = var.build_password_encrypted
@@ -78,14 +80,16 @@ source "vsphere-iso" "ubuntu-2604-server" {
   }
   cd_label = "cidata"
 
-  # Boot — type 'c' during the GRUB countdown to open the command line, then
-  # specify the kernel and initrd explicitly. This is version-agnostic and
-  # avoids the entry editor (e) whose line count varies by ISO. Do NOT use
-  # <esc> before 'c' — on EFI GRUB, Escape exits the bootloader entirely.
+  # Boot — leading <spacebar> halts the GRUB countdown reliably so a slow
+  # vSphere console doesn't drop into the default menu entry before we send
+  # 'c'. 'c' then opens GRUB's command line where we specify the kernel and
+  # initrd explicitly. This avoids the entry editor (e) whose line count
+  # varies by ISO. Do NOT use <esc> before 'c' — on EFI GRUB, Escape exits
+  # the bootloader entirely.
   boot_order = "disk,cdrom"
   boot_wait  = "5s"
   boot_command = [
-    "c<wait2>",
+    "<spacebar><wait>c<wait3s>",
     "linux /casper/vmlinuz --- autoinstall ds=nocloud<enter><wait5>",
     "initrd /casper/initrd<enter><wait5>",
     "boot<enter><wait30>"
@@ -94,20 +98,25 @@ source "vsphere-iso" "ubuntu-2604-server" {
   # IP settle timeout — kept short so it fires during the live install phase,
   # not after the reboot. Packer starts SSH retries early (hitting ECONNREFUSED
   # while early-commands hold port 22 closed), then connects once the installed
-  # OS boots. This works because late-commands copies /run/machine-id into the
-  # installed OS, giving it the same DUID as the live installer → same DHCP
-  # lease → same IP after reboot → Packer's retries succeed.
+  # OS boots. This works because late-commands copies the live installer's
+  # machine-id into the installed OS, giving it the same DUID as the live
+  # installer → same DHCP lease → same IP after reboot → Packer's retries
+  # succeed.
   # Ubuntu 26.04's install takes longer than 22.04/24.04 (~30-50 min vs ~10 min)
   # so a 20m settle timeout would fire post-install on 22.04/24.04 but mid-install
   # on 26.04. 5m fires consistently during the live phase on all versions.
+  # ip_wait_timeout set explicitly (default is 30m) — long enough to cover the
+  # VM-power-on → VMware Tools-reports-IP window even on a busy cluster.
+  ip_wait_timeout   = "60m"
   ip_settle_timeout = "5m"
 
-  # SSH communicator — 120m covers the full install + reboot + SSH-up window
-  # (ip_settle_timeout fires at ~5 min; installed OS SSH is up ~35-55 min later).
+  # SSH communicator — 180m covers the full install + reboot + SSH-up window
+  # (ip_settle fires at ~5 min; installed OS SSH is up ~40-60 min later, with
+  # headroom for first-GA security updates pulled in by setup.sh).
   communicator = "ssh"
   ssh_username = var.build_username
   ssh_password = var.build_password
-  ssh_timeout  = "120m"
+  ssh_timeout  = local.server_2604_ssh_timeout
   ssh_port     = 22
 
   # Shutdown
@@ -168,10 +177,12 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
   # ISO
   iso_paths = ["[${var.vsphere_iso_datastore}] ${var.ubuntu_2604_iso_path}"]
 
-  # Cloud-init / autoinstall seed
+  # Cloud-init / autoinstall seed — 26.04 uses a forked template with the
+  # un-nested netplan form, snap-seed dir cleanup, and extra firewall unit
+  # masks (see templates/desktop-2604-user-data.pkrtpl).
   cd_content = {
     "meta-data" = ""
-    "user-data" = templatefile("${path.root}/templates/desktop-user-data.pkrtpl", {
+    "user-data" = templatefile("${path.root}/templates/desktop-2604-user-data.pkrtpl", {
       vm_hostname              = "ubuntu-2604-desktop"
       build_username           = var.build_username
       build_password_encrypted = var.build_password_encrypted
@@ -180,14 +191,16 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
   }
   cd_label = "cidata"
 
-  # Boot — type 'c' during the GRUB countdown to open the command line, then
-  # specify the kernel and initrd explicitly. This is version-agnostic and
-  # avoids the entry editor (e) whose line count varies by ISO. Do NOT use
-  # <esc> before 'c' — on EFI GRUB, Escape exits the bootloader entirely.
+  # Boot — leading <spacebar> halts the GRUB countdown reliably so a slow
+  # vSphere console doesn't drop into the default menu entry before we send
+  # 'c'. 'c' then opens GRUB's command line where we specify the kernel and
+  # initrd explicitly. This avoids the entry editor (e) whose line count
+  # varies by ISO. Do NOT use <esc> before 'c' — on EFI GRUB, Escape exits
+  # the bootloader entirely.
   boot_order = "disk,cdrom"
   boot_wait  = "5s"
   boot_command = [
-    "c<wait2>",
+    "<spacebar><wait>c<wait3s>",
     "linux /casper/vmlinuz --- autoinstall ds=nocloud<enter><wait5>",
     "initrd /casper/initrd<enter><wait5>",
     "boot<enter><wait30>"
@@ -202,7 +215,7 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
   # the larger package set and snap-related first boot work, so extend the
   # wait window for the post-install SSH phase.
   # ip_wait_timeout must remain > ip_settle_timeout.
-  ip_wait_timeout   = "150m"
+  ip_wait_timeout   = "180m"
   ip_settle_timeout = "10m"
 
   # SSH communicator
@@ -233,24 +246,39 @@ build {
     "source.vsphere-iso.ubuntu-2604-desktop",
   ]
 
-  # Server: setup.sh + vmtools.sh in one provisioner step.
+  # Server: setup.sh first. Split from vmtools.sh because setup.sh runs
+  # `apt-get upgrade -y` on a fresh GA image, which can pull in a new systemd
+  # whose postinst triggers daemon-reexec — that kills the SSH session
+  # (exit 2300218) the same way ubuntu-desktop-minimal does on the desktop
+  # variant. expect_disconnect=true tells Packer the disconnect is intentional
+  # so it reconnects cleanly for vmtools.sh.
   provisioner "shell" {
-    only            = ["vsphere-iso.ubuntu-2604-server"]
-    execute_command = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    only              = ["vsphere-iso.ubuntu-2604-server"]
+    execute_command   = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    expect_disconnect = true
+    valid_exit_codes  = [0, 2300218]
     environment_vars = [
       "ADMIN_USERNAME=${var.admin_username}",
       "ADMIN_GITHUB_USER=${var.admin_github_user}",
     ]
-    scripts = [
-      "${path.root}/scripts/setup.sh",
-      "${path.root}/scripts/vmtools.sh",
-    ]
+    scripts = ["${path.root}/scripts/setup.sh"]
   }
 
-  # Desktop: setup.sh first.
+  # Server: vmtools.sh after setup.sh completes (and any systemd reexec
+  # triggered by the upgrade has settled).
   provisioner "shell" {
-    only            = ["vsphere-iso.ubuntu-2604-desktop"]
+    only            = ["vsphere-iso.ubuntu-2604-server"]
     execute_command = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    scripts         = ["${path.root}/scripts/vmtools.sh"]
+  }
+
+  # Desktop: setup.sh first. Same daemon-reexec hazard as the server variant
+  # — apt-get upgrade can replace systemd. expect_disconnect=true.
+  provisioner "shell" {
+    only              = ["vsphere-iso.ubuntu-2604-desktop"]
+    execute_command   = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    expect_disconnect = true
+    valid_exit_codes  = [0, 2300218]
     environment_vars = [
       "ADMIN_USERNAME=${var.admin_username}",
       "ADMIN_GITHUB_USER=${var.admin_github_user}",

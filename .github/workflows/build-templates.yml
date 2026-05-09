@@ -356,6 +356,24 @@ jobs:
               item_id=$(govc library.info -json "/${CONTENT_LIBRARY}/${item_stem}" 2>/dev/null \
                 | python3 -c "${_pick_id}" 2>/dev/null || echo "")
             fi
+            # Final fallback for Ubuntu LTS: pattern-match the library to
+            # absorb point-release suffixes that diverge from the hardcoded
+            # filename (e.g. ubuntu-26.04 vs ubuntu-26.04.0 vs ubuntu-26.04.1).
+            # ver matches /^[0-9]{4}$/ for Ubuntu entries (e.g. "2604"); skip
+            # for Windows entries which use exact filenames from secrets.
+            if [[ -z "${item_id}" && "${ver}" =~ ^[0-9]{4}$ ]]; then
+              maj="${ver:0:2}"
+              min="${ver:2:2}"
+              matched=$(govc library.ls "/${CONTENT_LIBRARY}/" 2>/dev/null \
+                | sed 's|^.*/||; s|\.iso$||' \
+                | grep -E "^ubuntu-${maj}\.${min}(\.[0-9]+)?-live-server-amd64$" \
+                | head -1 || true)
+              if [[ -n "${matched}" ]]; then
+                echo "  ${ver}: glob fallback matched '${matched}'"
+                item_id=$(govc library.info -json "/${CONTENT_LIBRARY}/${matched}" 2>/dev/null \
+                  | python3 -c "${_pick_id}" 2>/dev/null || echo "")
+              fi
+            fi
 
             if [[ -n "${item_id}" && -n "${lib_id}" ]]; then
               item_dir="contentlib-${lib_id}/${item_id}"

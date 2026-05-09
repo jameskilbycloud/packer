@@ -225,24 +225,36 @@ build {
     "source.vsphere-iso.ubuntu-2404-desktop",
   ]
 
-  # Server: setup.sh + vmtools.sh in one provisioner step.
+  # Server: setup.sh first. Split from vmtools.sh because setup.sh runs
+  # `apt-get upgrade -y`, which on a fresh GA image can pull in a new systemd
+  # whose postinst triggers daemon-reexec — that kills the SSH session
+  # (exit 2300218). expect_disconnect=true tells Packer the disconnect is
+  # intentional so it reconnects cleanly for vmtools.sh.
   provisioner "shell" {
-    only            = ["vsphere-iso.ubuntu-2404-server"]
-    execute_command = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    only              = ["vsphere-iso.ubuntu-2404-server"]
+    execute_command   = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    expect_disconnect = true
+    valid_exit_codes  = [0, 2300218]
     environment_vars = [
       "ADMIN_USERNAME=${var.admin_username}",
       "ADMIN_GITHUB_USER=${var.admin_github_user}",
     ]
-    scripts = [
-      "${path.root}/scripts/setup.sh",
-      "${path.root}/scripts/vmtools.sh",
-    ]
+    scripts = ["${path.root}/scripts/setup.sh"]
   }
 
-  # Desktop: setup.sh first.
+  # Server: vmtools.sh after setup.sh completes.
   provisioner "shell" {
-    only            = ["vsphere-iso.ubuntu-2404-desktop"]
+    only            = ["vsphere-iso.ubuntu-2404-server"]
     execute_command = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    scripts         = ["${path.root}/scripts/vmtools.sh"]
+  }
+
+  # Desktop: setup.sh first. Same daemon-reexec hazard as the server variant.
+  provisioner "shell" {
+    only              = ["vsphere-iso.ubuntu-2404-desktop"]
+    execute_command   = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    expect_disconnect = true
+    valid_exit_codes  = [0, 2300218]
     environment_vars = [
       "ADMIN_USERNAME=${var.admin_username}",
       "ADMIN_GITHUB_USER=${var.admin_github_user}",
