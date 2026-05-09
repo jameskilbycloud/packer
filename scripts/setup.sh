@@ -123,8 +123,13 @@ echo "==> Clearing machine-id so each clone gets a unique ID on first boot..."
 truncate -s 0 /etc/machine-id
 
 echo "==> Zeroing free space for better template compression..."
-dd if=/dev/zero of=/tmp/zero.fill bs=4M || true
-rm -f /tmp/zero.fill
+# Write to /var/tmp, NOT /tmp. On Ubuntu /tmp is mounted as tmpfs by systemd
+# (tmp.mount), so writing zeros there fills RAM and never touches the disk —
+# making this step a no-op for thin-provisioned template compaction.
+# /var/tmp lives on the root filesystem on Ubuntu defaults, so the zeroes
+# actually land on the OS disk that Packer is about to convert to a template.
+dd if=/dev/zero of=/var/tmp/zero.fill bs=4M || true
+rm -f /var/tmp/zero.fill
 sync
 
 echo "==> setup.sh complete."
