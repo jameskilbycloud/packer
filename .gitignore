@@ -21,3 +21,8 @@ manifests/*.json
 
 # Temporary runner vars file written by CI
 runner.pkrvars.hcl
+
+# OS metadata files — written by Finder / Explorer, never useful in the repo
+.DS_Store
+Thumbs.db
+desktop.ini
