@@ -509,6 +509,115 @@ jobs:
           path: manifests/${{ matrix.manifest }}.json
           retention-days: 90
 
+      # ── Prune old templates ─────────────────────────────────────────────────
+      # Lifecycle policy: retain the most recent N templates per (version, type)
+      # group and destroy the rest. Without this, every weekly build leaves a
+      # fresh dated template in vSphere forever — ~52 per variant per year.
+      #
+      # Configurable via repo variables:
+      #   TEMPLATE_RETENTION_COUNT  — how many to keep per group  (default: 4)
+      #   TEMPLATE_PRUNE_DRY_RUN    — "true" prints intent but does not destroy
+      #                                (default: false). Use this on first
+      #                                roll-out to confirm the right entries
+      #                                are being identified.
+      #
+      # Grouping: templates are named `ubuntu-<version>-<type>-<YYYYMMDD>`.
+      # The group key is everything before the trailing date suffix
+      # (e.g. `ubuntu-2604-server`), so combined builds whose vm_glob is
+      # `ubuntu-2604-*` correctly retain N server AND N desktop templates,
+      # not N total interleaved.
+      #
+      # Safety: only runs after a successful build (success() guard); skipped
+      # entirely on dry-run packer builds; skips items that aren't templates;
+      # never destroys the just-built template (it sorts to the top of its
+      # group by YYYYMMDD).
+      - name: Prune old templates
+        if: success() && needs.resolve-targets.outputs.dry_run == 'false'
+        env:
+          GOVC_URL:        ${{ secrets.VSPHERE_SERVER }}
+          GOVC_USERNAME:   ${{ secrets.VSPHERE_USER }}
+          GOVC_PASSWORD:   ${{ secrets.VSPHERE_PASSWORD }}
+          GOVC_INSECURE:   ${{ secrets.VSPHERE_INSECURE || 'false' }}
+          GOVC_DATACENTER: ${{ secrets.VSPHERE_DATACENTER }}
+          NAME_PATTERN:    ${{ matrix.vm_glob }}
+          RETAIN:          ${{ vars.TEMPLATE_RETENTION_COUNT || '4' }}
+          DRY_RUN:         ${{ vars.TEMPLATE_PRUNE_DRY_RUN || 'false' }}
+        run: |
+          echo "Retention policy: keep ${RETAIN} templates per (version, type) group"
+          echo "Pattern: ${NAME_PATTERN}"
+          [[ "${DRY_RUN}" == "true" ]] && echo "*** DRY RUN — no templates will be destroyed ***"
+          echo ""
+
+          # govc find returns full inventory paths, e.g.
+          #   /Datacenter/vm/packer/ubuntu-2604-server-20260510
+          matches=$(govc find . -type m -name "${NAME_PATTERN}" 2>/dev/null || true)
+          if [[ -z "${matches}" ]]; then
+            echo "No items matching '${NAME_PATTERN}' — nothing to prune."
+            exit 0
+          fi
+
+          # Filter to actual templates (Config.Template == true). VMs in
+          # flight (e.g. a concurrent run's WIP) must not be touched.
+          _is_tpl='import sys,json;vms=(json.load(sys.stdin) or {}).get("VirtualMachines",[]);print("true" if vms and vms[0].get("Config",{}).get("Template",False) else "false")'
+
+          declare -A by_group
+          while IFS= read -r vm_path; do
+            [[ -z "${vm_path}" ]] && continue
+            is_template=$(govc vm.info -json "${vm_path}" 2>/dev/null \
+              | python3 -c "${_is_tpl}" 2>/dev/null || echo "false")
+            if [[ "${is_template}" != "true" ]]; then
+              echo "  skip (not a template): ${vm_path}"
+              continue
+            fi
+            name="${vm_path##*/}"
+            # Strip the trailing -YYYYMMDD to get the group key.
+            # `${name%-*}` works because the date is the only segment after
+            # the last dash; the rest of the name has no digits-only segments
+            # we'd accidentally trim.
+            group="${name%-*}"
+            by_group[$group]+="${vm_path}"$'\n'
+          done <<< "${matches}"
+
+          if [[ ${#by_group[@]} -eq 0 ]]; then
+            echo "No templates found (only WIP VMs) — nothing to prune."
+            exit 0
+          fi
+
+          destroyed=0
+          for group in "${!by_group[@]}"; do
+            echo ""
+            echo "=== Group: ${group} ==="
+            # Sort by full path desc; because the YYYYMMDD suffix is at the
+            # end and zero-padded, lex desc == newest-first.
+            sorted=$(printf "%s" "${by_group[$group]}" | sed '/^$/d' | sort -r)
+            count=0
+            while IFS= read -r p; do
+              [[ -z "${p}" ]] && continue
+              count=$((count + 1))
+              if [[ ${count} -le ${RETAIN} ]]; then
+                printf "  KEEP    [%d/%s]: %s\n" "${count}" "${RETAIN}" "${p}"
+              else
+                if [[ "${DRY_RUN}" == "true" ]]; then
+                  printf "  WOULD DESTROY  : %s\n" "${p}"
+                else
+                  printf "  DESTROY        : %s\n" "${p}"
+                  if govc vm.destroy "${p}"; then
+                    destroyed=$((destroyed + 1))
+                  else
+                    echo "    ✘ destroy failed for ${p} — continuing"
+                  fi
+                fi
+              fi
+            done <<< "${sorted}"
+          done
+
+          echo ""
+          if [[ "${DRY_RUN}" == "true" ]]; then
+            echo "Dry-run complete. No templates were destroyed."
+          else
+            echo "Prune complete. Destroyed: ${destroyed} template(s)."
+          fi
+
       # ── Slack notifications ──────────────────────────────────────────────────
       - name: Notify Slack — success
         if: success() && needs.resolve-targets.outputs.dry_run == 'false'
