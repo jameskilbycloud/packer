@@ -23,11 +23,6 @@
 #   make 2404          — build both 24.04 images
 #   make 2604          — build both 26.04 images
 #
-#   make windows-server-2022 — build Windows Server 2022 only
-#   make windows-server-2025 — build Windows Server 2025 only
-#   make windows-10          — build Windows 10 only
-#   make windows             — build all Windows images
-#
 # All local build targets require variables.pkrvars.hcl to exist.
 # Copy variables.pkrvars.hcl.example and fill in your values first.
 # =============================================================================
@@ -41,7 +36,6 @@ PACKER_ARGS := -var-file=$(VARS_FILE) -on-error=cleanup
         2204 2204-server 2204-desktop \
         2404 2404-server 2404-desktop \
         2604 2604-server 2604-desktop \
-        windows windows-server-2022 windows-server-2025 windows-10 \
         clean
 
 # ── ISO upload ────────────────────────────────────────────────────────────────
@@ -112,22 +106,9 @@ fmt:
 
 2604: 2604-server 2604-desktop
 
-# ── Windows builds ────────────────────────────────────────────────────────────
-
-windows-server-2022: $(VARS_FILE)
-	packer build $(PACKER_ARGS) -only='windows-server-2022.*' .
-
-windows-server-2025: $(VARS_FILE)
-	packer build $(PACKER_ARGS) -only='windows-server-2025.*' .
-
-windows-10: $(VARS_FILE)
-	packer build $(PACKER_ARGS) -only='windows-10.*' .
-
-windows: windows-server-2022 windows-server-2025 windows-10
-
 # ── Build all ─────────────────────────────────────────────────────────────────
 
-build-all: 2204 2404 2604 windows
+build-all: 2204 2404 2604
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
 

@@ -4,7 +4,7 @@
 
 [![Build Packer Templates](https://github.com/jameskilbycloud/packer/actions/workflows/build-templates.yml/badge.svg)](https://github.com/jameskilbycloud/packer/actions/workflows/build-templates.yml)
 
-Automated golden-image pipeline that builds Ubuntu and Windows VM templates directly in vSphere using [HashiCorp Packer](https://www.packer.io/). Supports three Ubuntu LTS versions (22.04, 24.04, 26.04) with server and desktop variants, plus Windows Server 2022, Windows Server 2025, and Windows 10 — nine templates in total.
+Automated golden-image pipeline that builds Ubuntu VM templates directly in vSphere using [HashiCorp Packer](https://www.packer.io/). Supports three Ubuntu LTS versions (22.04, 24.04, 26.04) with server and desktop variants — six templates in total.
 
 ---
 
@@ -15,12 +15,12 @@ Upload ISOs ──► packer init ──► packer build ──► vSphere Templ
 (upload-isos.sh)                (vsphere-iso)    (ready to clone)
 ```
 
-1. **ISO upload** — `scripts/upload-isos.sh` downloads Ubuntu ISOs from `releases.ubuntu.com`, verifies their SHA256 checksums, and imports them into a vSphere Content Library. Windows ISOs are not auto-downloaded (Microsoft requires accepting a EULA on session-bound URLs); upload them manually from the Microsoft Evaluation Center, then run `CHECK_WINDOWS=true scripts/upload-isos.sh` to confirm presence.
-2. **Packer build** — the `vsphere-iso` builder boots a VM from the ISO and attaches a secondary CD (labelled `cidata`) carrying the autoinstall configuration. For Ubuntu the CD holds cloud-init `user-data`; for Windows it holds `Autounattend.xml` plus a `bootstrap.ps1` that enables WinRM at first logon.
-3. **Provisioning** — shell provisioners run `setup.sh` / `vmtools.sh` on Ubuntu; PowerShell provisioners run `install-vmtools.ps1`, `configure.ps1` on Windows. Windows builds finish with `sysprep.ps1` (`/generalize /oobe /shutdown`).
+1. **ISO upload** — `scripts/upload-isos.sh` downloads Ubuntu ISOs from `releases.ubuntu.com`, verifies their SHA256 checksums, and imports them into a vSphere Content Library.
+2. **Packer build** — the `vsphere-iso` builder boots a VM from the ISO and attaches a secondary CD (labelled `cidata`) carrying the cloud-init autoinstall `user-data`.
+3. **Provisioning** — shell provisioners run `setup.sh` / `vmtools.sh` (and `desktop.sh` for desktop variants) inside the VM.
 4. **Template conversion** — the finished VM is converted to a vSphere template in-place.
 
-Autoinstall and autounattend configuration are rendered at build time via HCL's `templatefile()` function, so credentials are injected from your variables file rather than baked into static files.
+Autoinstall configuration is rendered at build time via HCL's `templatefile()` function, so credentials are injected from your variables file rather than baked into static files.
 
 ---
 
@@ -34,7 +34,7 @@ Autoinstall and autounattend configuration are rendered at build time via HCL's 
 | sha256sum / shasum | any | Checksum verification (pre-installed on Linux/macOS) |
 | vCenter | 7.0+ | ESXi standalone also works with minor config changes |
 
-The machine running Packer must be able to reach the vCenter API (port 443), the VM's SSH port (22) for Ubuntu builds, and WinRM port 5985 for Windows builds on the VM network during the build.
+The machine running Packer must be able to reach the vCenter API (port 443) and the VM's SSH port (22) on the VM network during the build.
 
 ---
 
@@ -49,26 +49,18 @@ packer/
 ├── ubuntu-2204.pkr.hcl             # 22.04 server + desktop sources and builds
 ├── ubuntu-2404.pkr.hcl             # 24.04 server + desktop sources and builds
 ├── ubuntu-2604.pkr.hcl             # 26.04 server + desktop sources and builds
-├── windows-server-2022.pkr.hcl     # Windows Server 2022 source and build
-├── windows-server-2025.pkr.hcl     # Windows Server 2025 source and build
-├── windows-10.pkr.hcl              # Windows 10 source and build
 │
 ├── templates/
-│   ├── server-user-data.pkrtpl              # Cloud-init autoinstall — Ubuntu server
-│   ├── desktop-user-data.pkrtpl             # Cloud-init autoinstall — Ubuntu desktop
-│   ├── windows-server-autounattend.pkrtpl   # Autounattend.xml — Server 2022 / 2025
-│   └── windows-10-autounattend.pkrtpl       # Autounattend.xml — Windows 10
+│   ├── server-user-data.pkrtpl              # Cloud-init autoinstall — Ubuntu server (22/24)
+│   ├── desktop-user-data.pkrtpl             # Cloud-init autoinstall — Ubuntu desktop (22/24)
+│   ├── server-2604-user-data.pkrtpl         # Cloud-init autoinstall — Ubuntu 26.04 server
+│   └── desktop-2604-user-data.pkrtpl        # Cloud-init autoinstall — Ubuntu 26.04 desktop
 │
 ├── scripts/
-│   ├── upload-isos.sh              # Download Ubuntu ISOs, check Windows ISOs in library
+│   ├── upload-isos.sh              # Download Ubuntu ISOs and import to Content Library
 │   ├── setup.sh                    # Ubuntu: apt upgrade, SSH hardening
 │   ├── vmtools.sh                  # Ubuntu: verify open-vm-tools
-│   ├── desktop.sh                  # Ubuntu desktop-only: ubuntu-desktop-minimal install
-│   └── windows/
-│       ├── bootstrap.ps1           # Runs at first logon — enables WinRM for Packer
-│       ├── install-vmtools.ps1     # Silent install of VMware Tools from mounted ISO
-│       ├── configure.ps1           # Cleanup, telemetry off, lean-template tweaks
-│       └── sysprep.ps1             # /generalize /oobe /shutdown — last provisioner
+│   └── desktop.sh                  # Ubuntu desktop-only: ubuntu-desktop-minimal install
 │
 ├── variables.pkrvars.hcl.example   # Copy this → variables.pkrvars.hcl and fill in
 ├── Makefile                        # Convenience build targets
@@ -266,39 +258,6 @@ All variables are declared in `variables.pkr.hcl`. Set them in `variables.pkrvar
 
 ---
 
-## Windows builds
-
-Windows differs from Ubuntu in three places that matter:
-
-1. **ISOs are not auto-downloaded.** Microsoft's Eval Center URLs are session-bound and require accepting a EULA. Download manually and import:
-   ```bash
-   govc library.import Packer-ISOs /path/to/SERVER_EVAL_x64FRE_en-us.iso
-   ```
-   Then run `CHECK_WINDOWS=true scripts/upload-isos.sh` to confirm presence.
-2. **The communicator is WinRM, not SSH.** Port 5985 must be reachable from the runner. The autounattend's `FirstLogonCommands` runs `bootstrap.ps1` from the secondary CD which enables WinRM HTTP for the build window.
-3. **No activation keys required.** Each `windows-*.pkr.hcl` hardcodes the [public KMS Client Setup Key](https://learn.microsoft.com/en-us/windows-server/get-started/kms-client-activation-keys) for its default edition. These do not activate Windows — they only suppress the install-time product-key prompt. The OS lands unactivated (Eval ISOs grant 90-180 days; otherwise unlicensed).
-
-### Windows variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `windows_server_2022_iso_path` | `ISOs/SERVER_EVAL_x64FRE_en-us.iso` | Path to the Server 2022 ISO |
-| `windows_server_2025_iso_path` | `ISOs/SERVER_2025_EVAL_x64FRE_en-us.iso` | Path to the Server 2025 ISO |
-| `windows_10_iso_path` | `ISOs/Win10_22H2_EnglishInternational_x64.iso` | Path to the Windows 10 ISO |
-| `windows_server_2022_image_name` | `Windows Server 2022 SERVERSTANDARD` | Image name (`/IMAGE/NAME`) inside the ISO |
-| `windows_server_2025_image_name` | `Windows Server 2025 SERVERSTANDARD` | As above for 2025 |
-| `windows_10_image_name` | `Windows 10 Enterprise Evaluation` | As above for Win 10 |
-| `windows_admin_password` | — | Built-in Administrator password (sensitive). Required for any Windows build |
-| `windows_timezone` | `GMT Standard Time` | Windows timezone (`tzutil /l` for the full list) |
-| `windows_server_cpu_count` / `_ram_mb` / `_disk_gb` | `2` / `4096` / `60` | Server hardware sizing |
-| `windows_desktop_cpu_count` / `_ram_mb` / `_disk_gb` | `2` / `4096` / `60` | Win 10 hardware sizing |
-
-### Switching editions
-
-To build Datacenter instead of Standard, override both the image name and the product key. The product key local lives at the top of each `windows-server-*.pkr.hcl` — change it to the matching KMS Client Setup Key. Image names are listed by `Get-WindowsImage -ImagePath D:\sources\install.wim` on a Windows host.
-
----
-
 ## Running builds
 
 All builds are run from the repository root. Packer combines every `.pkr.hcl` file in the directory; use `-only=` to target a specific source.
@@ -315,12 +274,8 @@ make 2604-desktop    # Ubuntu 26.04 Desktop
 
 make 2204            # Both 22.04 images
 make 2404            # Both 24.04 images
-make build-all       # All Ubuntu + Windows images (sequential)
-
-make windows-server-2022   # Windows Server 2022
-make windows-server-2025   # Windows Server 2025
-make windows-10            # Windows 10
-make windows               # All three Windows images
+make 2604            # Both 26.04 images
+make build-all       # All Ubuntu images (sequential)
 ```
 
 ### Via Packer directly
