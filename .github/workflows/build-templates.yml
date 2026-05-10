@@ -604,14 +604,55 @@ jobs:
             build_count=0
           fi
 
+          # ── Extract guest build-info(s) from the Packer log ──
+          # setup.sh emits the JSON between sentinel markers. Combined builds
+          # (server + desktop in one packer process) produce two such blocks
+          # in the same log; both are captured into an array.
+          guest_info_file=$(mktemp)
+          awk '/PACKER_BUILD_INFO_BEGIN/{p=1; next} /PACKER_BUILD_INFO_END/{p=0; print "---DOC---"; next} p' \
+            "${PACKER_LOG_PATH}" 2>/dev/null > "${guest_info_file}" || true
+          # Each marker pair becomes one JSON document; jq -s joins them.
+          guest_info_args=(--argjson guest_build_info '[]')
+          if [[ -s "${guest_info_file}" ]]; then
+            # Split on ---DOC---, parse each chunk that's non-empty.
+            python3 - "${guest_info_file}" > "${guest_info_file}.json" <<'PY'
+          import json
+          import sys
+          data = open(sys.argv[1]).read()
+          docs = []
+          for chunk in data.split("---DOC---"):
+              chunk = chunk.strip()
+              if not chunk:
+                  continue
+              try:
+                  docs.append(json.loads(chunk))
+              except json.JSONDecodeError:
+                  pass
+          print(json.dumps(docs))
+          PY
+            if [[ -s "${guest_info_file}.json" ]]; then
+              guest_info_args=(--slurpfile guest_build_info "${guest_info_file}.json")
+            fi
+          fi
+          rm -f "${guest_info_file}" "${guest_info_file}.json"
+
           started_iso=$(date -u -d "@${BUILD_START_EPOCH}" +%Y-%m-%dT%H:%M:%SZ)
           completed_iso=$(date -u -d "@${end_epoch}" +%Y-%m-%dT%H:%M:%SZ)
           duration_human=$(printf '%dh%02dm%02ds' \
             $((duration / 3600)) $((duration % 3600 / 60)) $((duration % 60)))
           short_sha=$(printf '%s' "${GITHUB_SHA}" | cut -c1-8)
 
+          # If guest_build_info was supplied via --slurpfile, it's an array
+          # already (one element wrapping the array). Otherwise it's the
+          # default empty array passed via --argjson.
+          if [[ "${guest_info_args[0]}" == "--slurpfile" ]]; then
+            guest_info_expr='$guest_build_info[0]'
+          else
+            guest_info_expr='$guest_build_info'
+          fi
+
           # shellcheck disable=SC2016
-          jq -n "${jq_manifest_args[@]}" \
+          jq -n "${jq_manifest_args[@]}" "${guest_info_args[@]}" \
             --arg label            "${LABEL}" \
             --arg version          "${VERSION}" \
             --arg manifest         "${MANIFEST_NAME}" \
@@ -629,7 +670,7 @@ jobs:
             --arg sha              "${GITHUB_SHA}" \
             --arg ref              "${GITHUB_REF}" \
             "{
-              schema_version: 1,
+              schema_version: 2,
               label: \$label,
               version: \$version,
               manifest: \$manifest,
@@ -648,6 +689,7 @@ jobs:
                 sha: \$sha,
                 ref: \$ref
               },
+              guest_build_info: ${guest_info_expr},
               manifest_data: ${manifest_data_expr}
             }" > "build-metrics-${LABEL}.json"
 
