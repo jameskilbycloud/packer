@@ -291,7 +291,7 @@ build {
   # template (sudoers entry absent, pwauth drop-in absent).
   provisioner "shell" {
     only             = ["vsphere-iso.ubuntu-2404-server", "vsphere-iso.ubuntu-2404-desktop"]
-    execute_command  = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    execute_command  = "echo '${var.build_password}' | sudo -S env {{.Vars}} bash {{.Path}}"
     environment_vars = ["BUILD_USERNAME=${var.build_username}"]
     scripts          = ["${path.root}/scripts/finalize.sh"]
   }
