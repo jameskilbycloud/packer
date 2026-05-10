@@ -206,6 +206,49 @@ echo "==> Clearing machine-id so each clone gets a unique ID on first boot..."
 # a fresh unique ID when each clone boots, preventing DHCP collisions.
 truncate -s 0 /etc/machine-id
 
+echo "==> Capturing build metadata for forensics..."
+# Snapshot of what's installed at template-build time. Lives inside the
+# produced template, so any clone can be inspected post-deploy:
+#   cat /var/log/packer-build-info.json
+#   diff <(dpkg -l) /var/log/packer-package-list.txt   # drift since build
+#
+# JSON is constructed by python3 (already installed in ubuntu-server-minimal)
+# rather than printf-shell-substitution so values containing quotes or
+# newlines (unlikely but possible in PRETTY_NAME) cannot break the file.
+mkdir -p /var/log
+python3 - <<'PY' > /var/log/packer-build-info.json
+import datetime
+import json
+import subprocess
+
+pretty = ""
+with open("/etc/os-release") as f:
+    for line in f:
+        if line.startswith("PRETTY_NAME="):
+            pretty = line.split("=", 1)[1].strip().strip('"')
+            break
+
+try:
+    out = subprocess.check_output(
+        ["dpkg", "-l"], stderr=subprocess.DEVNULL
+    ).decode()
+    pkg_count = sum(1 for line in out.splitlines() if line.startswith("ii "))
+except Exception:
+    pkg_count = 0
+
+print(json.dumps({
+    "kernel_version": subprocess.check_output(["uname", "-r"]).decode().strip(),
+    "os_pretty_name": pretty,
+    "package_count": pkg_count,
+    "captured_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+}, indent=2))
+PY
+
+# Full dpkg snapshot for week-over-week diff investigations. Cheap to write
+# (~200 KB), survives into clones — lets you answer "what changed since
+# the last good template?" without re-running the build.
+dpkg -l > /var/log/packer-package-list.txt 2>/dev/null || true
+
 echo "==> Zeroing free space for better template compression..."
 # Write to /var/tmp, NOT /tmp. On Ubuntu /tmp is mounted as tmpfs by systemd
 # (tmp.mount), so writing zeros there fills RAM and never touches the disk —

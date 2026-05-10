@@ -618,7 +618,8 @@ This gives fast feedback (typically under 2 minutes) on every PR with no infrast
 5. Runs `packer build` with `PACKER_LOG=1` for full debug output
 6. Uploads the Packer log and build manifest as workflow artifacts
 7. **Prunes old templates** — retains the most-recent N templates per `(version, type)` group and destroys the rest (see [Template lifecycle](#template-lifecycle))
-8. Always deletes the temporary credentials file, even on failure
+8. **Captures build metrics** — emits `build-metrics-<label>-<run>.json` (90-day artifact) with duration, packer + plugin versions, GitHub run/actor/event/sha, and the embedded Packer manifest. The same fields are rendered to `$GITHUB_STEP_SUMMARY` so they show in the run UI without downloading the artifact (see [Build metrics](#build-metrics))
+9. Always deletes the temporary credentials file, even on failure
 
 **Running manually:**
 
@@ -647,6 +648,60 @@ Safety properties of the prune step:
 - Only acts on items that are actually templates (`Config.Template == true`) — a concurrent build's WIP VM cannot be pruned.
 - Sorts by name descending; because the `YYYYMMDD` suffix is zero-padded, lex desc is equivalent to newest-first, so the just-built template is always retained.
 - A failure to destroy any single template is logged and the loop continues — one stuck template does not block pruning of the rest.
+
+### Build metrics
+
+Every successful build emits two artefacts of metadata so the pipeline is observable without external infrastructure:
+
+**Workflow-level (`build-metrics-<label>-<run>.json`, 90-day artifact)** — written by the workflow after `packer build` succeeds and uploaded alongside the manifest. Schema (v1):
+
+```json
+{
+  "schema_version": 1,
+  "label": "2604-server",
+  "version": "2604",
+  "manifest": "ubuntu-2604",
+  "build_count": 1,
+  "duration_seconds": 3247,
+  "duration_human": "0h54m07s",
+  "started_at": "2026-05-10T02:00:12Z",
+  "completed_at": "2026-05-10T02:54:19Z",
+  "packer_version": "Packer v1.15.3",
+  "plugin_versions": "github.com/vmware/vsphere v2.1.2",
+  "github": {
+    "run_id": "...",
+    "run_number": 142,
+    "actor": "jameskilbycloud",
+    "event": "schedule",
+    "sha": "...",
+    "ref": "refs/heads/main"
+  },
+  "manifest_data": { /* Packer's manifest verbatim */ }
+}
+```
+
+The same fields are rendered as a markdown table to `$GITHUB_STEP_SUMMARY`, so they appear at the top of the workflow run page without downloading the artifact.
+
+**Guest-side (lives inside the produced template)** — written by `setup.sh` so any clone can be inspected post-deploy:
+
+| File | Contents |
+|---|---|
+| `/var/log/packer-build-info.json` | `{kernel_version, os_pretty_name, package_count, captured_at}` — JSON, ~200 B |
+| `/var/log/packer-package-list.txt` | Full `dpkg -l` snapshot at template-build time (~200 KB) |
+
+Useful patterns:
+
+```bash
+# What was installed when this template was built?
+ssh clone cat /var/log/packer-build-info.json
+
+# What has changed since the template was built?
+ssh clone "diff <(dpkg -l) /var/log/packer-package-list.txt"
+
+# How long did the latest build of 2404-server take?
+gh run download --pattern 'build-metrics-2404-server-*' \
+  && jq '.duration_human' build-metrics-2404-server-*/build-metrics-2404-server.json
+```
 
 ### Workflow: upload-isos
 
