@@ -551,8 +551,23 @@ jobs:
             log_size_after=$(stat -c%s "${PACKER_LOG_PATH}" 2>/dev/null || echo 0)
             attempt_bytes=$((log_size_after - log_size_before))
 
-            transient_match=false
+            # Anti-pattern guard: certain failure modes mean we already
+            # waited the full configured budget. Retrying just gambles
+            # another full budget, with the same root cause unaddressed.
+            # Match these BEFORE the transient grep so they always
+            # fail-fast even if other transient phrases also appear in
+            # the log tail.
+            no_retry_match=false
             if [[ ${attempt_bytes} -gt 0 ]]; then
+              if tail -c "${attempt_bytes}" "${PACKER_LOG_PATH}" 2>/dev/null \
+                | tail -200 \
+                | grep -qE 'Timeout waiting for SSH|errored after [0-9]+ hour[s]? .*: Timeout|Timeout waiting for IP|Timeout waiting for WinRM'; then
+                no_retry_match=true
+              fi
+            fi
+
+            transient_match=false
+            if [[ "${no_retry_match}" != "true" && ${attempt_bytes} -gt 0 ]]; then
               if tail -c "${attempt_bytes}" "${PACKER_LOG_PATH}" 2>/dev/null \
                 | tail -200 \
                 | grep -qiE 'connection refused|i/o timeout|tls handshake|no route to host|temporary failure|service unavailable|context deadline exceeded|cannot connect|dial tcp|server closed|unexpected EOF|connection reset'; then
@@ -560,7 +575,12 @@ jobs:
               fi
             fi
 
-            if [[ "${transient_match}" == "true" ]]; then
+            if [[ "${no_retry_match}" == "true" ]]; then
+              echo "==> Failure was a timeout-of-the-full-budget (e.g. ssh_timeout exhausted)."
+              echo "==> Not retrying — root cause didn't change between attempt N and N+1,"
+              echo "    and a retry would just wait the whole budget over again."
+              exit "${rc}"
+            elif [[ "${transient_match}" == "true" ]]; then
               backoff=$((60 * attempt))
               echo "==> Failure pattern looks transient (matched in the last 200 lines of this attempt). Retrying in ${backoff}s..."
               sleep ${backoff}
