@@ -428,6 +428,15 @@ jobs:
             -only="${{ matrix.only }}" \
             .
 
+      # ── Record build start ──────────────────────────────────────────────────
+      # Capture the epoch immediately before `packer build` so the metrics
+      # step further down can compute an accurate build duration. Skipped on
+      # dry-run packer builds because there is no real build to time.
+      - name: Record build start
+        if: needs.resolve-targets.outputs.dry_run == 'false'
+        id: build-start
+        run: echo "start_epoch=$(date -u +%s)" >> "$GITHUB_OUTPUT"
+
       # ── Build ────────────────────────────────────────────────────────────────
       # `-parallel-builds` controls how many sources Packer builds simultaneously
       # within this single Packer process. For combined "all" runs it's 2 (server
@@ -507,6 +516,117 @@ jobs:
         with:
           name: manifest-${{ matrix.label }}-${{ github.run_number }}
           path: manifests/${{ matrix.manifest }}.json
+          retention-days: 90
+
+      # ── Capture build metrics ───────────────────────────────────────────────
+      # Combine workflow-level metadata (duration, packer + plugin versions,
+      # GitHub run/actor/event/sha) with the Packer manifest into a single
+      # build-metrics-<label>.json artifact. Also renders a markdown summary
+      # to $GITHUB_STEP_SUMMARY so the same data shows in the run UI without
+      # downloading the artifact.
+      #
+      # Why a separate metrics file instead of stuffing into the manifest:
+      # the manifest is Packer's own format; we don't own its schema. The
+      # metrics file is ours, with a schema_version field, so we can evolve
+      # it without coordinating with the post-processor.
+      - name: Capture build metrics
+        if: success() && needs.resolve-targets.outputs.dry_run == 'false'
+        env:
+          BUILD_START_EPOCH: ${{ steps.build-start.outputs.start_epoch }}
+          LABEL: ${{ matrix.label }}
+          VERSION: ${{ matrix.version }}
+          MANIFEST_NAME: ${{ matrix.manifest }}
+        run: |
+          set -euo pipefail
+          end_epoch=$(date -u +%s)
+          duration=$((end_epoch - BUILD_START_EPOCH))
+
+          packer_version=$(packer version | head -1)
+          plugin_versions=$(packer plugins installed 2>/dev/null || true)
+
+          manifest_path="manifests/${MANIFEST_NAME}.json"
+          jq_manifest_args=()
+          manifest_data_expr='null'
+          if [[ -f "${manifest_path}" ]]; then
+            build_count=$(jq '.builds | length' "${manifest_path}")
+            jq_manifest_args=(--slurpfile manifest_data "${manifest_path}")
+            manifest_data_expr='$manifest_data[0]'
+          else
+            build_count=0
+          fi
+
+          started_iso=$(date -u -d "@${BUILD_START_EPOCH}" +%Y-%m-%dT%H:%M:%SZ)
+          completed_iso=$(date -u -d "@${end_epoch}" +%Y-%m-%dT%H:%M:%SZ)
+          duration_human=$(printf '%dh%02dm%02ds' \
+            $((duration / 3600)) $((duration % 3600 / 60)) $((duration % 60)))
+          short_sha=$(printf '%s' "${GITHUB_SHA}" | cut -c1-8)
+
+          # shellcheck disable=SC2016
+          jq -n "${jq_manifest_args[@]}" \
+            --arg label            "${LABEL}" \
+            --arg version          "${VERSION}" \
+            --arg manifest         "${MANIFEST_NAME}" \
+            --argjson build_count  "${build_count}" \
+            --argjson duration     "${duration}" \
+            --arg duration_human   "${duration_human}" \
+            --arg started_at       "${started_iso}" \
+            --arg completed_at     "${completed_iso}" \
+            --arg packer_version   "${packer_version}" \
+            --arg plugin_versions  "${plugin_versions}" \
+            --arg run_id           "${GITHUB_RUN_ID}" \
+            --argjson run_number   "${GITHUB_RUN_NUMBER}" \
+            --arg actor            "${GITHUB_ACTOR}" \
+            --arg event            "${GITHUB_EVENT_NAME}" \
+            --arg sha              "${GITHUB_SHA}" \
+            --arg ref              "${GITHUB_REF}" \
+            "{
+              schema_version: 1,
+              label: \$label,
+              version: \$version,
+              manifest: \$manifest,
+              build_count: \$build_count,
+              duration_seconds: \$duration,
+              duration_human: \$duration_human,
+              started_at: \$started_at,
+              completed_at: \$completed_at,
+              packer_version: \$packer_version,
+              plugin_versions: \$plugin_versions,
+              github: {
+                run_id: \$run_id,
+                run_number: \$run_number,
+                actor: \$actor,
+                event: \$event,
+                sha: \$sha,
+                ref: \$ref
+              },
+              manifest_data: ${manifest_data_expr}
+            }" > "build-metrics-${LABEL}.json"
+
+          echo "Wrote build-metrics-${LABEL}.json:"
+          jq . "build-metrics-${LABEL}.json"
+
+          # Markdown summary for the workflow run UI.
+          {
+            echo "## Build metrics — \`${LABEL}\`"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Duration | ${duration_human} (${duration}s) |"
+            echo "| Builds completed | ${build_count} |"
+            echo "| Packer | ${packer_version} |"
+            echo "| Started | ${started_iso} |"
+            echo "| Completed | ${completed_iso} |"
+            echo "| Triggered by | @${GITHUB_ACTOR} via \`${GITHUB_EVENT_NAME}\` |"
+            echo "| Commit | \`${short_sha}\` |"
+            echo "| Run | [#${GITHUB_RUN_NUMBER}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}) |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload build metrics
+        if: success() && needs.resolve-targets.outputs.dry_run == 'false'
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-metrics-${{ matrix.label }}-${{ github.run_number }}
+          path: build-metrics-${{ matrix.label }}.json
           retention-days: 90
 
       # ── Prune old templates ─────────────────────────────────────────────────

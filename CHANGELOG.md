@@ -8,6 +8,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Build metrics. After every successful `packer build`, the workflow emits
+  `build-metrics-<label>-<run>.json` (90-day artifact, schema_version: 1)
+  with duration, packer + plugin versions, GitHub run/actor/event/sha,
+  and the embedded Packer manifest. The same data is rendered to
+  `$GITHUB_STEP_SUMMARY` so it appears in the run UI. `setup.sh` also
+  writes `/var/log/packer-build-info.json` (kernel, OS, package count,
+  capture timestamp) and `/var/log/packer-package-list.txt` (full
+  `dpkg -l` snapshot) into the produced template, so any clone can be
+  inspected post-deploy for what was installed at template-build time
+  and what has drifted since.
 - Per-clone hostname uniquification via a `firstboot-hostname.service`
   oneshot systemd unit installed by `setup.sh`. Each clone boots with
   `<template-hostname>-<6-hex-suffix>` (e.g.
