@@ -506,6 +506,14 @@ jobs:
           set +e
           attempt=1
           while [[ ${attempt} -le ${MAX_ATTEMPTS} ]]; do
+            # Capture log size before this attempt so the transient-pattern
+            # check below can scope to ONLY the bytes this attempt produced.
+            # Without this, the log accumulates across attempts and a benign
+            # earlier "Temporary failure" from a momentary apt mirror hiccup
+            # makes every failure look transient — exactly what happened on
+            # run #142 where a goss assertion error retried unnecessarily.
+            log_size_before=$(stat -c%s "${PACKER_LOG_PATH}" 2>/dev/null || echo 0)
+
             echo ""
             echo "═══════════════════════════════════════════════════════════════"
             echo "  Build attempt ${attempt}/${MAX_ATTEMPTS}"
@@ -531,18 +539,34 @@ jobs:
               exit "${rc}"
             fi
 
-            # Pattern-match the log for transient-looking failures. The list is
-            # conservative — anything not on it is treated as a real bug and
-            # not retried, so provisioner / validation errors fail fast.
-            if grep -qiE \
-              'connection refused|i/o timeout|tls handshake|no route to host|temporary failure|service unavailable|context deadline exceeded|cannot connect|dial tcp|server closed|unexpected EOF|connection reset' \
-              "${PACKER_LOG_PATH}" 2>/dev/null; then
+            # Pattern-match the log for transient-looking failures, but
+            # scope it to:
+            #   1. only the bytes this attempt produced (avoid matching
+            #      transients from a previous failed attempt's tail)
+            #   2. only the LAST 200 lines of that (avoid matching benign
+            #      transients from earlier in the build that already
+            #      recovered — apt-get retries, momentary DNS blips, etc.)
+            # The intent is "look at the actual failure region, not the
+            # whole 25-minute build log".
+            log_size_after=$(stat -c%s "${PACKER_LOG_PATH}" 2>/dev/null || echo 0)
+            attempt_bytes=$((log_size_after - log_size_before))
+
+            transient_match=false
+            if [[ ${attempt_bytes} -gt 0 ]]; then
+              if tail -c "${attempt_bytes}" "${PACKER_LOG_PATH}" 2>/dev/null \
+                | tail -200 \
+                | grep -qiE 'connection refused|i/o timeout|tls handshake|no route to host|temporary failure|service unavailable|context deadline exceeded|cannot connect|dial tcp|server closed|unexpected EOF|connection reset'; then
+                transient_match=true
+              fi
+            fi
+
+            if [[ "${transient_match}" == "true" ]]; then
               backoff=$((60 * attempt))
-              echo "==> Failure pattern looks transient. Retrying in ${backoff}s..."
+              echo "==> Failure pattern looks transient (matched in the last 200 lines of this attempt). Retrying in ${backoff}s..."
               sleep ${backoff}
               attempt=$((attempt + 1))
             else
-              echo "==> Failure does not match transient patterns; not retrying."
+              echo "==> Failure does not match transient patterns in the last 200 lines of this attempt; not retrying."
               echo "==> Likely cause: validation error, provisioner script failure,"
               echo "    or vSphere config issue. Investigate the log above."
               exit "${rc}"
