@@ -48,7 +48,12 @@ rm -f "${sudoers_file}"
 echo "==> Removing SSH PasswordAuthentication build-time drop-in: ${pwauth_file}"
 rm -f "${pwauth_file}"
 
-echo "==> Verifying sshd config still parses..."
-sshd -t
+# We are only DELETING drop-in files, not editing sshd_config — there is no
+# syntax to break, so a parse-test isn't needed. Calling `sshd -t` here also
+# fails the build because setup.sh already wiped /etc/ssh/ssh_host_*: sshd
+# refuses to validate without host keys present ("sshd: no hostkeys
+# available -- exiting"), which is the desired template state because
+# ssh-host-keygen.service regenerates them on first boot of each clone.
+# So no verification step here.
 
 echo "==> finalize.sh complete. Template will convert with build-only knobs removed."
