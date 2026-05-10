@@ -41,10 +41,13 @@ repos:
       - id: packer-fmt
         name: packer fmt
         description: Reformats Packer HCL files in place
-        entry: packer fmt
+        # `packer fmt` requires a TEMPLATE arg (file or directory). With
+        # pass_filenames: false we rely on the explicit `.` here so the
+        # whole repo is formatted in one shot rather than per-file.
+        entry: bash -c 'packer fmt .'
         language: system
         files: '\.pkr\.hcl$'
-        pass_filenames: false   # packer fmt operates on a directory
+        pass_filenames: false
 
   # ── shellcheck ──────────────────────────────────────────────────────────
   # shellcheck-py wraps the upstream shellcheck binary as a Python package
