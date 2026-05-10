@@ -212,12 +212,22 @@ echo "==> Capturing build metadata for forensics..."
 #   cat /var/log/packer-build-info.json
 #   diff <(dpkg -l) /var/log/packer-package-list.txt   # drift since build
 #
-# JSON is constructed by python3 (already installed in ubuntu-server-minimal)
-# rather than printf-shell-substitution so values containing quotes or
-# newlines (unlikely but possible in PRETTY_NAME) cannot break the file.
+# package_list_sha256 lets you assert "the package set is identical to last
+# week's build" by comparing the hash, without diffing 200 KB of dpkg output.
+#
+# After writing the file we ALSO emit it to stdout between sentinel markers.
+# The CI workflow's "Capture build metrics" step greps the Packer log for
+# these markers and embeds the JSON in build-metrics-<label>-<run>.json,
+# so the workflow artefact carries provenance about what was actually
+# installed at build time without anyone having to ssh into a clone.
 mkdir -p /var/log
+
+# Full dpkg snapshot first — the JSON references its hash.
+dpkg -l > /var/log/packer-package-list.txt 2>/dev/null || true
+
 python3 - <<'PY' > /var/log/packer-build-info.json
 import datetime
+import hashlib
 import json
 import subprocess
 
@@ -236,18 +246,27 @@ try:
 except Exception:
     pkg_count = 0
 
+try:
+    with open("/var/log/packer-package-list.txt", "rb") as f:
+        pkg_sha256 = hashlib.sha256(f.read()).hexdigest()
+except Exception:
+    pkg_sha256 = ""
+
 print(json.dumps({
     "kernel_version": subprocess.check_output(["uname", "-r"]).decode().strip(),
     "os_pretty_name": pretty,
     "package_count": pkg_count,
+    "package_list_sha256": pkg_sha256,
     "captured_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
 }, indent=2))
 PY
 
-# Full dpkg snapshot for week-over-week diff investigations. Cheap to write
-# (~200 KB), survives into clones — lets you answer "what changed since
-# the last good template?" without re-running the build.
-dpkg -l > /var/log/packer-package-list.txt 2>/dev/null || true
+# Emit to stdout between sentinel markers so the CI metrics step can extract
+# the JSON from the Packer log without needing a separate file-download
+# provisioner. The markers MUST appear on lines by themselves.
+echo "==> PACKER_BUILD_INFO_BEGIN"
+cat /var/log/packer-build-info.json
+echo "==> PACKER_BUILD_INFO_END"
 
 echo "==> Zeroing free space for better template compression..."
 # Write to /var/tmp, NOT /tmp. On Ubuntu /tmp is mounted as tmpfs by systemd
