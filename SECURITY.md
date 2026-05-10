@@ -54,6 +54,10 @@ documented here so they can be designed around rather than reported repeatedly:
   build (to avoid blocking SSH on first boot post-clone) but means clones
   ship without a firewall. Re-enable in your deployment pipeline.
 - **Self-hosted runner with passwordless sudo.** The runner setup
-  documented in `README.md` grants the runner user passwordless sudo. This
-  makes the runner a high-value target. Scope down per the README's
-  hardening notes if you are running this in a multi-tenant context.
+  documented in `README.md` previously recommended blanket NOPASSWD sudo
+  for the runner user. As of the current revision, the recommended
+  setup is to pre-install Packer, xorriso, and govc as root (one-time)
+  so the runner needs no sudo at all during normal operation; a
+  command-scoped sudoers entry is documented as a fallback. Audit
+  existing runners — if you set up the runner before this change, the
+  blanket entry may still be in place at `/etc/sudoers.d/github-runner`.

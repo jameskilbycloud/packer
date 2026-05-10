@@ -523,11 +523,36 @@ sudo ./svc.sh install
 sudo ./svc.sh start
 ```
 
-4. The runner user needs passwordless sudo so Packer can install dependencies:
+4. **Pre-install the workflow dependencies as root**, one time, so the runner user does *not* need sudo for normal operation. The workflow steps `Install Packer`, `Install xorriso`, and `Install govc` all check `command -v` first and skip the install if the tool is already on PATH.
 
-```bash
-echo "YOUR_RUNNER_USER ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/github-runner
-```
+   ```bash
+   # As root (or via interactive sudo, one-time)
+   apt-get update && apt-get install -y xorriso curl python3
+   PACKER_VERSION=$(curl -fsSL https://api.releases.hashicorp.com/v1/releases/packer/latest \
+     | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
+   curl -fsSL "https://releases.hashicorp.com/packer/${PACKER_VERSION}/packer_${PACKER_VERSION}_linux_amd64.zip" \
+     -o /tmp/packer.zip && (cd /usr/local/bin && unzip -o /tmp/packer.zip) && rm /tmp/packer.zip
+   GOVC_VERSION=$(curl -fsSL https://api.github.com/repos/vmware/govmomi/releases/latest \
+     | grep '"tag_name"' | cut -d'"' -f4)
+   curl -fsSL "https://github.com/vmware/govmomi/releases/download/${GOVC_VERSION}/govc_Linux_x86_64.tar.gz" \
+     | tar -xzf - -C /usr/local/bin govc
+   ```
+
+   With these in place, the runner user only needs its own home directory and the GitHub Actions runner agent — no `sudoers` entry, no privilege escalation. This dramatically reduces the runner's blast radius if a workflow is ever compromised.
+
+   **If you must keep sudo on the runner** (e.g. you want the workflow's auto-install paths to keep working), scope the entry to the specific commands rather than blanket `ALL`:
+
+   ```bash
+   cat <<'SUDOERS' | sudo tee /etc/sudoers.d/github-runner
+   YOUR_RUNNER_USER ALL=(root) NOPASSWD: /usr/bin/apt-get update, \
+     /usr/bin/apt-get install -y xorriso, \
+     /bin/mv /tmp/packer /usr/local/bin/packer, \
+     /bin/chmod +x /usr/local/bin/packer, \
+     /bin/tar -xzf - -C /usr/local/bin govc
+   SUDOERS
+   ```
+
+   This still grants enough for the install steps to work, while denying the runner ability to do anything else with sudo.
 
 By default the workflows target any runner registered with the default `self-hosted` label (`runs-on: self-hosted`). To target a specific runner or label, set the **`RUNNER_LABEL`** repository variable:
 
@@ -762,7 +787,7 @@ The build workflow pre-flight check will list exactly which secrets are absent b
 Check the label the runner was registered with (visible in **Settings → Actions → Runners**). If it does not match `self-hosted`, set the `RUNNER_LABEL` repository variable to the correct label. See [Setting up the runner](#setting-up-the-runner).
 
 **Runner sudo prompt blocks job**
-The runner user must have passwordless sudo. Add the sudoers entry described in [Setting up the runner](#setting-up-the-runner) and re-trigger the workflow.
+The workflow's auto-install paths for Packer / xorriso / govc need sudo. Either pre-install them as root (recommended — eliminates the need for sudo on the runner entirely; see [Setting up the runner](#setting-up-the-runner)), or grant a tightly scoped sudoers entry as described there.
 
 **Build hangs at `Waiting for SSH`**
 The VM booted but Packer cannot reach port 22. Check that the machine running Packer has network access to the VM's subnet. Temporarily set `PACKER_LOG=1` and watch the boot sequence via the vSphere console.
