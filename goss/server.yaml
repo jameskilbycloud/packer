@@ -1,0 +1,123 @@
+# Goss smoke-test spec for Ubuntu server templates.
+# Asserts post-build state before Packer converts the VM to a template.
+# Variables (passed via --vars-inline by scripts/goss-validate.sh):
+#   build_username — the OS user created by autoinstall (defaults to `ubuntu`)
+# Goss reference: https://github.com/goss-org/goss/blob/master/docs/manual.md
+
+file:
+  # Sudoers entry for the build user — present and 0440.
+  /etc/sudoers.d/90-packer-{{ .Vars.build_username }}:
+    exists: true
+    mode: "0440"
+    contains:
+      - "{{ .Vars.build_username }} ALL=(ALL) NOPASSWD:ALL"
+
+  # Cloud-init neutralisation: datasource_list pinned to None on every clone.
+  /etc/cloud/cloud.cfg.d/99-packer.cfg:
+    exists: true
+    contains:
+      - "datasource_list:"
+      - "None"
+
+  # SSH password-auth drop-in (still required during build, removed by a
+  # future "harden for clone" pass).
+  /etc/ssh/sshd_config.d/10-packer-pwauth.conf:
+    exists: true
+    contains:
+      - "PasswordAuthentication yes"
+
+  # SSH hardening drop-in.
+  /etc/ssh/sshd_config.d/99-packer-hardening.conf:
+    exists: true
+    contains:
+      - "PermitRootLogin no"
+      - "X11Forwarding no"
+
+  # sysctl tunings.
+  /etc/sysctl.d/99-packer.conf:
+    exists: true
+    contains:
+      - "vm.swappiness"
+
+  # First-boot SSH host-key regen unit + script content sanity-check.
+  /etc/systemd/system/ssh-host-keygen.service:
+    exists: true
+    contains:
+      - "ExecStart=/usr/bin/ssh-keygen -A"
+      - "ConditionPathExists=!/etc/ssh/ssh_host_rsa_key"
+
+  # First-boot hostname uniquification unit + script.
+  /etc/systemd/system/firstboot-hostname.service:
+    exists: true
+    contains:
+      - "ConditionPathExists=!/var/lib/packer-firstboot/hostname.done"
+  /usr/local/sbin/firstboot-hostname.sh:
+    exists: true
+    mode: "0755"
+
+  # Build-metadata snapshots written into the template.
+  /var/log/packer-build-info.json:
+    exists: true
+  /var/log/packer-package-list.txt:
+    exists: true
+
+  # SSH host keys must be wiped (regenerated per clone on first boot).
+  /etc/ssh/ssh_host_rsa_key:
+    exists: false
+  /etc/ssh/ssh_host_ed25519_key:
+    exists: false
+
+  # UFW unit must be masked (symlink to /dev/null) so first-boot doesn't
+  # block port 22.
+  /etc/systemd/system/ufw.service:
+    exists: true
+    filetype: symlink
+
+service:
+  # open-vm-tools enabled and running so vSphere Tools status reports OK.
+  open-vm-tools:
+    enabled: true
+    running: true
+
+  # First-boot oneshot units must be enabled (they fire on clone boot).
+  ssh-host-keygen.service:
+    enabled: true
+  firstboot-hostname.service:
+    enabled: true
+
+package:
+  # Common utilities installed by setup.sh.
+  curl:
+    installed: true
+  vim:
+    installed: true
+  git:
+    installed: true
+  open-vm-tools:
+    installed: true
+
+command:
+  # ssh.socket should be enabled (socket-activated SSH on 22.04+).
+  ssh-socket-enabled:
+    exec: "systemctl is-enabled ssh.socket"
+    exit-status: 0
+    stdout:
+      - enabled
+
+  # ufw.service should be masked (is-enabled returns "masked" + exit 1).
+  ufw-masked:
+    exec: "systemctl is-enabled ufw.service"
+    exit-status: 1
+    stdout:
+      - masked
+
+  # No swap configured (swapon prints nothing when there's no swap).
+  swap-off:
+    exec: "swapon --noheadings"
+    exit-status: 0
+    stdout: []
+
+  # build-info.json contains the expected keys.
+  build-info-shape:
+    exec: "jq -e 'has(\"kernel_version\") and has(\"os_pretty_name\") and has(\"package_count\") and has(\"captured_at\")' /var/log/packer-build-info.json || python3 -c \"import json,sys; d=json.load(open('/var/log/packer-build-info.json')); sys.exit(0 if all(k in d for k in ('kernel_version','os_pretty_name','package_count','captured_at')) else 1)\""
+    exit-status: 0

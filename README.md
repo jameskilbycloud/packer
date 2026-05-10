@@ -703,6 +703,30 @@ gh run download --pattern 'build-metrics-2404-server-*' \
   && jq '.duration_human' build-metrics-2404-server-*/build-metrics-2404-server.json
 ```
 
+### Smoke tests (Goss)
+
+Every build runs a [Goss](https://github.com/goss-org/goss) validation pass against the in-flight VM **after** all provisioners but **before** Packer converts the VM to a template. If goss fails, the build fails — and because the lifecycle prune step only runs on success, a broken template can never replace a known-good one.
+
+Spec files live in `goss/`:
+
+- `goss/server.yaml` — universal post-build assertions: sudoers entry for the build user, cloud-init neutralisation file, SSH host keys absent (regenerated on first boot), first-boot oneshot units enabled, `open-vm-tools` running, swap off, UFW masked, build-metadata snapshots present, etc.
+- `goss/desktop.yaml` — desktop-only additions on top of the server spec via gossfile include: `ubuntu-desktop-minimal`, `open-vm-tools-desktop`, `gdm3` enabled.
+
+`build_username` is threaded into the spec via goss's `--vars-inline`, so the sudoers-file assertion (`/etc/sudoers.d/90-packer-<username>`) tracks whatever you set in `variables.pkrvars.hcl`.
+
+`scripts/goss-validate.sh` downloads goss (pinned via `GOSS_VERSION`, default `v0.4.9`), runs `goss validate --format documentation`, and removes the binary + spec afterwards so neither ships in the produced template.
+
+To extend: add new file/service/command/package assertions to `goss/server.yaml` (or `goss/desktop.yaml` for desktop-only). The expected runtime cost per build is ~30 seconds.
+
+### Build retries
+
+`packer build` is wrapped in a one-retry loop in [build-templates.yml](.github/workflows/build-templates.yml). The retry decision is driven by pattern-matching the Packer log:
+
+- **Transient patterns** (retried after a 60s backoff): `connection refused`, `i/o timeout`, `tls handshake`, `no route to host`, `temporary failure`, `service unavailable`, `context deadline exceeded`, `cannot connect`, `dial tcp`, `server closed`, `unexpected EOF`, `connection reset`. These cover vSphere DRS migrations, ISO datastore hiccups, and general network blips.
+- **Permanent patterns** (failed immediately): everything else — provisioner script failures, validation errors, missing variables, goss assertion failures. Retrying on these would just mask real bugs.
+
+`-on-error=cleanup` ensures Packer destroys any partial VM between attempts; `-force` lets the retry overwrite leftover artefacts. Tunable via `MAX_ATTEMPTS` env var on the step (default 2).
+
 ### Workflow: upload-isos
 
 **File:** `.github/workflows/upload-isos.yml`
