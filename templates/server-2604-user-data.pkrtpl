@@ -49,7 +49,7 @@ autoinstall:
   ssh:
     install-server: true
     allow-pw: true
-    authorized-keys: []
+    authorized-keys: ${jsonencode(build_ssh_authorized_keys)}
 
   # ── Timezone ──────────────────────────────────────────────────────────────
   timezone: ${timezone}

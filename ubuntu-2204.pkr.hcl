@@ -69,10 +69,11 @@ source "vsphere-iso" "ubuntu-2204-server" {
   cd_content = {
     "meta-data" = ""
     "user-data" = templatefile("${path.root}/templates/server-user-data.pkrtpl", {
-      vm_hostname              = "ubuntu-2204-server"
-      build_username           = var.build_username
-      build_password_encrypted = var.build_password_encrypted
-      timezone                 = var.timezone
+      vm_hostname               = "ubuntu-2204-server"
+      build_username            = var.build_username
+      build_password_encrypted  = var.build_password_encrypted
+      build_ssh_authorized_keys = var.build_ssh_authorized_keys
+      timezone                  = var.timezone
     })
   }
   cd_label = "cidata"
@@ -99,11 +100,12 @@ source "vsphere-iso" "ubuntu-2204-server" {
   ip_settle_timeout = "20m"
 
   # SSH communicator (Packer connects once cloud-init completes the install)
-  communicator = "ssh"
-  ssh_username = var.build_username
-  ssh_password = var.build_password
-  ssh_timeout  = local.ssh_timeout
-  ssh_port     = 22
+  communicator         = "ssh"
+  ssh_username         = var.build_username
+  ssh_password         = var.build_password
+  ssh_private_key_file = var.build_ssh_private_key_file != "" ? var.build_ssh_private_key_file : null
+  ssh_timeout          = local.ssh_timeout
+  ssh_port             = 22
 
   # Shutdown
   shutdown_command = "echo '${var.build_password}' | sudo -S shutdown -P now"
@@ -166,10 +168,11 @@ source "vsphere-iso" "ubuntu-2204-desktop" {
   cd_content = {
     "meta-data" = ""
     "user-data" = templatefile("${path.root}/templates/desktop-user-data.pkrtpl", {
-      vm_hostname              = "ubuntu-2204-desktop"
-      build_username           = var.build_username
-      build_password_encrypted = var.build_password_encrypted
-      timezone                 = var.timezone
+      vm_hostname               = "ubuntu-2204-desktop"
+      build_username            = var.build_username
+      build_password_encrypted  = var.build_password_encrypted
+      build_ssh_authorized_keys = var.build_ssh_authorized_keys
+      timezone                  = var.timezone
     })
   }
   cd_label = "cidata"
@@ -196,9 +199,10 @@ source "vsphere-iso" "ubuntu-2204-desktop" {
   ip_settle_timeout = "10m"
 
   # SSH communicator
-  communicator = "ssh"
-  ssh_username = var.build_username
-  ssh_password = var.build_password
+  communicator         = "ssh"
+  ssh_username         = var.build_username
+  ssh_password         = var.build_password
+  ssh_private_key_file = var.build_ssh_private_key_file != "" ? var.build_ssh_private_key_file : null
   # Desktop installs take longer due to ubuntu-desktop package set
   ssh_timeout = local.desktop_ssh_timeout
   ssh_port    = 22

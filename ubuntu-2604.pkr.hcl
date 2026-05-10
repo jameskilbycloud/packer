@@ -72,10 +72,11 @@ source "vsphere-iso" "ubuntu-2604-server" {
   cd_content = {
     "meta-data" = ""
     "user-data" = templatefile("${path.root}/templates/server-2604-user-data.pkrtpl", {
-      vm_hostname              = "ubuntu-2604-server"
-      build_username           = var.build_username
-      build_password_encrypted = var.build_password_encrypted
-      timezone                 = var.timezone
+      vm_hostname               = "ubuntu-2604-server"
+      build_username            = var.build_username
+      build_password_encrypted  = var.build_password_encrypted
+      build_ssh_authorized_keys = var.build_ssh_authorized_keys
+      timezone                  = var.timezone
     })
   }
   cd_label = "cidata"
@@ -120,11 +121,12 @@ source "vsphere-iso" "ubuntu-2604-server" {
   # SSH communicator — 180m covers the full install + reboot + SSH-up window
   # (ip_settle fires at ~5 min; installed OS SSH is up ~40-60 min later, with
   # headroom for first-GA security updates pulled in by setup.sh).
-  communicator = "ssh"
-  ssh_username = var.build_username
-  ssh_password = var.build_password
-  ssh_timeout  = local.server_2604_ssh_timeout
-  ssh_port     = 22
+  communicator         = "ssh"
+  ssh_username         = var.build_username
+  ssh_password         = var.build_password
+  ssh_private_key_file = var.build_ssh_private_key_file != "" ? var.build_ssh_private_key_file : null
+  ssh_timeout          = local.server_2604_ssh_timeout
+  ssh_port             = 22
 
   # Shutdown
   shutdown_command = "echo '${var.build_password}' | sudo -S shutdown -P now"
@@ -190,10 +192,11 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
   cd_content = {
     "meta-data" = ""
     "user-data" = templatefile("${path.root}/templates/desktop-2604-user-data.pkrtpl", {
-      vm_hostname              = "ubuntu-2604-desktop"
-      build_username           = var.build_username
-      build_password_encrypted = var.build_password_encrypted
-      timezone                 = var.timezone
+      vm_hostname               = "ubuntu-2604-desktop"
+      build_username            = var.build_username
+      build_password_encrypted  = var.build_password_encrypted
+      build_ssh_authorized_keys = var.build_ssh_authorized_keys
+      timezone                  = var.timezone
     })
   }
   cd_label = "cidata"
@@ -233,11 +236,12 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
   ip_settle_timeout = "10m"
 
   # SSH communicator
-  communicator = "ssh"
-  ssh_username = var.build_username
-  ssh_password = var.build_password
-  ssh_timeout  = local.desktop_2604_ssh_timeout
-  ssh_port     = 22
+  communicator         = "ssh"
+  ssh_username         = var.build_username
+  ssh_password         = var.build_password
+  ssh_private_key_file = var.build_ssh_private_key_file != "" ? var.build_ssh_private_key_file : null
+  ssh_timeout          = local.desktop_2604_ssh_timeout
+  ssh_port             = 22
 
   # Shutdown
   shutdown_command = "echo '${var.build_password}' | sudo -S shutdown -P now"
