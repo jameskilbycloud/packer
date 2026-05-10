@@ -1,0 +1,52 @@
+# yamllint config — tuned to this repo.
+# https://yamllint.readthedocs.io/en/stable/configuration.html
+
+extends: default
+
+rules:
+  # GitHub Actions matrix JSON, secret-set commands, and curl pipes routinely
+  # exceed the default 80-char limit. 200 is generous enough that lines that
+  # do hit it are probably worth manually wrapping.
+  line-length:
+    max: 200
+    level: warning
+
+  # The default `truthy` rule flags `on:` because it can be parsed as the
+  # YAML truthy literal — but it's the canonical GitHub Actions trigger
+  # keyword. Disable check-keys so `on:` is allowed; values are still checked.
+  truthy:
+    check-keys: false
+
+  # Many configs (issue templates, dependabot.yml, .pre-commit-config.yaml)
+  # do not start with `---`. Don't insist.
+  document-start: disable
+
+  # Allow inline comments with one space after content (the yamllint default
+  # is two, which is unusual outside of Python style).
+  comments:
+    min-spaces-from-content: 1
+
+  # The default braces / brackets rules forbid spaces inside `{ key: val }`
+  # which is unnecessarily strict for embedded GitHub Actions JSON.
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+  brackets:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+
+  # The workflow files deliberately align values past the colon for
+  # readability (e.g. `VSPHERE_SERVER:    ${{ secrets.VSPHERE_SERVER }}`).
+  # That's a maintained-by-hand local convention — don't fight it.
+  colons:
+    max-spaces-after: -1
+
+  # Comment blocks at the top of a file or between hooks routinely sit at
+  # the parent indentation level, not the child content level. yamllint's
+  # default insists on the latter, which would force every section comment
+  # to be re-indented. Not worth the churn.
+  comments-indentation: disable
+
+ignore: |
+  manifests/
+  templates/*.pkrtpl

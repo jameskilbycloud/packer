@@ -1,0 +1,79 @@
+# Pre-commit hook configuration. See https://pre-commit.com.
+#
+# Local install:
+#   brew install pre-commit
+#   pre-commit install
+#
+# Run all hooks against all files (without committing):
+#   pre-commit run --all-files
+#
+# Update pinned hook versions:
+#   pre-commit autoupdate
+#
+# CI runs the same hook set on every PR via .github/workflows/pre-commit.yml,
+# so PRs are checked even if the contributor didn't `pre-commit install`
+# locally.
+
+repos:
+  # ── Standard hygiene ────────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '\.pkrtpl$'   # pkrtpl YAML/HCL hybrids — leave whitespace alone
+      - id: end-of-file-fixer
+        exclude: '\.pkrtpl$'
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: check-case-conflict
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+      # Don't enable check-yaml — yamllint (below) handles it more thoroughly,
+      # and check-yaml chokes on the GitHub Actions multi-document anchors.
+
+  # ── packer fmt ──────────────────────────────────────────────────────────
+  # Local hook (no third-party repo dependency) — requires packer on PATH,
+  # which contributors already need. Same exit-code semantics as `packer fmt`
+  # used in the validate workflow.
+  - repo: local
+    hooks:
+      - id: packer-fmt
+        name: packer fmt
+        description: Reformats Packer HCL files in place
+        entry: packer fmt
+        language: system
+        files: '\.pkr\.hcl$'
+        pass_filenames: false   # packer fmt operates on a directory
+
+  # ── shellcheck ──────────────────────────────────────────────────────────
+  # shellcheck-py wraps the upstream shellcheck binary as a Python package
+  # so contributors don't need a separate Homebrew / apt install.
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        # Default severity is `warning` (info noise filtered out). Failures
+        # are real bugs or footguns. To bypass for a specific line, use
+        # `# shellcheck disable=SCxxxx` directives in the script.
+        args: ['--severity=warning']
+        files: '^scripts/.*\.sh$'
+
+  # ── yamllint ────────────────────────────────────────────────────────────
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.35.1
+    hooks:
+      - id: yamllint
+        args: ['-c', '.yamllint.yml']
+        # *.pkrtpl files are cloud-config wrapped in HCL templating
+        # (`${var}` expansions) — yamllint can't parse them.
+        exclude: '\.pkrtpl$'
+
+  # ── Secrets scan ────────────────────────────────────────────────────────
+  # gitleaks runs on the staged diff in pre-commit and on the full repo in
+  # CI, catching accidentally committed credentials before they leave the
+  # developer's machine.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
