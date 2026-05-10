@@ -232,7 +232,7 @@ build {
   # intentional so it reconnects cleanly for vmtools.sh.
   provisioner "shell" {
     only              = ["vsphere-iso.ubuntu-2404-server"]
-    execute_command   = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    execute_command   = "echo '${var.build_password}' | sudo -S env {{.Vars}} bash {{.Path}}"
     expect_disconnect = true
     valid_exit_codes  = [0, 2300218]
     environment_vars = [
@@ -245,14 +245,14 @@ build {
   # Server: vmtools.sh after setup.sh completes.
   provisioner "shell" {
     only            = ["vsphere-iso.ubuntu-2404-server"]
-    execute_command = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    execute_command = "echo '${var.build_password}' | sudo -S env {{.Vars}} bash {{.Path}}"
     scripts         = ["${path.root}/scripts/vmtools.sh"]
   }
 
   # Desktop: setup.sh first. Same daemon-reexec hazard as the server variant.
   provisioner "shell" {
     only              = ["vsphere-iso.ubuntu-2404-desktop"]
-    execute_command   = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    execute_command   = "echo '${var.build_password}' | sudo -S env {{.Vars}} bash {{.Path}}"
     expect_disconnect = true
     valid_exit_codes  = [0, 2300218]
     environment_vars = [
@@ -269,7 +269,7 @@ build {
   # valid_exit_codes kept as belt-and-suspenders for versions that honour it.
   provisioner "shell" {
     only              = ["vsphere-iso.ubuntu-2404-desktop"]
-    execute_command   = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    execute_command   = "echo '${var.build_password}' | sudo -S env {{.Vars}} bash {{.Path}}"
     expect_disconnect = true
     valid_exit_codes  = [0, 2300218]
     scripts           = ["${path.root}/scripts/desktop.sh"]
@@ -278,7 +278,7 @@ build {
   # Desktop: vmtools.sh after the desktop install completes.
   provisioner "shell" {
     only            = ["vsphere-iso.ubuntu-2404-desktop"]
-    execute_command = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    execute_command = "echo '${var.build_password}' | sudo -S env {{.Vars}} bash {{.Path}}"
     scripts         = ["${path.root}/scripts/vmtools.sh"]
   }
 
@@ -297,7 +297,7 @@ build {
   }
   provisioner "shell" {
     only            = ["vsphere-iso.ubuntu-2404-server"]
-    execute_command = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    execute_command = "echo '${var.build_password}' | sudo -S env {{.Vars}} bash {{.Path}}"
     environment_vars = [
       "BUILD_USERNAME=${var.build_username}",
       "GOSS_SPEC=/tmp/goss/server.yaml",
@@ -319,7 +319,7 @@ build {
   }
   provisioner "shell" {
     only            = ["vsphere-iso.ubuntu-2404-desktop"]
-    execute_command = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    execute_command = "echo '${var.build_password}' | sudo -S env {{.Vars}} bash {{.Path}}"
     environment_vars = [
       "BUILD_USERNAME=${var.build_username}",
       "GOSS_SPEC=/tmp/goss/desktop.yaml",
