@@ -282,6 +282,16 @@ build {
     scripts         = ["${path.root}/scripts/vmtools.sh"]
   }
 
+  # ── Strip build-only security knobs ──────────────────────────────────────
+  # Runs before goss so the spec asserts the actual shipping state of the
+  # template (sudoers entry absent, pwauth drop-in absent).
+  provisioner "shell" {
+    only             = ["vsphere-iso.ubuntu-2404-server", "vsphere-iso.ubuntu-2404-desktop"]
+    execute_command  = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    environment_vars = ["BUILD_USERNAME=${var.build_username}"]
+    scripts          = ["${path.root}/scripts/finalize.sh"]
+  }
+
   # ── Goss smoke tests — server ────────────────────────────────────────────
   # Asserts post-build state before convert_to_template. If goss fails the
   # build fails and the prune step never runs, so a broken template cannot
