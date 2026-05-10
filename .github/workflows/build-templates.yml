@@ -385,6 +385,39 @@ jobs:
       - name: Packer init (download vsphere plugin)
         run: packer init .
 
+      # ── Generate ephemeral build SSH keypair ─────────────────────────────────
+      # A fresh per-run keypair lets Packer SSH into the build VM via pubkey
+      # rather than the build_password — keeps plaintext passwords off the
+      # SSH path. The pubkey is injected into autoinstall via
+      # build_ssh_authorized_keys; the private key path goes via
+      # build_ssh_private_key_file. Both are wiped after the build by the
+      # cleanup step at the bottom of the job.
+      #
+      # build_password is still set: autoinstall needs build_password_encrypted
+      # to give the user account a password, and shutdown_command uses
+      # `echo password | sudo -S`. But Packer's SSH connection no longer
+      # depends on it.
+      - name: Generate ephemeral build SSH keypair
+        if: needs.resolve-targets.outputs.dry_run == 'false'
+        id: build-keypair
+        run: |
+          keydir="${RUNNER_TEMP}/packer-build-key"
+          mkdir -p "${keydir}"
+          chmod 700 "${keydir}"
+          ssh-keygen -t ed25519 -N '' \
+            -f "${keydir}/id_ed25519" \
+            -C "packer-build-${GITHUB_RUN_ID}-${{ matrix.label }}" >/dev/null
+          chmod 600 "${keydir}/id_ed25519"
+          {
+            echo "private_key_path=${keydir}/id_ed25519"
+            # Pubkey via multi-line output syntax in case the comment ever
+            # contains characters that need escaping.
+            echo "public_key<<KEYEOF"
+            cat "${keydir}/id_ed25519.pub"
+            echo "KEYEOF"
+          } >> "${GITHUB_OUTPUT}"
+          echo "Generated ephemeral keypair at ${keydir}"
+
       # ── Write variables file from secrets ────────────────────────────────────
       # We write a temporary vars file rather than passing dozens of -var flags.
       # The file is removed in the cleanup step regardless of build success.
@@ -417,6 +450,16 @@ jobs:
           echo "git_commit = \"${GITHUB_SHA:0:8}\"" >> runner.pkrvars.hcl
           # Strip leading whitespace added by the heredoc indentation
           sed -i 's/^[[:space:]]*//' runner.pkrvars.hcl
+
+          # Append the ephemeral build SSH keypair vars (only set on real
+          # builds; dry-run skips the keypair-generation step). HCL list
+          # literal: `["ssh-ed25519 AAAA... comment"]`.
+          if [[ -n "${{ steps.build-keypair.outputs.public_key }}" ]]; then
+            {
+              echo "build_ssh_private_key_file = \"${{ steps.build-keypair.outputs.private_key_path }}\""
+              echo "build_ssh_authorized_keys = [\"${{ steps.build-keypair.outputs.public_key }}\"]"
+            } >> runner.pkrvars.hcl
+          fi
 
       # ── Validate ─────────────────────────────────────────────────────────────
       - name: Packer validate
@@ -881,3 +924,11 @@ jobs:
       - name: Remove variables file
         if: always()
         run: rm -f runner.pkrvars.hcl
+
+      - name: Remove ephemeral build SSH keypair
+        if: always()
+        run: |
+          if [[ -n "${{ steps.build-keypair.outputs.private_key_path }}" ]]; then
+            rm -rf "$(dirname "${{ steps.build-keypair.outputs.private_key_path }}")"
+            echo "Wiped ephemeral keypair directory."
+          fi

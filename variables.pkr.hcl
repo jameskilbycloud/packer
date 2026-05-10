@@ -94,6 +94,19 @@ variable "build_password_encrypted" {
   sensitive   = true
 }
 
+variable "build_ssh_authorized_keys" {
+  type        = list(string)
+  description = "SSH public keys injected into autoinstall as authorized_keys for build_username. The CI workflow generates a fresh ephemeral keypair per build and passes the pubkey here. For local builds, leave empty — Packer will fall back to ssh_password."
+  default     = []
+}
+
+variable "build_ssh_private_key_file" {
+  type        = string
+  description = "Path to the SSH private key Packer should use for the build SSH connection. Set by the CI workflow alongside build_ssh_authorized_keys. For local builds, leave empty — Packer will fall back to ssh_password."
+  default     = ""
+  sensitive   = true
+}
+
 # =============================================================================
 # VM Hardware — Server
 # =============================================================================
