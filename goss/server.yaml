@@ -93,12 +93,19 @@ package:
     installed: true
 
 command:
-  # ssh.socket should be enabled (socket-activated SSH on 22.04+).
-  ssh-socket-enabled:
-    exec: "systemctl is-enabled ssh.socket"
+  # SSH availability — accept either ssh.service (22.04 default) OR
+  # ssh.socket (24.04+ default with socket activation) being enabled.
+  # The two distros disagree on which is canonical, so a hardcoded
+  # `is-enabled ssh.socket` only passes on one of them.
+  #
+  # We could test more directly that port 22 is listening, but at this
+  # point in the build Packer's own SSH session is running goss — which
+  # tautologically proves port 22 is open. The check below adds value
+  # only by confirming the unit will come back up on first boot of a
+  # clone (rather than relying on whatever-is-currently-listening).
+  ssh-unit-enabled:
+    exec: "systemctl is-enabled ssh.socket 2>/dev/null | grep -q '^enabled$' || systemctl is-enabled ssh.service 2>/dev/null | grep -q '^enabled$'"
     exit-status: 0
-    stdout:
-      - enabled
 
   # ufw.service should be masked (is-enabled returns "masked" + exit 1).
   ufw-masked:
