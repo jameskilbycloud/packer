@@ -281,6 +281,51 @@ build {
     scripts         = ["${path.root}/scripts/vmtools.sh"]
   }
 
+  # ── Goss smoke tests — server ────────────────────────────────────────────
+  # Asserts post-build state before convert_to_template. If goss fails the
+  # build fails and the prune step never runs, so a broken template cannot
+  # replace a good one.
+  provisioner "shell" {
+    only   = ["vsphere-iso.ubuntu-2204-server"]
+    inline = ["mkdir -p /tmp/goss"]
+  }
+  provisioner "file" {
+    only        = ["vsphere-iso.ubuntu-2204-server"]
+    sources     = ["${path.root}/goss/server.yaml"]
+    destination = "/tmp/goss/"
+  }
+  provisioner "shell" {
+    only            = ["vsphere-iso.ubuntu-2204-server"]
+    execute_command = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    environment_vars = [
+      "BUILD_USERNAME=${var.build_username}",
+      "GOSS_SPEC=/tmp/goss/server.yaml",
+    ]
+    scripts = ["${path.root}/scripts/goss-validate.sh"]
+  }
+
+  # ── Goss smoke tests — desktop ───────────────────────────────────────────
+  # desktop.yaml extends server.yaml via gossfile, so both must be present
+  # in the same directory on the target.
+  provisioner "shell" {
+    only   = ["vsphere-iso.ubuntu-2204-desktop"]
+    inline = ["mkdir -p /tmp/goss"]
+  }
+  provisioner "file" {
+    only        = ["vsphere-iso.ubuntu-2204-desktop"]
+    sources     = ["${path.root}/goss/server.yaml", "${path.root}/goss/desktop.yaml"]
+    destination = "/tmp/goss/"
+  }
+  provisioner "shell" {
+    only            = ["vsphere-iso.ubuntu-2204-desktop"]
+    execute_command = "echo '${var.build_password}' | sudo -S bash {{.Path}}"
+    environment_vars = [
+      "BUILD_USERNAME=${var.build_username}",
+      "GOSS_SPEC=/tmp/goss/desktop.yaml",
+    ]
+    scripts = ["${path.root}/scripts/goss-validate.sh"]
+  }
+
   # One manifest covers both sources (entries appear in builds[]).
   post-processor "manifest" {
     output     = "${path.root}/manifests/ubuntu-2204.json"

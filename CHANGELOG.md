@@ -8,6 +8,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Goss smoke tests** run as the last provisioner step on every build,
+  asserting post-build state before Packer converts the VM to a template.
+  If goss fails the build fails and the lifecycle prune step never runs,
+  so a broken template cannot replace a known-good one. Spec files in
+  `goss/` (server.yaml + desktop.yaml, with desktop extending server via
+  gossfile). `build_username` is threaded into the spec via
+  `--vars-inline` so the sudoers-file assertion tracks whatever you
+  configured. The goss binary and spec are removed from the VM after
+  validation, so they don't ship in the produced template.
+- **Build retries on transient failures.** `packer build` is now wrapped
+  in a one-retry loop with 60s backoff. Retry decision is driven by
+  pattern-matching the Packer log: transient-looking patterns
+  (`connection refused`, `i/o timeout`, `tls handshake`, etc.) trigger
+  a single retry; everything else fails immediately so real bugs aren't
+  masked. Tunable via the `MAX_ATTEMPTS` env var (default 2).
 - Build metrics. After every successful `packer build`, the workflow emits
   `build-metrics-<label>-<run>.json` (90-day artifact, schema_version: 1)
   with duration, packer + plugin versions, GitHub run/actor/event/sha,
