@@ -652,6 +652,10 @@ jobs:
           LABEL: ${{ matrix.label }}
           VERSION: ${{ matrix.version }}
           MANIFEST_NAME: ${{ matrix.manifest }}
+          # Must mirror PACKER_LOG_PATH on the "Packer build" step. Each
+          # step has its own env scope, so we re-declare it rather than
+          # implicitly inheriting. `set -u` below would abort otherwise.
+          PACKER_LOG_PATH: packer-${{ matrix.label }}.log
         run: |
           set -euo pipefail
           end_epoch=$(date -u +%s)
