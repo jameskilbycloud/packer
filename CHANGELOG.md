@@ -17,6 +17,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the duplicate-hostname collision when multiple clones boot on a shared
   network. Runs once, gated by a sentinel at
   `/var/lib/packer-firstboot/hostname.done`, then disables itself.
+- Pre-commit hook configuration in `.pre-commit-config.yaml`. Local install:
+  `brew install pre-commit && pre-commit install`. Hooks run on every
+  commit:
+  - `packer fmt` (local hook, no third-party dep) — keeps HCL formatted.
+  - `shellcheck` (via `shellcheck-py`) — `--severity=warning`, scoped to
+    `scripts/*.sh`.
+  - `yamllint` — relaxed rules tuned to the existing GitHub Actions style
+    (configured in `.yamllint.yml`).
+  - `gitleaks` — secrets scan on staged diff.
+  - Standard hygiene hooks: trailing-whitespace, end-of-file-fixer,
+    check-merge-conflict, check-added-large-files (max 500 KB),
+    check-case-conflict, mixed-line-ending.
+- New `.github/workflows/pre-commit.yml` workflow runs the same hook set
+  on every PR via `pre-commit/action@v3.0.1`, so PRs are checked even if
+  the contributor didn't `pre-commit install` locally.
 
 ## [1.0.0] — 2026-05-10
 

@@ -1,0 +1,69 @@
+name: Pre-commit
+
+# ── Triggers ──────────────────────────────────────────────────────────────────
+# Runs the same hook set defined in .pre-commit-config.yaml on every PR and
+# on direct pushes to main. Mirrors the contributor's local pre-commit run
+# so PRs are checked even if the contributor didn't `pre-commit install`
+# locally.
+on:
+  pull_request:
+    branches:
+      - main
+
+  push:
+    branches:
+      - main
+
+  # Manual runs are useful for debugging hook configuration changes.
+  workflow_dispatch:
+
+# ── Concurrency ───────────────────────────────────────────────────────────────
+# Cancel any in-progress run for the same PR/branch so stale checks don't
+# block merges.
+concurrency:
+  group: pre-commit-${{ github.ref }}
+  cancel-in-progress: true
+
+# ── Jobs ──────────────────────────────────────────────────────────────────────
+jobs:
+  pre-commit:
+    name: Run pre-commit hooks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Need full history for gitleaks to scan the diff against the
+          # base branch on PRs. shallow clones (the default) make the
+          # diff range unresolvable.
+          fetch-depth: 0
+
+      # ── Install Packer ───────────────────────────────────────────────────────
+      # The packer-fmt hook is a local hook that shells out to `packer`,
+      # so we need it on PATH. Mirrors the install used by validate.yml.
+      - name: Install Packer
+        run: |
+          PACKER_VERSION=$(curl -fsSL https://api.releases.hashicorp.com/v1/releases/packer/latest \
+            | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
+          ARCH=$(dpkg --print-architecture)
+          curl -fsSL "https://releases.hashicorp.com/packer/${PACKER_VERSION}/packer_${PACKER_VERSION}_linux_${ARCH}.zip" \
+            -o /tmp/packer.zip
+          python3 -c "import zipfile,sys; zipfile.ZipFile('/tmp/packer.zip').extract('packer','/tmp')"
+          sudo mv /tmp/packer /usr/local/bin/packer
+          sudo chmod +x /usr/local/bin/packer
+          rm /tmp/packer.zip
+          packer version
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      # ── Run pre-commit ───────────────────────────────────────────────────────
+      # The official pre-commit/action runs the hooks defined in
+      # .pre-commit-config.yaml against the changed files (on PR) or the
+      # full repo (on push to main / manual runs).
+      - name: Run pre-commit
+        uses: pre-commit/action@v3.0.1

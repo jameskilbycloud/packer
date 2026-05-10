@@ -8,10 +8,20 @@ six Linux builds."
 
 1. **Fork** the repository and create a branch off `main` named for the
    change (e.g. `fix/2604-...`, `feat/...`, `chore/...`, `docs/...`).
-2. Make your change.
-3. **Run `packer fmt .`** before committing — the validate workflow rejects
-   PRs whose HCL files need reformatting.
-4. **Run `packer validate .`** locally with placeholder vars (the
+2. **Install pre-commit hooks** (one-time, recommended):
+   ```bash
+   brew install pre-commit         # or: pip install pre-commit
+   pre-commit install
+   ```
+   This wires up `packer fmt`, `shellcheck`, `yamllint`, `gitleaks`, and
+   the standard hygiene hooks defined in `.pre-commit-config.yaml`. They
+   run automatically on every `git commit`. To run them on demand against
+   the whole repo: `pre-commit run --all-files`.
+3. Make your change.
+4. **Run `packer fmt .`** before committing — the validate workflow rejects
+   PRs whose HCL files need reformatting. The pre-commit hook above does
+   this automatically; if you skipped step 2, run it by hand.
+5. **Run `packer validate .`** locally with placeholder vars (the
    `validate.yml` workflow does the same on PRs, so this catches problems
    early). For example:
    ```bash
@@ -28,7 +38,7 @@ six Linux builds."
      -var='build_password_encrypted=x' \
      .
    ```
-5. **Open a pull request** against `main`.
+6. **Open a pull request** against `main`.
 
 ## Commit message style
 
