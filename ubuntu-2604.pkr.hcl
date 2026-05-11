@@ -40,9 +40,18 @@ source "vsphere-iso" "ubuntu-2604-server" {
   vm_version    = var.vm_hardware_version
 
   # CPU / RAM
+  # 26.04 server uses server_2604_ram_mb (default 8 GB), not the shared
+  # server_ram_mb (default 4 GB). At 4 GB, subiquity's snap-seeding step
+  # hangs intermittently on 26.04 — `Waiting for SSH` stays unsatisfied for
+  # the entire ssh_timeout window because the install never finishes the
+  # post-seed reboot. 8 GB has reproduced clean builds where 4 GB hangs.
+  # Suspected cause: memory-pressure deadlock in subiquity's headless
+  # chroot when D-Bus-using snap postinsts run; the live ISO pre-seeds
+  # more snaps when more memory is available, but the headless chroot
+  # can't satisfy their D-Bus calls.
   CPUs            = 1
   cpu_cores       = var.server_cpu_count
-  RAM             = var.server_ram_mb
+  RAM             = var.server_2604_ram_mb
   RAM_reserve_all = false
 
   # Firmware — EFI without Secure Boot. Secure Boot locks GRUB's edit/command
