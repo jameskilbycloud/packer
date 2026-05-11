@@ -229,8 +229,11 @@ All variables are declared in `variables.pkr.hcl`. Set them in `variables.pkrvar
 | Variable | Default | Description |
 |---|---|---|
 | `server_cpu_count` | `2` | vCPU cores |
-| `server_ram_mb` | `4096` | RAM in MB |
+| `server_ram_mb` | `4096` | RAM in MB (22.04 / 24.04 server) |
+| `server_2604_ram_mb` | `8192` | RAM in MB (26.04 server only — see note) |
 | `server_disk_gb` | `40` | OS disk size in GB |
+
+> **26.04 server RAM**: subiquity's snap-seeding step hangs intermittently on 26.04 at 4 GB — the install never reaches the post-seed reboot and the build burns the full `ssh_timeout` budget at "Waiting for SSH". 8 GB has reproduced clean builds. 22.04 / 24.04 don't exhibit this and stay at 4 GB.
 
 ### VM hardware — desktop
 
@@ -315,7 +318,7 @@ Each build produces:
 |---|---|
 | OS | Ubuntu Server (minimal) |
 | vCPUs | 2 (1 socket × 2 cores) |
-| RAM | 4 GB |
+| RAM | 4 GB (22.04 / 24.04), 8 GB (26.04) |
 | Disk | 40 GB thin-provisioned (LVM) |
 | Network | vmxnet3, DHCP |
 | Firmware | EFI (Secure Boot disabled — needed so Packer can inject autoinstall args via the GRUB command line) |

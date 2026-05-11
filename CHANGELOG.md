@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- 26.04-server: bumped default RAM from 4 GB to 8 GB via the new
+  `server_2604_ram_mb` variable. At 4 GB, subiquity's snap-seeding step
+  on 26.04 hangs intermittently — the install never reaches the
+  post-seed reboot, and Packer's "Waiting for SSH" burns the full
+  `ssh_timeout` budget. Suspected memory-pressure deadlock in
+  subiquity's headless chroot when D-Bus-using snap postinsts run. The
+  shared `server_ram_mb` default (4 GB) is unchanged for 22.04 / 24.04.
+
 ### Security
 
 - **Templates no longer ship with build-only knobs.** A new
