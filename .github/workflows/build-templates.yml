@@ -92,6 +92,16 @@ jobs:
           #   parallel — value for `-parallel-builds`. 2 for combined (server
           #              + desktop together), 1 for single-target (no need to
           #              spawn a second worker).
+          #              EXCEPTION: 2604 combined uses parallel=1. Two 26.04
+          #              live installers concurrently reading the same ISO
+          #              from the same datastore trip an OverlayFS race that
+          #              hangs subiquity (kernel oops in image-extract, then
+          #              network watcher loops on _send_update: CHANGE ens33
+          #              for the full ssh_timeout budget). Standalone 26.04
+          #              works fine; only the parallel case is poisoned. Run
+          #              server first, then desktop, sequentially in the
+          #              same Packer process. ~15–20 min extra wall clock vs
+          #              full reliability.
           #   label    — short human label for log/manifest artifact names.
           # Each matrix entry carries:
           #   version  — Ubuntu major version: "2204"/"2404"/"2604"
@@ -110,7 +120,7 @@ jobs:
             all-linux)    BUILDS='[
                             {"version":"2204","label":"2204","only":"ubuntu-2204.*","parallel":2,"manifest":"ubuntu-2204","vm_glob":"ubuntu-2204-*"},
                             {"version":"2404","label":"2404","only":"ubuntu-2404.*","parallel":2,"manifest":"ubuntu-2404","vm_glob":"ubuntu-2404-*"},
-                            {"version":"2604","label":"2604","only":"ubuntu-2604.*","parallel":2,"manifest":"ubuntu-2604","vm_glob":"ubuntu-2604-*"}
+                            {"version":"2604","label":"2604","only":"ubuntu-2604.*","parallel":1,"manifest":"ubuntu-2604","vm_glob":"ubuntu-2604-*"}
                           ]' ;;
             all-servers)  BUILDS='[
                             {"version":"2204","label":"2204-server","only":"ubuntu-2204.vsphere-iso.ubuntu-2204-server","parallel":1,"manifest":"ubuntu-2204","vm_glob":"ubuntu-2204-server-*"},
@@ -125,7 +135,7 @@ jobs:
             all)          BUILDS='[
                             {"version":"2204","label":"2204","only":"ubuntu-2204.*","parallel":2,"manifest":"ubuntu-2204","vm_glob":"ubuntu-2204-*"},
                             {"version":"2404","label":"2404","only":"ubuntu-2404.*","parallel":2,"manifest":"ubuntu-2404","vm_glob":"ubuntu-2404-*"},
-                            {"version":"2604","label":"2604","only":"ubuntu-2604.*","parallel":2,"manifest":"ubuntu-2604","vm_glob":"ubuntu-2604-*"}
+                            {"version":"2604","label":"2604","only":"ubuntu-2604.*","parallel":1,"manifest":"ubuntu-2604","vm_glob":"ubuntu-2604-*"}
                           ]' ;;
             *)            BUILDS='[{"version":"2404","label":"2404-server","only":"ubuntu-2404.vsphere-iso.ubuntu-2404-server","parallel":1,"manifest":"ubuntu-2404","vm_glob":"ubuntu-2404-server-*"}]' ;;
           esac
