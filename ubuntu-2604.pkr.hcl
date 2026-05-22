@@ -105,9 +105,23 @@ source "vsphere-iso" "ubuntu-2604-server" {
   # affect the installed OS.
   boot_order = "disk,cdrom"
   boot_wait  = "5s"
+  # Slow keystrokes so each one is processed by GRUB before the next
+  # arrives. Default is 100ms but is sent as a tight burst on some
+  # consoles; setting it explicitly here keeps the value stable across
+  # plugin versions.
+  boot_keygroup_interval = "100ms"
   boot_command = [
-    "<spacebar><wait>c<wait3s>",
-    "linux /casper/vmlinuz --- autoinstall ds=nocloud overlay.metacopy=off overlay.redirect_dir=off<enter><wait5>",
+    # Double-tap spacebar then settle, to maximise the chance the GRUB
+    # countdown halts on slow ESXi consoles. Without this, a single
+    # spacebar can be missed and the menu boots its default entry
+    # WITHOUT our kernel params — install then hits the OverlayFS race
+    # below for the same reason it did before we added the workaround.
+    "<wait5s><spacebar><wait><spacebar><wait>c<wait5s>",
+    # Extra overlay disables on top of metacopy/redirect_dir: belt-and-
+    # braces against other code paths in ovl_iterate_merged that have
+    # been seen to deadlock on rsync during curtin's image-extract on
+    # 26.04's GA kernel. Harmless if those paths weren't going to fire.
+    "linux /casper/vmlinuz --- autoinstall ds=nocloud overlay.metacopy=off overlay.redirect_dir=off overlay.index=off overlay.nfs_export=off<enter><wait5>",
     "initrd /casper/initrd<enter><wait5>",
     "boot<enter><wait30>"
   ]
@@ -225,9 +239,23 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
   # affect the installed OS.
   boot_order = "disk,cdrom"
   boot_wait  = "5s"
+  # Slow keystrokes so each one is processed by GRUB before the next
+  # arrives. Default is 100ms but is sent as a tight burst on some
+  # consoles; setting it explicitly here keeps the value stable across
+  # plugin versions.
+  boot_keygroup_interval = "100ms"
   boot_command = [
-    "<spacebar><wait>c<wait3s>",
-    "linux /casper/vmlinuz --- autoinstall ds=nocloud overlay.metacopy=off overlay.redirect_dir=off<enter><wait5>",
+    # Double-tap spacebar then settle, to maximise the chance the GRUB
+    # countdown halts on slow ESXi consoles. Without this, a single
+    # spacebar can be missed and the menu boots its default entry
+    # WITHOUT our kernel params — install then hits the OverlayFS race
+    # below for the same reason it did before we added the workaround.
+    "<wait5s><spacebar><wait><spacebar><wait>c<wait5s>",
+    # Extra overlay disables on top of metacopy/redirect_dir: belt-and-
+    # braces against other code paths in ovl_iterate_merged that have
+    # been seen to deadlock on rsync during curtin's image-extract on
+    # 26.04's GA kernel. Harmless if those paths weren't going to fire.
+    "linux /casper/vmlinuz --- autoinstall ds=nocloud overlay.metacopy=off overlay.redirect_dir=off overlay.index=off overlay.nfs_export=off<enter><wait5>",
     "initrd /casper/initrd<enter><wait5>",
     "boot<enter><wait30>"
   ]
