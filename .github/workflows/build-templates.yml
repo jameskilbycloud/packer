@@ -693,6 +693,72 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      # ── Capture console screenshot of failing VM(s) ─────────────────────────
+      # Runs BEFORE "Destroy orphaned VM" so the failing VM is still alive to
+      # screenshot. The diagnostic poller tells us *what state* the VM is in
+      # (CPU/mem/IP/bootTime) but not *what is on screen*. A screenshot of a
+      # stuck install resolves all the ambiguity at once — is it a subiquity
+      # error dialog? a kernel panic? a GRUB rescue prompt? a happy-path TUI
+      # waiting for something we can't see?
+      #
+      # `govc vm.console -capture` opens a WebMKS console connection and grabs
+      # one frame as PNG. Doesn't disturb the running guest. We capture every
+      # non-template VM matching the build's vm_glob and upload as artefacts.
+      - name: Capture console screenshot of failing VM
+        if: (cancelled() || failure()) && needs.resolve-targets.outputs.dry_run == 'false'
+        env:
+          GOVC_URL:        ${{ secrets.VSPHERE_SERVER }}
+          GOVC_USERNAME:   ${{ secrets.VSPHERE_USER }}
+          GOVC_PASSWORD:   ${{ secrets.VSPHERE_PASSWORD }}
+          GOVC_INSECURE:   ${{ secrets.VSPHERE_INSECURE || 'false' }}
+          GOVC_DATACENTER: ${{ secrets.VSPHERE_DATACENTER }}
+          NAME_PATTERN:    ${{ matrix.vm_glob }}
+          SHOT_DIR:        screenshots-${{ matrix.label }}
+        run: |
+          mkdir -p "${SHOT_DIR}"
+          echo "Searching for non-template VMs matching: ${NAME_PATTERN}"
+
+          vms=$(govc find . -type m -name "${NAME_PATTERN}" 2>/dev/null || true)
+          if [[ -z "${vms}" ]]; then
+            echo "No VMs found — nothing to screenshot."
+            exit 0
+          fi
+
+          _is_tpl='import sys,json;vms=(json.load(sys.stdin) or {}).get("VirtualMachines",[]);print("true" if vms and vms[0].get("Config",{}).get("Template",False) else "false")'
+
+          ts=$(date -u +%Y%m%dT%H%M%SZ)
+          while IFS= read -r vm_path; do
+            [[ -z "${vm_path}" ]] && continue
+            is_template=$(govc vm.info -json "${vm_path}" 2>/dev/null \
+              | python3 -c "${_is_tpl}" 2>/dev/null || echo "unknown")
+            if [[ "${is_template}" == "true" ]]; then
+              echo "  Skipping (already a template): ${vm_path}"
+              continue
+            fi
+            safe=$(echo "${vm_path}" | sed 's|/|_|g; s|^_||')
+            out="${SHOT_DIR}/${ts}_${safe}.png"
+            echo "  Capturing screenshot: ${vm_path} → ${out}"
+            # vm.console -capture exits 0 on success; redirect stderr so any
+            # WebMKS auth chatter is captured for debugging without failing
+            # the step.
+            if govc vm.console -capture "${out}" "${vm_path}" 2> "${SHOT_DIR}/${ts}_${safe}.stderr"; then
+              echo "    ✔ ${out} ($(stat -c%s "${out}" 2>/dev/null || echo "?") bytes)"
+            else
+              echo "    ✘ screenshot failed — see ${SHOT_DIR}/${ts}_${safe}.stderr"
+            fi
+          done <<< "${vms}"
+
+          ls -la "${SHOT_DIR}/" || true
+
+      - name: Upload console screenshots
+        if: (cancelled() || failure()) && needs.resolve-targets.outputs.dry_run == 'false'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: screenshots-${{ matrix.label }}-${{ github.run_number }}
+          path: screenshots-${{ matrix.label }}/
+          retention-days: 7
+          if-no-files-found: ignore
+
       # ── Destroy orphaned VM on failure or cancellation ───────────────────────
       # Packer's -on-error=cleanup handles Packer-level errors but not GitHub
       # Actions cancellation. This step finds any VM matching the build name
