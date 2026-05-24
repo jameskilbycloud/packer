@@ -8,21 +8,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- 26.04: added `interactive-sections: []` and
-  `refresh-installer: { update: false }` to both 26.04 user-data
-  templates (server + desktop). Without these, subiquity on 26.04 can
-  drop into the interactive TUI mid-install — kernel and VMware Tools
-  stay healthy, but CPU drops to idle and guest memory is released
-  while subiquity waits for keyboard input that never arrives. Packer's
-  "Waiting for SSH" then burns the full `ssh_timeout` on a parked VM.
-  Diagnostic-poller analysis of run 26342967493 caught the CPU cliff
-  (2.4 GHz → 47 MHz at minute 6, guest mem 6 GB → 81 MB) that
-  fingerprinted this failure as install-stuck-mid-flow rather than the
-  OverlayFS / snap-seeding hangs we had previously suspected.
-  `interactive-sections: []` forces fail-fast when subiquity can't
-  auto-decide (Packer retries instead of hanging 3 h);
-  `refresh-installer.update: false` removes a known interactive trigger
-  (subiquity's snap-store self-update check on first boot).
 - 26.04-server: bumped default RAM from 4 GB to 8 GB via the new
   `server_2604_ram_mb` variable. At 4 GB, subiquity's snap-seeding step
   on 26.04 hangs intermittently — the install never reaches the

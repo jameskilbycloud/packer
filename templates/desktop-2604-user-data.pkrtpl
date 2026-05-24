@@ -2,28 +2,6 @@
 autoinstall:
   version: 1
 
-  # ── Non-interactive guard rails (26.04) ───────────────────────────────────
-  # Without these, subiquity on 26.04 can drop into the interactive TUI mid-
-  # install and wait forever for keyboard input. Packer's "Waiting for SSH"
-  # then burns the full ssh_timeout budget on a VM that's alive but parked
-  # on a menu. See diag-26.04-desktop poller analysis (CPU goes from 2.4 GHz
-  # to 47 MHz and guest mem drops 6 GB → 81 MB the moment subiquity falls
-  # back to interactive).
-  #
-  # interactive-sections: [] — explicitly empty. Tells subiquity "no section
-  # is allowed to prompt"; any section it can't auto-decide aborts the
-  # install instead of waiting. We get a fail-fast in Packer + retry, not a
-  # 3-hour hang.
-  #
-  # refresh-installer.update: false — disables the snap-store check for
-  # subiquity self-updates that runs early in the install. If that check
-  # times out or returns an unexpected channel state, subiquity prompts the
-  # user to choose. Disabling it removes a known interactive trigger that
-  # has nothing to do with our actual install.
-  interactive-sections: []
-  refresh-installer:
-    update: false
-
   # ── Locale / Keyboard ─────────────────────────────────────────────────────
   locale: en_US.UTF-8
   keyboard:
