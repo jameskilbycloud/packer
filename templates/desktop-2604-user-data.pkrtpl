@@ -22,28 +22,18 @@ autoinstall:
     - sudo systemctl stop ssh.socket ssh 2>/dev/null || true
 
   # ── Network ───────────────────────────────────────────────────────────────
-  # 26.04 uses subiquity's documented un-nested netplan form (`network:` is
-  # the netplan config directly).
+  # 26.04 has NO `network:` section here on purpose. Two prior attempts at
+  # configuring the interface (match: driver: vmxnet3 — used by 22.04 /
+  # 24.04 with no issue, and ens33-by-name + optional in PR #34) both
+  # intermittently tripped subiquity's Network module into an infinite
+  # _send_update: CHANGE ens33 loop. Console screenshots from runs
+  # 26397034336 and 26411619708 confirm.
   #
-  # HISTORY: we previously used `match: { driver: vmxnet3 }` + a `mainif`
-  # alias. That config works on 22.04 / 24.04 but on 26.04 it intermittently
-  # tripped subiquity's Network module into an infinite _send_update CHANGE
-  # loop — the install pipeline ran for ~6 minutes, then subiquity got stuck
-  # emitting and re-processing fake CHANGE events for ens33 for the full
-  # ssh_timeout budget. Confirmed via console screenshot in run 26397034336.
-  #
-  # NOTE: Do NOT set renderer: NetworkManager here. This config is applied
-  # by the live installer (subiquity) which uses networkd. Specifying
-  # NetworkManager causes 'netplan apply' to fail with exit code 1 during
-  # install because NetworkManager is not running in the live environment
-  # → installer crash. The installed desktop OS manages its own NM config
-  # independently.
-  network:
-    version: 2
-    ethernets:
-      ens33:
-        dhcp4: true
-        optional: true
+  # By omitting `network:` here, subiquity has no autoinstall-driven
+  # netplan to apply. The installed OS gets a netplan written directly
+  # in late-commands below (renderer: networkd for the install + first
+  # boot; the installed desktop OS swaps NetworkManager in via
+  # desktop.sh on the running system where systemctl works correctly).
 
   # ── Storage ───────────────────────────────────────────────────────────────
   storage:
@@ -91,6 +81,22 @@ autoinstall:
 
   # ── Post-install ──────────────────────────────────────────────────────────
   late-commands:
+    # Netplan written directly into the target — see comment on the omitted
+    # autoinstall `network:` section above. The installed OS gets a plain
+    # DHCP config on ens33; nothing here goes through subiquity's network
+    # module, so the _send_update CHANGE loop is never entered.
+    - mkdir -p /target/etc/netplan
+    - |
+      cat > /target/etc/netplan/01-ens33.yaml <<'NETPLAN'
+      network:
+        version: 2
+        renderer: networkd
+        ethernets:
+          ens33:
+            dhcp4: true
+            optional: true
+      NETPLAN
+    - chmod 600 /target/etc/netplan/01-ens33.yaml
     # Passwordless sudo for the build account (Packer needs this for provisioners)
     - echo '${build_username} ALL=(ALL) NOPASSWD:ALL' > /target/etc/sudoers.d/90-packer-${build_username}
     - chmod 440 /target/etc/sudoers.d/90-packer-${build_username}

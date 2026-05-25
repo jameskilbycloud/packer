@@ -8,6 +8,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **26.04 autoinstall `network:` section removed entirely; netplan now
+  written via late-commands.** PR #34 (ens33-by-name) failed to fix the
+  `_send_update: CHANGE ens33` loop — run 26411619708's 26.04-server
+  hung 3h 17m with the *identical* screenshot pattern as before. The
+  trigger isn't the netplan config (match vs name); it's subiquity's
+  network observer subscribing to kernel netlink events for any
+  interface, regardless of what we configure. Each CHANGE event fires
+  `_send_update`, which appears to re-apply netplan, which triggers
+  another kernel CHANGE event — infinite loop. By omitting `network:`
+  from autoinstall, subiquity has no netplan to apply, and writing
+  `/target/etc/netplan/01-ens33.yaml` in late-commands gives the
+  installed OS the same DHCP config without going through subiquity's
+  network module at install time.
 - **26.04 user-data network config switched from `match: driver: vmxnet3`
   to `ens33` by name + `optional: true`.** Ground-truth screenshot from
   run 26397034336 (the new console-screenshot-on-failure step finally
