@@ -21,17 +21,32 @@ autoinstall:
 
   # ── Network ───────────────────────────────────────────────────────────────
   # 26.04 uses subiquity's documented un-nested netplan form (`network:` is
-  # the netplan config directly). The legacy doubly-nested form
-  # (`network: { network: { version: 2, ... } }`) is being phased out and
-  # may be silently ignored by 26.04's subiquity, leaving the installed OS
-  # with no persistent netplan config.
+  # the netplan config directly).
+  #
+  # HISTORY: we previously used `match: { driver: vmxnet3 }` + a `mainif`
+  # alias. That config works on 22.04 / 24.04 but on 26.04 it intermittently
+  # tripped subiquity's Network module into an infinite _send_update CHANGE
+  # loop — the install pipeline ran for ~6 minutes, then subiquity got stuck
+  # emitting and re-processing fake CHANGE events for ens33 for the full
+  # ssh_timeout budget. Confirmed via console screenshot in run 26397034336:
+  # entire screen filled with
+  #   start: subiquity/Network/_send_update: CHANGE ens33
+  #   finish: subiquity/Network/_send_update: CHANGE ens33
+  # The framebuffer console even threw a kernel warning about
+  # drm_fb_helper_damage_work hogging CPU from the sheer log volume.
+  #
+  # Suspected cause: race between udev's interface rename and subiquity's
+  # network observer subscription when `match:` is in play. Dropping the
+  # match block and naming the interface directly (vmxnet3 on Ubuntu always
+  # names to ens33 in our single-NIC config) plus `optional: true` removes
+  # the trigger. The installed OS gets a plain netplan config that doesn't
+  # require subiquity's match-resolution logic.
   network:
     version: 2
     ethernets:
-      mainif:
-        match:
-          driver: vmxnet3
+      ens33:
         dhcp4: true
+        optional: true
 
   # ── Storage ───────────────────────────────────────────────────────────────
   storage:

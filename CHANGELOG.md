@@ -8,6 +8,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **26.04 user-data network config switched from `match: driver: vmxnet3`
+  to `ens33` by name + `optional: true`.** Ground-truth screenshot from
+  run 26397034336 (the new console-screenshot-on-failure step finally
+  caught a live failing VM) showed subiquity's Network module stuck in
+  an infinite `_send_update: CHANGE ens33` loop — the screen entirely
+  full of `start:`/`finish:` log lines and a kernel warning about
+  `drm_fb_helper_damage_work` hogging CPU from the log volume. The
+  install pipeline ran ~6 min then this loop captured subiquity for the
+  full `ssh_timeout` window. The `match: driver: vmxnet3` form (working
+  fine on 22.04 / 24.04) intermittently triggers the loop on 26.04;
+  naming the interface directly removes the trigger. Same fix in both
+  server-2604 and desktop-2604 user-data templates.
 - **26.04 in `all-linux` / `all` split into two separate matrix jobs.**
   Combining `2604-server` and `2604-desktop` in a single Packer
   invocation poisoned the desktop build: server completed fine, then
