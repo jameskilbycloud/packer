@@ -598,11 +598,21 @@ jobs:
               -var-file=runner.pkrvars.hcl \
               -only="${{ matrix.only }}" \
               -parallel-builds="${{ matrix.parallel }}" \
-              -on-error=cleanup \
+              -on-error=abort \
               -timestamp-ui \
               -force \
               .
             rc=$?
+            # -on-error=abort leaves the failing VM running and intact so the
+            # downstream "Capture console screenshot" step can grab a PNG of
+            # whatever's on screen at the failure point. (With -on-error=cleanup
+            # Packer powers off + destroys the VM the moment it hits the SSH
+            # timeout, ~2 seconds before any subsequent workflow step can race
+            # in.) The existing "Destroy orphaned VM" step cleans up after the
+            # screenshot capture, so we still end with a clean vSphere
+            # inventory. Side effect: between retry attempts the previous
+            # attempt's VM is also left behind, so we destroy any leftover
+            # VM(s) matching this build's name pattern before looping.
 
             if [[ ${rc} -eq 0 ]]; then
               [[ ${attempt} -gt 1 ]] && echo "==> Build succeeded on retry (attempt ${attempt})"
@@ -658,6 +668,40 @@ jobs:
             elif [[ "${transient_match}" == "true" ]]; then
               backoff=$((60 * attempt))
               echo "==> Failure pattern looks transient (matched in the last 200 lines of this attempt). Retrying in ${backoff}s..."
+
+              # -on-error=abort leaves the failed VM behind. We do NOT want
+              # the next attempt to collide on vm_name (build_date is fixed
+              # for the duration of a Packer invocation, so retries share the
+              # name). Destroy any leftover VM(s) matching this build's glob
+              # before sleeping. We intentionally leave VMs behind on the
+              # FINAL attempt — that path falls through to the downstream
+              # screenshot step, which grabs a PNG before "Destroy orphaned
+              # VM" cleans up.
+              vms=$(GOVC_URL='${{ secrets.VSPHERE_SERVER }}' \
+                    GOVC_USERNAME='${{ secrets.VSPHERE_USER }}' \
+                    GOVC_PASSWORD='${{ secrets.VSPHERE_PASSWORD }}' \
+                    GOVC_INSECURE='${{ secrets.VSPHERE_INSECURE || 'false' }}' \
+                    GOVC_DATACENTER='${{ secrets.VSPHERE_DATACENTER }}' \
+                    govc find . -type m -name "${{ matrix.vm_glob }}" 2>/dev/null || true)
+              if [[ -n "${vms}" ]]; then
+                while IFS= read -r vm; do
+                  [[ -z "${vm}" ]] && continue
+                  echo "    Pre-retry cleanup: destroying leftover VM ${vm}"
+                  GOVC_URL='${{ secrets.VSPHERE_SERVER }}' \
+                    GOVC_USERNAME='${{ secrets.VSPHERE_USER }}' \
+                    GOVC_PASSWORD='${{ secrets.VSPHERE_PASSWORD }}' \
+                    GOVC_INSECURE='${{ secrets.VSPHERE_INSECURE || 'false' }}' \
+                    GOVC_DATACENTER='${{ secrets.VSPHERE_DATACENTER }}' \
+                    govc vm.power -off=true -force=true "${vm}" 2>/dev/null || true
+                  GOVC_URL='${{ secrets.VSPHERE_SERVER }}' \
+                    GOVC_USERNAME='${{ secrets.VSPHERE_USER }}' \
+                    GOVC_PASSWORD='${{ secrets.VSPHERE_PASSWORD }}' \
+                    GOVC_INSECURE='${{ secrets.VSPHERE_INSECURE || 'false' }}' \
+                    GOVC_DATACENTER='${{ secrets.VSPHERE_DATACENTER }}' \
+                    govc vm.destroy "${vm}" 2>/dev/null || true
+                done <<< "${vms}"
+              fi
+
               sleep ${backoff}
               attempt=$((attempt + 1))
             else
