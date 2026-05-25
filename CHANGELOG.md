@@ -8,6 +8,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **26.04 in `all-linux` / `all` split into two separate matrix jobs.**
+  Combining `2604-server` and `2604-desktop` in a single Packer
+  invocation poisoned the desktop build: server completed fine, then
+  desktop's install ran ~6 min and went idle (CPU cliff from ~2.4 GHz
+  to 47 MHz, guest memory released from 6 GB to 81 MB, `bootTime`
+  unchanged, hostname stuck at the live-installer default) until
+  `ssh_timeout` exhausted at 3 h. Standalone `2604-desktop` in a fresh
+  Packer process succeeds in ~24 min (verified run 26387407410). Same-
+  process state leak in the vsphere-iso plugin is the suspected
+  mechanism. PR #26 attempted to address the same symptom by going
+  `parallel=1` within the combined entry but kept them in the same
+  Packer process — that didn't fix it. Splitting into two matrix jobs
+  gives each its own runner-side Packer process. PR #26's `parallel=1`
+  exception no longer applies (each split entry is a single-target
+  build) and the matrix comment is cleaned up to reflect the new
+  understanding.
 - 26.04-server: bumped default RAM from 4 GB to 8 GB via the new
   `server_2604_ram_mb` variable. At 4 GB, subiquity's snap-seeding step
   on 26.04 hangs intermittently — the install never reaches the
