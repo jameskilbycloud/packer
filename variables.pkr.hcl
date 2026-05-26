@@ -119,14 +119,8 @@ variable "server_cpu_count" {
 
 variable "server_ram_mb" {
   type        = number
-  description = "RAM in MB for server images (22.04 / 24.04). 26.04 server overrides via server_2604_ram_mb."
+  description = "RAM in MB for server images (all versions)."
   default     = 4096
-}
-
-variable "server_2604_ram_mb" {
-  type        = number
-  description = "RAM in MB for the 26.04 server image. Higher than 22.04 / 24.04 because subiquity's snap-seeding step on 26.04 hangs intermittently at 4 GB — believed to be a memory-pressure deadlock in the headless chroot. 8 GB has reproduced clean builds where 4 GB hangs at 'Waiting for SSH' for the full ssh_timeout window."
-  default     = 8192
 }
 
 variable "server_disk_gb" {

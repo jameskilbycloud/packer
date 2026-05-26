@@ -8,6 +8,38 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **26.04 stripped back to first principles.** A week of layered
+  workarounds (overlay kernel disables, snap-seed bypass, defensive boot
+  command, RAM bump, settle wait, diag poller, three different netplan
+  attempts) all turned out to be solving the wrong problems. The
+  console-screenshot evidence proves the real bug is subiquity 26.04's
+  Network module entering an infinite `_send_update: CHANGE ens33` loop
+  on ~50% of attempts, regardless of autoinstall network configuration.
+  Nothing we can do from autoinstall fixes it.
+  - **Deleted**: `templates/server-2604-user-data.pkrtpl` and
+    `templates/desktop-2604-user-data.pkrtpl` (now use the same shared
+    `server-user-data.pkrtpl` / `desktop-user-data.pkrtpl` as 22.04 /
+    24.04).
+  - **Deleted**: `server_2604_ram_mb` variable. 26.04 server now uses the
+    shared `server_ram_mb` default (4 GB).
+  - **Deleted**: `server_2604_ssh_timeout` / `desktop_2604_ssh_timeout`
+    locals. 26.04 uses the same `ssh_timeout` / `desktop_ssh_timeout` as
+    other versions.
+  - **Reverted**: 26.04 boot command — back to the standard
+    `c<wait2>` / `linux /casper/vmlinuz --- autoinstall ds=nocloud` form
+    used by 22.04 / 24.04. Dropped the double-spacebar, the
+    overlay.metacopy/redirect_dir/index/nfs_export kernel disables, and
+    `boot_keygroup_interval=100ms`.
+  - **Removed from workflow**: 10-minute "settle wait" step
+    (cluster-pressure hypothesis disproved), diagnostic poller step
+    (data didn't help us; screenshots did).
+  - **Removed from workflow**: SSH-timeout no-retry guard. With the
+    90m fail-fast cap, retrying is affordable and probabilistic flake is
+    exactly what retries are for. Both `Timeout waiting for SSH` and
+    `Timeout waiting for IP` now retry once.
+  - **Kept**: matrix split (PR #33 — 26.04 server + desktop are their
+    own jobs, real reliability win), 90m fail-fast (PR #36), screenshot
+    capture (PR #31), `-on-error=abort` for live failing VMs (PR #32).
 - **ssh_timeout reduced from 120–180m to a flat 90m across all sources.**
   A healthy install reaches SSH in 5–15 min; anything still waiting at
   90m is hung (subiquity `_send_update` CHANGE loop, kernel oops in
