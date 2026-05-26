@@ -86,7 +86,7 @@ source "vsphere-iso" "ubuntu-2204-server" {
   boot_wait  = "5s"
   boot_command = [
     "c<wait2>",
-    "linux /casper/vmlinuz --- autoinstall ds=nocloud<enter><wait5>",
+    "linux /casper/vmlinuz ipv6.disable=1 --- autoinstall ds=nocloud<enter><wait5>",
     "initrd /casper/initrd<enter><wait5>",
     "boot<enter><wait30>"
   ]
@@ -182,7 +182,7 @@ source "vsphere-iso" "ubuntu-2204-desktop" {
   boot_wait  = "5s"
   boot_command = [
     "c<wait2>",
-    "linux /casper/vmlinuz --- autoinstall ds=nocloud<enter><wait5>",
+    "linux /casper/vmlinuz ipv6.disable=1 --- autoinstall ds=nocloud<enter><wait5>",
     "initrd /casper/initrd<enter><wait5>",
     "boot<enter><wait30>"
   ]

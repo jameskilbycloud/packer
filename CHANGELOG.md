@@ -6,6 +6,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **26.04 subiquity `_send_update: CHANGE ens33` loop — root cause and
+  upstream-documented fix found.** Added `ipv6.disable=1` to the boot
+  command (positioned before the `---` separator so it applies only to
+  the live installer, not the installed OS). The loop is triggered by
+  IPv6 address-change events firing as netlink CHANGE events;
+  subiquity's network observer processes each one and re-triggers
+  another, looping until `ssh_timeout`. Disabling IPv6 at the kernel
+  level in the live installer removes the event source entirely.
+  Reference: Launchpad question 698383
+  (https://answers.launchpad.net/ubuntu/+source/ubiquity/+question/698383)
+  reports the identical pattern (`_send_update: CHANGE ens<N>` flood)
+  and the same workaround. Applied uniformly to 22.04 / 24.04 / 26.04
+  boot commands for consistency; 22/24 weren't observed hitting the
+  loop in production but the kernel param is harmless on those
+  versions and keeps the boot command identical across versions.
+
 ### Changed
 
 - **26.04 stripped back to first principles.** A week of layered

@@ -84,11 +84,20 @@ source "vsphere-iso" "ubuntu-2604-server" {
   # not address the actual recurring failure mode (subiquity Network module
   # _send_update loop, screenshot-confirmed). They added complexity without
   # adding reliability, so they're gone.
+  #
+  # ipv6.disable=1 (before `---`): documented upstream fix for the
+  # subiquity Network/_send_update CHANGE loop. Each IPv6 address-change
+  # event (link-local on boot, SLAAC from router advertisements) fires a
+  # netlink CHANGE event; subiquity's network observer processes each
+  # one and somehow re-triggers another, looping until ssh_timeout. The
+  # `---` separator scopes ipv6.disable=1 to the LIVE INSTALLER kernel
+  # only — clones boot with normal IPv6 behaviour. See
+  # https://answers.launchpad.net/ubuntu/+source/ubiquity/+question/698383
   boot_order = "disk,cdrom"
   boot_wait  = "5s"
   boot_command = [
     "c<wait2>",
-    "linux /casper/vmlinuz --- autoinstall ds=nocloud<enter><wait5>",
+    "linux /casper/vmlinuz ipv6.disable=1 --- autoinstall ds=nocloud<enter><wait5>",
     "initrd /casper/initrd<enter><wait5>",
     "boot<enter><wait30>"
   ]
@@ -180,7 +189,7 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
   boot_wait  = "5s"
   boot_command = [
     "c<wait2>",
-    "linux /casper/vmlinuz --- autoinstall ds=nocloud<enter><wait5>",
+    "linux /casper/vmlinuz ipv6.disable=1 --- autoinstall ds=nocloud<enter><wait5>",
     "initrd /casper/initrd<enter><wait5>",
     "boot<enter><wait30>"
   ]
