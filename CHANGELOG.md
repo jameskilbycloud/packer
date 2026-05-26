@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **ssh_timeout reduced from 120–180m to a flat 90m across all sources.**
+  A healthy install reaches SSH in 5–15 min; anything still waiting at
+  90m is hung (subiquity `_send_update` CHANGE loop, kernel oops in
+  image-extract, etc.) and will not recover by waiting longer. Burning
+  3h on a known-hung VM blocks the self-hosted runner and delays the
+  diagnostic screenshot. Capping at 90m gets the failure signal back
+  ~2× faster on the recurring 26.04 hang.
+
 ### Fixed
 
 - **26.04 autoinstall `network:` section removed entirely; netplan now
