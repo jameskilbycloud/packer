@@ -40,18 +40,9 @@ source "vsphere-iso" "ubuntu-2604-server" {
   vm_version    = var.vm_hardware_version
 
   # CPU / RAM
-  # 26.04 server uses server_2604_ram_mb (default 8 GB), not the shared
-  # server_ram_mb (default 4 GB). At 4 GB, subiquity's snap-seeding step
-  # hangs intermittently on 26.04 — `Waiting for SSH` stays unsatisfied for
-  # the entire ssh_timeout window because the install never finishes the
-  # post-seed reboot. 8 GB has reproduced clean builds where 4 GB hangs.
-  # Suspected cause: memory-pressure deadlock in subiquity's headless
-  # chroot when D-Bus-using snap postinsts run; the live ISO pre-seeds
-  # more snaps when more memory is available, but the headless chroot
-  # can't satisfy their D-Bus calls.
   CPUs            = 1
   cpu_cores       = var.server_cpu_count
-  RAM             = var.server_2604_ram_mb
+  RAM             = var.server_ram_mb
   RAM_reserve_all = false
 
   # Firmware — EFI without Secure Boot. Secure Boot locks GRUB's edit/command
@@ -75,12 +66,10 @@ source "vsphere-iso" "ubuntu-2604-server" {
   # ISO
   iso_paths = ["[${var.vsphere_iso_datastore}] ${var.ubuntu_2604_iso_path}"]
 
-  # Cloud-init / autoinstall seed — 26.04 uses a forked template with the
-  # un-nested netplan form, snap-seed dir cleanup, and extra firewall unit
-  # masks (see templates/server-2604-user-data.pkrtpl).
+  # Cloud-init / autoinstall seed — same shared template as 22.04 / 24.04.
   cd_content = {
     "meta-data" = ""
-    "user-data" = templatefile("${path.root}/templates/server-2604-user-data.pkrtpl", {
+    "user-data" = templatefile("${path.root}/templates/server-user-data.pkrtpl", {
       vm_hostname               = "ubuntu-2604-server"
       build_username            = var.build_username
       build_password_encrypted  = var.build_password_encrypted
@@ -90,65 +79,29 @@ source "vsphere-iso" "ubuntu-2604-server" {
   }
   cd_label = "cidata"
 
-  # Boot — leading <spacebar> halts the GRUB countdown reliably so a slow
-  # vSphere console doesn't drop into the default menu entry before we send
-  # 'c'. 'c' then opens GRUB's command line where we specify the kernel and
-  # initrd explicitly. This avoids the entry editor (e) whose line count
-  # varies by ISO. Do NOT use <esc> before 'c' — on EFI GRUB, Escape exits
-  # the bootloader entirely.
-  #
-  # overlay.metacopy=off, overlay.redirect_dir=off: workaround for a kernel
-  # oops in ovl_iterate_merged that fires during curtin's image-extract step
-  # (rsync from a squashfs-backed OverlayFS mount, exiting with irqs disabled
-  # → install hangs). Disabling these two OverlayFS features avoids the
-  # buggy code path in 26.04's GA kernel. Live-installer-only — does not
-  # affect the installed OS.
+  # Boot — same as 22.04 / 24.04. The defensive workarounds we tried (double
+  # spacebar, overlay.metacopy/redirect_dir/index/nfs_export disables) did
+  # not address the actual recurring failure mode (subiquity Network module
+  # _send_update loop, screenshot-confirmed). They added complexity without
+  # adding reliability, so they're gone.
   boot_order = "disk,cdrom"
   boot_wait  = "5s"
-  # Slow keystrokes so each one is processed by GRUB before the next
-  # arrives. Default is 100ms but is sent as a tight burst on some
-  # consoles; setting it explicitly here keeps the value stable across
-  # plugin versions.
-  boot_keygroup_interval = "100ms"
   boot_command = [
-    # Double-tap spacebar then settle, to maximise the chance the GRUB
-    # countdown halts on slow ESXi consoles. Without this, a single
-    # spacebar can be missed and the menu boots its default entry
-    # WITHOUT our kernel params — install then hits the OverlayFS race
-    # below for the same reason it did before we added the workaround.
-    "<wait5s><spacebar><wait><spacebar><wait>c<wait5s>",
-    # Extra overlay disables on top of metacopy/redirect_dir: belt-and-
-    # braces against other code paths in ovl_iterate_merged that have
-    # been seen to deadlock on rsync during curtin's image-extract on
-    # 26.04's GA kernel. Harmless if those paths weren't going to fire.
-    "linux /casper/vmlinuz --- autoinstall ds=nocloud overlay.metacopy=off overlay.redirect_dir=off overlay.index=off overlay.nfs_export=off<enter><wait5>",
+    "c<wait2>",
+    "linux /casper/vmlinuz --- autoinstall ds=nocloud<enter><wait5>",
     "initrd /casper/initrd<enter><wait5>",
     "boot<enter><wait30>"
   ]
 
-  # IP settle timeout — kept short so it fires during the live install phase,
-  # not after the reboot. Packer starts SSH retries early (hitting ECONNREFUSED
-  # while early-commands hold port 22 closed), then connects once the installed
-  # OS boots. This works because late-commands copies the live installer's
-  # machine-id into the installed OS, giving it the same DUID as the live
-  # installer → same DHCP lease → same IP after reboot → Packer's retries
-  # succeed.
-  # Ubuntu 26.04's install takes longer than 22.04/24.04 (~30-50 min vs ~10 min)
-  # so a 20m settle timeout would fire post-install on 22.04/24.04 but mid-install
-  # on 26.04. 5m fires consistently during the live phase on all versions.
-  # ip_wait_timeout set explicitly (default is 30m) — long enough to cover the
-  # VM-power-on → VMware Tools-reports-IP window even on a busy cluster.
-  ip_wait_timeout   = "60m"
-  ip_settle_timeout = "5m"
+  # IP settle — same as 22.04 / 24.04. ssh_timeout capped at 90m by locals.
+  ip_settle_timeout = "20m"
 
-  # SSH communicator — 180m covers the full install + reboot + SSH-up window
-  # (ip_settle fires at ~5 min; installed OS SSH is up ~40-60 min later, with
-  # headroom for first-GA security updates pulled in by setup.sh).
+  # SSH communicator
   communicator         = "ssh"
   ssh_username         = var.build_username
   ssh_password         = var.build_password
   ssh_private_key_file = var.build_ssh_private_key_file != "" ? var.build_ssh_private_key_file : null
-  ssh_timeout          = local.server_2604_ssh_timeout
+  ssh_timeout          = local.ssh_timeout
   ssh_port             = 22
 
   # Shutdown
@@ -209,12 +162,10 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
   # ISO
   iso_paths = ["[${var.vsphere_iso_datastore}] ${var.ubuntu_2604_iso_path}"]
 
-  # Cloud-init / autoinstall seed — 26.04 uses a forked template with the
-  # un-nested netplan form, snap-seed dir cleanup, and extra firewall unit
-  # masks (see templates/desktop-2604-user-data.pkrtpl).
+  # Cloud-init / autoinstall seed — same shared template as 22.04 / 24.04.
   cd_content = {
     "meta-data" = ""
-    "user-data" = templatefile("${path.root}/templates/desktop-2604-user-data.pkrtpl", {
+    "user-data" = templatefile("${path.root}/templates/desktop-user-data.pkrtpl", {
       vm_hostname               = "ubuntu-2604-desktop"
       build_username            = var.build_username
       build_password_encrypted  = var.build_password_encrypted
@@ -224,52 +175,17 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
   }
   cd_label = "cidata"
 
-  # Boot — leading <spacebar> halts the GRUB countdown reliably so a slow
-  # vSphere console doesn't drop into the default menu entry before we send
-  # 'c'. 'c' then opens GRUB's command line where we specify the kernel and
-  # initrd explicitly. This avoids the entry editor (e) whose line count
-  # varies by ISO. Do NOT use <esc> before 'c' — on EFI GRUB, Escape exits
-  # the bootloader entirely.
-  #
-  # overlay.metacopy=off, overlay.redirect_dir=off: workaround for a kernel
-  # oops in ovl_iterate_merged that fires during curtin's image-extract step
-  # (rsync from a squashfs-backed OverlayFS mount, exiting with irqs disabled
-  # → install hangs). Disabling these two OverlayFS features avoids the
-  # buggy code path in 26.04's GA kernel. Live-installer-only — does not
-  # affect the installed OS.
+  # Boot — same as 22.04 / 24.04. See server source comment above.
   boot_order = "disk,cdrom"
   boot_wait  = "5s"
-  # Slow keystrokes so each one is processed by GRUB before the next
-  # arrives. Default is 100ms but is sent as a tight burst on some
-  # consoles; setting it explicitly here keeps the value stable across
-  # plugin versions.
-  boot_keygroup_interval = "100ms"
   boot_command = [
-    # Double-tap spacebar then settle, to maximise the chance the GRUB
-    # countdown halts on slow ESXi consoles. Without this, a single
-    # spacebar can be missed and the menu boots its default entry
-    # WITHOUT our kernel params — install then hits the OverlayFS race
-    # below for the same reason it did before we added the workaround.
-    "<wait5s><spacebar><wait><spacebar><wait>c<wait5s>",
-    # Extra overlay disables on top of metacopy/redirect_dir: belt-and-
-    # braces against other code paths in ovl_iterate_merged that have
-    # been seen to deadlock on rsync during curtin's image-extract on
-    # 26.04's GA kernel. Harmless if those paths weren't going to fire.
-    "linux /casper/vmlinuz --- autoinstall ds=nocloud overlay.metacopy=off overlay.redirect_dir=off overlay.index=off overlay.nfs_export=off<enter><wait5>",
+    "c<wait2>",
+    "linux /casper/vmlinuz --- autoinstall ds=nocloud<enter><wait5>",
     "initrd /casper/initrd<enter><wait5>",
     "boot<enter><wait30>"
   ]
 
-  # The Ubuntu live installer ISO includes open-vm-tools, so VMware Tools
-  # reports an IP within ~40s of boot (the live installer's IP, not the
-  # installed OS). ip_settle_timeout is therefore kept short — Packer starts
-  # SSH retries early, hits connection refused while the installer runs
-  # (early-commands stopped SSH), then connects once the installed OS boots
-  # on the same IP. Ubuntu 26.04 desktop builds take longer than 24.04 due to
-  # the larger package set and snap-related first boot work, so extend the
-  # wait window for the post-install SSH phase.
-  # ip_wait_timeout must remain > ip_settle_timeout.
-  ip_wait_timeout   = "180m"
+  # IP settle — same as 22.04 / 24.04 desktop. ssh_timeout capped at 90m.
   ip_settle_timeout = "10m"
 
   # SSH communicator
@@ -277,7 +193,7 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
   ssh_username         = var.build_username
   ssh_password         = var.build_password
   ssh_private_key_file = var.build_ssh_private_key_file != "" ? var.build_ssh_private_key_file : null
-  ssh_timeout          = local.desktop_2604_ssh_timeout
+  ssh_timeout          = local.desktop_ssh_timeout
   ssh_port             = 22
 
   # Shutdown

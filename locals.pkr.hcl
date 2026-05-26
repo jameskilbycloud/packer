@@ -14,9 +14,7 @@ locals {
   # and let the screenshot step + retry decision logic act sooner.
   # Note: ssh_timeout counts from when Packer first starts attempting connections
   # (after ip_settle_timeout completes), not from build start.
-  ssh_timeout              = "90m"
-  desktop_ssh_timeout      = "90m"
-  server_2604_ssh_timeout  = "90m"
-  desktop_2604_ssh_timeout = "90m"
+  ssh_timeout         = "90m"
+  desktop_ssh_timeout = "90m"
 
 }

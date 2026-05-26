@@ -495,71 +495,6 @@ jobs:
         id: build-start
         run: echo "start_epoch=$(date -u +%s)" >> "$GITHUB_OUTPUT"
 
-      # ── Diagnostic: 10-min settle for 26.04 in multi-entry runs ─────────────
-      # Hypothesis under test: 26.04 hangs in subiquity AFTER prior 22.04/24.04
-      # builds have stressed the cluster (DRS, snapshot cleanup, datastore I/O).
-      # Standalone 2604-server succeeds; all-linux 2604 hangs at the SSH wait.
-      # If a 10-min cluster-settle window makes 26.04 succeed in multi-entry
-      # runs, the hypothesis is confirmed and we can address it permanently
-      # (split matrix entries, longer scheduled gap, etc.). If the hang still
-      # happens with the wait, the cause is elsewhere.
-      #
-      # Scoped to 2604 in multi-version triggers only. Standalone runs of
-      # 2604-server / 2604-desktop skip this so we keep their fast feedback
-      # path and so we can compare with/without prior matrix entries.
-      - name: Settle wait (diagnostic, 26.04 multi-entry only)
-        if: |
-          needs.resolve-targets.outputs.dry_run == 'false' &&
-          matrix.version == '2604' && (
-            github.event.inputs.build_target == 'all' ||
-            github.event.inputs.build_target == 'all-linux' ||
-            github.event.inputs.build_target == 'all-servers' ||
-            github.event.inputs.build_target == 'all-desktops' ||
-            github.event_name == 'schedule'
-          )
-        run: |
-          echo "Sleeping 10 minutes so the cluster has time to settle after"
-          echo "prior matrix entries (testing the cluster-state hypothesis)."
-          sleep 600
-          echo "Resumed."
-
-      # ── Diagnostic: background vSphere poller during packer build ───────────
-      # Hits `govc vm.info -json` against any in-flight build VM every 60s,
-      # writes timestamped snapshots to diag-<label>/. Survives across
-      # successful and failed builds. The artefact gives minute-by-minute
-      # forensics (power state, guest IP, VMware Tools, CPU/mem) when
-      # something hangs at "Waiting for SSH".
-      - name: Start diagnostic poller (background)
-        if: needs.resolve-targets.outputs.dry_run == 'false'
-        env:
-          GOVC_URL:        ${{ secrets.VSPHERE_SERVER }}
-          GOVC_USERNAME:   ${{ secrets.VSPHERE_USER }}
-          GOVC_PASSWORD:   ${{ secrets.VSPHERE_PASSWORD }}
-          GOVC_INSECURE:   ${{ secrets.VSPHERE_INSECURE || 'false' }}
-          GOVC_DATACENTER: ${{ secrets.VSPHERE_DATACENTER }}
-          NAME_PATTERN:    ${{ matrix.vm_glob }}
-          DIAG_DIR:        diag-${{ matrix.label }}
-        run: |
-          mkdir -p "${DIAG_DIR}"
-          # Snapshot per minute. `vm.info -json` is cheap and read-only.
-          # 4 hours of polling × 1/min × ~2 KB JSON = ~480 KB artefact at most.
-          nohup bash -c '
-            while true; do
-              ts=$(date -u +%Y%m%dT%H%M%SZ)
-              vms=$(govc find . -type m -name "'"${NAME_PATTERN}"'" 2>/dev/null || true)
-              if [[ -n "${vms}" ]]; then
-                while IFS= read -r vm; do
-                  [[ -z "${vm}" ]] && continue
-                  safe=$(echo "${vm}" | sed "s|/|_|g; s|^_||")
-                  govc vm.info -json "${vm}" > "'"${DIAG_DIR}"'/${ts}_${safe}.json" 2>/dev/null || true
-                done <<< "${vms}"
-              fi
-              sleep 60
-            done
-          ' > "${DIAG_DIR}/poller.log" 2>&1 &
-          echo $! > diag-poller.pid
-          echo "Started diagnostic poller (PID $(cat diag-poller.pid)), writing to ${DIAG_DIR}/"
-
       # ── Build ────────────────────────────────────────────────────────────────
       # `-parallel-builds` controls how many sources Packer builds simultaneously
       # within this single Packer process. For combined "all" runs it's 2 (server
@@ -641,23 +576,23 @@ jobs:
             log_size_after=$(stat -c%s "${PACKER_LOG_PATH}" 2>/dev/null || echo 0)
             attempt_bytes=$((log_size_after - log_size_before))
 
-            # Anti-pattern guard: certain failure modes mean we already
-            # waited the full configured budget. Retrying just gambles
-            # another full budget, with the same root cause unaddressed.
-            # Match these BEFORE the transient grep so they always
-            # fail-fast even if other transient phrases also appear in
-            # the log tail.
-            no_retry_match=false
+            # SSH-timeout retry IS allowed now (with the 90m fail-fast cap,
+            # one retry is affordable and we know the 26.04 subiquity Network
+            # observer loop is probabilistic — a fresh attempt has a ~50%
+            # chance of succeeding cleanly). The old anti-pattern guard that
+            # blocked retry on "Timeout waiting for SSH" was added when
+            # ssh_timeout was 180m, before we understood the bug was random.
+            ssh_timeout_match=false
             if [[ ${attempt_bytes} -gt 0 ]]; then
               if tail -c "${attempt_bytes}" "${PACKER_LOG_PATH}" 2>/dev/null \
                 | tail -200 \
-                | grep -qE 'Timeout waiting for SSH|errored after [0-9]+ hour[s]? .*: Timeout|Timeout waiting for IP|Timeout waiting for WinRM'; then
-                no_retry_match=true
+                | grep -qE 'Timeout waiting for SSH|Timeout waiting for IP'; then
+                ssh_timeout_match=true
               fi
             fi
 
             transient_match=false
-            if [[ "${no_retry_match}" != "true" && ${attempt_bytes} -gt 0 ]]; then
+            if [[ ${attempt_bytes} -gt 0 ]]; then
               if tail -c "${attempt_bytes}" "${PACKER_LOG_PATH}" 2>/dev/null \
                 | tail -200 \
                 | grep -qiE 'connection refused|i/o timeout|tls handshake|no route to host|temporary failure|service unavailable|context deadline exceeded|cannot connect|dial tcp|server closed|unexpected EOF|connection reset'; then
@@ -665,12 +600,7 @@ jobs:
               fi
             fi
 
-            if [[ "${no_retry_match}" == "true" ]]; then
-              echo "==> Failure was a timeout-of-the-full-budget (e.g. ssh_timeout exhausted)."
-              echo "==> Not retrying — root cause didn't change between attempt N and N+1,"
-              echo "    and a retry would just wait the whole budget over again."
-              exit "${rc}"
-            elif [[ "${transient_match}" == "true" ]]; then
+            if [[ "${ssh_timeout_match}" == "true" || "${transient_match}" == "true" ]]; then
               backoff=$((60 * attempt))
               echo "==> Failure pattern looks transient (matched in the last 200 lines of this attempt). Retrying in ${backoff}s..."
 
@@ -716,31 +646,6 @@ jobs:
               exit "${rc}"
             fi
           done
-
-      # ── Stop the diagnostic poller (paired with the start step above) ───────
-      - name: Stop diagnostic poller
-        if: always()
-        run: |
-          if [[ -f diag-poller.pid ]]; then
-            pid=$(cat diag-poller.pid)
-            kill "${pid}" 2>/dev/null || true
-            # Give the loop a tick to exit so the last snapshot finishes.
-            sleep 2
-            rm -f diag-poller.pid
-            echo "Stopped diagnostic poller (was PID ${pid})"
-          else
-            echo "No poller PID file — nothing to stop."
-          fi
-
-      # ── Upload diagnostic captures (vSphere VM info per minute) ─────────────
-      - name: Upload diagnostic captures
-        if: always() && needs.resolve-targets.outputs.dry_run == 'false'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: diag-${{ matrix.label }}-${{ github.run_number }}
-          path: diag-${{ matrix.label }}/
-          retention-days: 7
-          if-no-files-found: ignore
 
       # ── Capture console screenshot of failing VM(s) ─────────────────────────
       # Runs BEFORE "Destroy orphaned VM" so the failing VM is still alive to
