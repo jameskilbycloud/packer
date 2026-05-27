@@ -567,6 +567,59 @@ By default the workflows target any runner registered with the default `self-hos
 
 If `RUNNER_LABEL` is not set, the workflows fall back to `self-hosted`.
 
+### Required permissions
+
+Two sets of permissions need to be in place before the workflows can run end-to-end: the vCenter account used by Packer and govc, and the GitHub Actions token used by the workflows themselves.
+
+#### vSphere
+
+Create a dedicated vCenter Single Sign-On user (e.g. `packer@vsphere.local`) and assign it a custom role with the privileges below. Granting `Administrator` works but is far broader than needed; the minimum set is published in HashiCorp's [vsphere-iso builder docs](https://developer.hashicorp.com/packer/integrations/hashicorp/vsphere/latest/components/builder/vsphere-iso#required-vsphere-privileges) — the groupings below summarise what each workflow needs.
+
+**Used by `build-templates.yml` (Packer `vsphere-iso` builder):**
+
+| Privilege group | Privileges |
+|---|---|
+| Datastore | Allocate space, Browse datastore, Low level file operations, Remove file, Update virtual machine files, Update virtual machine metadata |
+| Network | Assign network |
+| Resource | Assign virtual machine to resource pool |
+| Virtual machine → Inventory | Create new, Create from existing, Remove, Register |
+| Virtual machine → Configuration | Add new disk, Add or remove device, Advanced configuration, Change CPU count, Change memory, Change settings, Modify device settings, Remove disk, Set annotation, Toggle disk change tracking |
+| Virtual machine → Interaction | Power on, Power off, Reset, Console interaction, Install VMware Tools |
+| Virtual machine → Provisioning | Mark as template, Mark as virtual machine, Customize, Deploy template, Read customization specifications |
+| Virtual machine → Snapshot management | Create snapshot, Remove snapshot |
+| vApp | Import, View OVF environment, vApp instance configuration |
+| Content Library | Read storage, Add library item, Update library item _(only if templates publish to a library)_ |
+| Host → Local operations | Reconfigure virtual machine _(only when targeting an ESXi host directly via `VSPHERE_HOST`)_ |
+
+**Used by `upload-isos.yml` (govc → Content Library):**
+
+| Privilege group | Privileges |
+|---|---|
+| Datastore | Browse datastore, Allocate space, Low level file operations _(on the datastore backing the Content Library)_ |
+| Content Library | Create local library, Add library item, Update library, Update library item, Read storage, Delete library item _(optional, only needed to replace an ISO)_ |
+
+> **Tip:** assign the role at the Datacenter (or Cluster) level with **Propagate to children** enabled, and at the Content Library level separately. Avoid scoping it only at a folder — Packer needs visibility on the resource pool, datastore, and network objects, and a folder-level grant misses those.
+
+#### GitHub Actions
+
+Three of the workflows (`build-templates`, `upload-isos`, `pre-commit`, `validate`) only need read access and the default `GITHUB_TOKEN` is enough. The new `check-iso-updates` workflow needs to push a branch, open a PR, and dispatch `upload-isos.yml` — so two repository-level toggles must be enabled:
+
+**Settings → Actions → General → Workflow permissions:**
+
+1. Set **Workflow permissions** to **Read and write permissions** _(or leave it on "Read repository contents and packages permissions" — each workflow's own `permissions:` block grants what it needs, but the org/repo default must allow it)_.
+2. Tick **Allow GitHub Actions to create and approve pull requests**. Without this, `gh pr create` fails with `GraphQL: GitHub Actions is not permitted to create or approve pull requests`.
+
+The workflow-level `permissions:` block in [`.github/workflows/check-iso-updates.yml`](.github/workflows/check-iso-updates.yml) requests exactly what it uses:
+
+```yaml
+permissions:
+  contents: write        # push the iso-bump-YYYYMMDD branch
+  pull-requests: write   # open the bump PR
+  actions: write         # dispatch upload-isos.yml against the new branch
+```
+
+If your repository lives under an organisation, the same two toggles also exist at **Organization → Settings → Actions → General** and the org-level setting wins. Enable them there if a per-repo change has no effect.
+
 ### GitHub Secrets
 
 The easiest way to populate secrets is with the included sync script, which reads your local `variables.pkrvars.hcl` and pushes every value to GitHub in one step:
@@ -771,6 +824,38 @@ workflow_dispatch inputs:
   keep_downloads   → false | true
   skip_checksum    → false | true
 ```
+
+### Workflow: check-iso-updates
+
+**File:** `.github/workflows/check-iso-updates.yml`
+
+**Triggers:**
+
+- **Schedule** — every Monday at 06:00 UTC, picking up Ubuntu point releases (`22.04.X`, `24.04.X`, `26.04.X`) within a week of release.
+- **Manual** (`workflow_dispatch`) — run on demand from the Actions UI.
+
+**Runner:** `ubuntu-latest` (GitHub-hosted). The detection is a single `curl` per version against `https://releases.ubuntu.com/<v>/SHA256SUMS`; no vSphere or runner contact is needed.
+
+**What it does:**
+
+1. Runs `scripts/check-iso-updates.sh` in detect-only mode and compares the live-server ISO filename hardcoded in `scripts/upload-isos.sh` against the latest filename in the upstream SHA256SUMS.
+2. If any version has drifted **and** no `iso-bump-*` PR is already open:
+   - Re-runs the script with `--apply`, which uses `git grep -l` + `perl -i` to rewrite every reference to the old filename across tracked files (Packer variables, upload script, build workflow ISO map, README).
+   - Pushes an `iso-bump-YYYYMMDD` branch and opens a PR with a summary table of current vs latest.
+   - Dispatches `upload-isos.yml` against the new branch (`gh workflow run --ref <branch>`) so the new ISO is pushed into the Content Library before the PR is merged. Running against the branch (not `main`) is critical — the filename map only exists in its updated form on the branch.
+3. If everything is up to date, the workflow exits early with a single log line.
+
+Local equivalent:
+
+```bash
+# Detect drift
+make check-iso-updates
+
+# Apply (rewrite filenames across the repo)
+APPLY=1 make check-iso-updates
+```
+
+The single source of truth for the "current" filename is the `ISO_FILENAME` map in `scripts/upload-isos.sh` — the script reads from there to avoid maintaining a duplicate list.
 
 ### Concurrency
 

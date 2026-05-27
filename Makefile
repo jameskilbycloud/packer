@@ -3,8 +3,10 @@
 # =============================================================================
 #
 # PRIMARY WORKFLOW — everything runs in GitHub Actions:
-#   make secrets       — push variables.pkrvars.hcl values to GitHub secrets
-#                        (one-time setup, then trigger builds from Actions UI)
+#   make secrets             — push variables.pkrvars.hcl values to GitHub secrets
+#                              (one-time setup, then trigger builds from Actions UI)
+#   make check-iso-updates   — locally preview upstream Ubuntu ISO drift
+#                              (pass APPLY=1 to rewrite filenames across the repo)
 #
 # LOCAL DEVELOPER TARGETS — require Packer + vSphere access on this machine:
 #   make init          — download the vsphere plugin
@@ -31,7 +33,7 @@ VARS_FILE   := variables.pkrvars.hcl
 PACKER_ARGS := -var-file=$(VARS_FILE) -on-error=cleanup
 
 .PHONY: init validate fmt \
-        secrets upload-isos \
+        secrets upload-isos check-iso-updates \
         build-all \
         2204 2204-server 2204-desktop \
         2404 2404-server 2404-desktop \
@@ -53,6 +55,20 @@ PACKER_ARGS := -var-file=$(VARS_FILE) -on-error=cleanup
 
 upload-isos:
 	bash scripts/upload-isos.sh
+
+# ── ISO update check ──────────────────────────────────────────────────────────
+# Detect-only by default; pass APPLY=1 to rewrite filenames across the repo.
+#
+# Examples:
+#   make check-iso-updates
+#   APPLY=1 make check-iso-updates
+
+check-iso-updates:
+	@if [ "$(APPLY)" = "1" ]; then \
+	  bash scripts/check-iso-updates.sh --apply; \
+	else \
+	  bash scripts/check-iso-updates.sh; \
+	fi
 
 # ── GitHub Secrets ────────────────────────────────────────────────────────────
 # Reads variables.pkrvars.hcl and pushes all values to GitHub Actions secrets.
