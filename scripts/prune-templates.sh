@@ -60,26 +60,45 @@ fi
 _is_tpl='import sys,json;vms=(json.load(sys.stdin) or {}).get("VirtualMachines",[]);print("true" if vms and vms[0].get("Config",{}).get("Template",False) else "false")'
 
 declare -A by_group
+# Sentinel: ${#by_group[@]} on an empty associative array trips `set -u`'s
+# unbound-variable check on bash <4.4 and some 5.x patch levels — and we
+# expect by_group to be empty when every match is a WIP VM. Track via an
+# explicit counter instead.
+have_groups=0
+groups_order=()
+
 while IFS= read -r vm_path; do
   [[ -z "${vm_path}" ]] && continue
-  is_template=$(govc vm.info -json "${vm_path}" 2>/dev/null \
-    | python3 -c "${_is_tpl}" 2>/dev/null || echo "false")
+  info=$(govc vm.info -json "${vm_path}" 2>/dev/null || true)
+  is_template=$(printf '%s' "${info}" | python3 -c "${_is_tpl}" 2>/dev/null || echo "false")
   if [[ "${is_template}" != "true" ]]; then
-    echo "  skip (not a template): ${vm_path}"
+    # Distinguish "vm.info returned no data" from "really not a template" so
+    # an inspector can tell whether the path actually resolved.
+    if [[ -z "${info}" ]]; then
+      echo "  skip (vm.info returned nothing — path may not resolve): ${vm_path}"
+    else
+      echo "  skip (not a template): ${vm_path}"
+    fi
     continue
   fi
   name="${vm_path##*/}"
   group="${name%-*}"          # strip trailing -YYYYMMDD
+  if [[ -z "${by_group[$group]+x}" ]]; then
+    groups_order+=("$group")
+  fi
   by_group[$group]+="${vm_path}"$'\n'
+  have_groups=1
 done <<< "${matches}"
 
-if [[ ${#by_group[@]} -eq 0 ]]; then
-  echo "No templates found (only WIP VMs) — nothing to prune."
+if [[ ${have_groups} -eq 0 ]]; then
+  echo ""
+  echo "No templates found among matched items — nothing to prune."
+  echo "(All matches were either WIP VMs or could not be inspected.)"
   exit 0
 fi
 
 destroyed=0
-for group in "${!by_group[@]}"; do
+for group in "${groups_order[@]}"; do
   echo ""
   echo "=== Group: ${group} ==="
   # Sort by full path desc; YYYYMMDD suffix is zero-padded so lex desc == newest-first.
