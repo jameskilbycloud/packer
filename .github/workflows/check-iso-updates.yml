@@ -28,7 +28,7 @@ concurrency:
 jobs:
   check:
     name: Detect new ISO point releases
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
     timeout-minutes: 15
     outputs:
       drift:           ${{ steps.detect.outputs.drift }}
@@ -154,7 +154,7 @@ jobs:
     name: Trigger upload-isos against PR branch
     needs: check
     if: needs.check.outputs.drift == 'true' && needs.check.outputs.existing_pr == ''
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
     timeout-minutes: 5
     steps:
       - name: Dispatch upload-isos workflow

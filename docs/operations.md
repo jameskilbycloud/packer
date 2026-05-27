@@ -16,7 +16,7 @@ Settings → Runners → register
                                    PR opened
                                    └─► validate.yml + pre-commit.yml
                                        fmt check + packer validate + hooks
-                                       (ubuntu-latest, no secrets needed)
+                                       (self-hosted, no secrets needed)
 
                                    Sundays 02:00 UTC / manual dispatch
                                    └─► build-templates.yml
@@ -33,7 +33,7 @@ Actions → Upload ISOs           ─► upload-isos.yml
                                    └─► check-iso-updates.yml
                                        SHA256SUMS diff → bump PR + dispatch
                                        upload against the bump branch
-                                       (ubuntu-latest)
+                                       (self-hosted)
 
                                    1st of month 03:00 UTC
                                    └─► rotate-templates.yml
@@ -66,15 +66,23 @@ sudo ./svc.sh install
 sudo ./svc.sh start
 ```
 
-4. **Pre-install the workflow dependencies as root**, one time, so the runner user does *not* need sudo for normal operation. The workflow steps `Install Packer`, `Install xorriso`, and `Install govc` all check `command -v` first and skip the install if the tool is already on PATH.
+4. **Pre-install the workflow dependencies as root**, one time, so the runner user does *not* need sudo for normal operation. The workflow steps `Install Packer`, `Install xorriso`, and `Install govc` all check `command -v` first and skip the install if the tool is already on PATH. `gh` is also required (used by `check-iso-updates` to open the bump PR and dispatch the upload).
 
    ```bash
    # As root (or via interactive sudo, one-time)
-   apt-get update && apt-get install -y xorriso curl python3
+   apt-get update && apt-get install -y xorriso curl python3 git perl unzip openssh-client
+   # gh CLI (used by check-iso-updates to open the bump PR + dispatch upload)
+   curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+     | gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg
+   echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+     | tee /etc/apt/sources.list.d/github-cli.list
+   apt-get update && apt-get install -y gh
+   # Packer
    PACKER_VERSION=$(curl -fsSL https://api.releases.hashicorp.com/v1/releases/packer/latest \
      | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
    curl -fsSL "https://releases.hashicorp.com/packer/${PACKER_VERSION}/packer_${PACKER_VERSION}_linux_amd64.zip" \
      -o /tmp/packer.zip && (cd /usr/local/bin && unzip -o /tmp/packer.zip) && rm /tmp/packer.zip
+   # govc
    GOVC_VERSION=$(curl -fsSL https://api.github.com/repos/vmware/govmomi/releases/latest \
      | grep '"tag_name"' | cut -d'"' -f4)
    curl -fsSL "https://github.com/vmware/govmomi/releases/download/${GOVC_VERSION}/govc_Linux_x86_64.tar.gz" \
@@ -191,7 +199,7 @@ Add each secret via **Settings → Secrets and variables → Actions → New rep
 
 **Triggers:** Every pull request that touches `.pkr.hcl` files, templates, or provisioner scripts. Also runs on push to `main` and can be triggered manually.
 
-**Runner:** `ubuntu-latest` — this is a GitHub-hosted runner. No self-hosted runner or real secrets are needed because `packer validate` checks syntax and variable references only; it never contacts vSphere. Placeholder values are passed for required variables.
+**Runner:** the same self-hosted runner the rest of the pipeline uses. No real secrets are needed — `packer validate` checks syntax and variable references only and never contacts vSphere — but running it on the same runner keeps the "everything against the runner you control" model intact. Placeholder values are passed for required variables.
 
 **What it does:**
 
@@ -379,7 +387,7 @@ workflow_dispatch inputs:
 - **Schedule** — every Monday at 06:00 UTC, picking up Ubuntu point releases (`22.04.X`, `24.04.X`, `26.04.X`) within a week of release.
 - **Manual** (`workflow_dispatch`) — run on demand from the Actions UI.
 
-**Runner:** `ubuntu-latest` (GitHub-hosted). The detection is a single `curl` per version against `https://releases.ubuntu.com/<v>/SHA256SUMS`; no vSphere or runner contact is needed.
+**Runner:** the same self-hosted runner. The detection is a single `curl` per version against `https://releases.ubuntu.com/<v>/SHA256SUMS`; no vSphere contact is needed, but running it on the self-hosted runner keeps the workflow inside your network boundary.
 
 **What it does:**
 

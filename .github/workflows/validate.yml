@@ -2,9 +2,11 @@ name: Validate
 
 # ── Triggers ──────────────────────────────────────────────────────────────────
 # Runs on every PR that touches Packer files, and on direct pushes to main.
-# Uses ubuntu-latest (GitHub-hosted) — no self-hosted runner or real secrets
-# needed. packer validate checks syntax and variable references only; it never
-# contacts vSphere.
+# Runs on the same self-hosted runner as the rest of the pipeline (no real
+# secrets needed — `packer validate` checks syntax and variable references only
+# and never contacts vSphere). Keeping every workflow on the same runner
+# matches the "everything driven from GitHub against a runner you control"
+# operating model.
 on:
   pull_request:
     branches:
@@ -37,16 +39,23 @@ concurrency:
 jobs:
   validate:
     name: Packer fmt & validate
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
     timeout-minutes: 10
 
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      # ── Install Packer ───────────────────────────────────────────────────────
+      # ── Install Packer (idempotent) ──────────────────────────────────────────
+      # On a runner pre-provisioned per docs/operations.md the binary is
+      # already on PATH and this step is a no-op. The fallback install needs
+      # sudo, so prefer the pre-install path documented for the runner.
       - name: Install Packer
         run: |
+          if command -v packer &>/dev/null; then
+            echo "Packer already installed: $(packer version)"
+            exit 0
+          fi
           # Install via direct binary download — avoids APT codename mismatches
           # (e.g. pre-release Ubuntu codenames not yet in HashiCorp's repo)
           PACKER_VERSION=$(curl -fsSL https://api.releases.hashicorp.com/v1/releases/packer/latest \

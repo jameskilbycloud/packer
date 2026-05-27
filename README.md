@@ -79,10 +79,10 @@ packer/
 ├── manifests/                      # Build manifests written here after each run
 │
 └── .github/workflows/
-    ├── validate.yml                # PR fmt + packer validate (ubuntu-latest)
-    ├── pre-commit.yml              # Pre-commit hooks (ubuntu-latest)
-    ├── build-templates.yml         # Packer build + post-publish smoke + prune (self-hosted)
-    ├── upload-isos.yml             # ISO uploads, manual + auto-dispatched (self-hosted)
+    ├── validate.yml                # PR fmt + packer validate
+    ├── pre-commit.yml              # Pre-commit hooks (gitleaks, yamllint, shellcheck, …)
+    ├── build-templates.yml         # Packer build + post-publish smoke + prune
+    ├── upload-isos.yml             # ISO uploads, manual + auto-dispatched
     ├── check-iso-updates.yml       # Mon 06:00 UTC: bump PR + auto-upload on drift
     └── rotate-templates.yml        # 1st of month 03:00 UTC: prune all groups
 ```
@@ -97,10 +97,12 @@ Every step happens in the GitHub web UI, your vCenter, or a single self-hosted r
 
 ### Prerequisites (one-time, outside GitHub)
 
-Two things must exist before GitHub can drive the pipeline:
+Four things must exist before GitHub can drive the pipeline:
 
-1. **A dedicated vCenter SSO user** (e.g. `packer@vsphere.local`) with the privileges listed in [docs/operations.md → vSphere](docs/operations.md#vsphere). `Administrator` works for first-time setup; the minimum role is more restrictive.
-2. **A small Ubuntu VM inside your vSphere network** that will host the GitHub self-hosted runner. The runner dials *out* to GitHub on port 443 — no inbound firewall rules needed.
+1. **A dedicated vCenter SSO user** (e.g. `packer@vsphere.local`) with the privileges listed in [docs/operations.md → vSphere](docs/operations.md#vsphere). `Administrator` works for first-time setup; the minimum role is more restrictive. Grant the role at the Datacenter (or Cluster) level with **Propagate to children**, and separately at the Content Library that will hold the ISOs.
+2. **A small Ubuntu VM inside your vSphere network** to host the GitHub self-hosted runner (~2 vCPU / 4 GB RAM / 20 GB disk). The runner dials *out* — no inbound firewall rules needed — but it does need outbound 443 to `github.com` + `*.actions.githubusercontent.com`, outbound 443 to your vCenter, and outbound 22 to the VM network so Packer can SSH into builds and the smoke test can SSH into clones. `curl`, `git`, `python3`, and `perl` should be on PATH (default on Ubuntu Server).
+3. **DHCP on the target VM network.** Packer-built VMs come up via DHCP — the autoinstall config doesn't pin static IPs. The smoke test also relies on the cloned VM getting a DHCP lease so VMware Tools can report an IP back. If you only have static addressing available, switch to a network with DHCP for builds (templates clone fine onto static-IP networks afterwards).
+4. **Admin access to the GitHub repo where the pipeline runs.** You need Settings access to add secrets, register the runner, toggle workflow permissions, and trigger workflow dispatches. A user account with the **Maintain** role is enough; **Admin** is needed for Org-level runner registration.
 
 ### 1. Fork the repo
 

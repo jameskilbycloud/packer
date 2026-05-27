@@ -28,7 +28,7 @@ concurrency:
 jobs:
   pre-commit:
     name: Run pre-commit hooks
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
     timeout-minutes: 10
 
     steps:
@@ -40,11 +40,17 @@ jobs:
           # diff range unresolvable.
           fetch-depth: 0
 
-      # ── Install Packer ───────────────────────────────────────────────────────
-      # The packer-fmt hook is a local hook that shells out to `packer`,
-      # so we need it on PATH. Mirrors the install used by validate.yml.
+      # ── Install Packer (idempotent) ──────────────────────────────────────────
+      # The packer-fmt hook is a local hook that shells out to `packer`, so it
+      # needs to be on PATH. On a runner pre-provisioned per
+      # docs/operations.md the binary is already there and this step is a
+      # no-op. The fallback install needs sudo.
       - name: Install Packer
         run: |
+          if command -v packer &>/dev/null; then
+            echo "Packer already installed: $(packer version)"
+            exit 0
+          fi
           PACKER_VERSION=$(curl -fsSL https://api.releases.hashicorp.com/v1/releases/packer/latest \
             | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
           ARCH=$(dpkg --print-architecture)
