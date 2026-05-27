@@ -49,36 +49,32 @@ echo "Pattern: ${NAME_PATTERN}"
 [[ "${DRY_RUN}" == "true" ]] && echo "*** DRY RUN — no templates will be destroyed ***"
 echo ""
 
+# Find every VM matching the name pattern, then check the `config.template`
+# property of each via `govc object.collect -s`, which returns a single line
+# of plain text ("true" / "false"). We avoid `govc vm.info -json` because its
+# JSON shape has changed across govc versions and silently mis-classified
+# valid templates as non-templates.
 matches=$(govc find . -type m -name "${NAME_PATTERN}" 2>/dev/null || true)
 if [[ -z "${matches}" ]]; then
   echo "No items matching '${NAME_PATTERN}' — nothing to prune."
   exit 0
 fi
 
-# Filter to actual templates; in-flight VMs from a concurrent run must not
-# be touched.
-_is_tpl='import sys,json;vms=(json.load(sys.stdin) or {}).get("VirtualMachines",[]);print("true" if vms and vms[0].get("Config",{}).get("Template",False) else "false")'
-
 declare -A by_group
 # Sentinel: ${#by_group[@]} on an empty associative array trips `set -u`'s
-# unbound-variable check on bash <4.4 and some 5.x patch levels — and we
-# expect by_group to be empty when every match is a WIP VM. Track via an
-# explicit counter instead.
+# unbound-variable check on bash <4.4 and some 5.x patch levels.
 have_groups=0
 groups_order=()
+non_template_count=0
 
 while IFS= read -r vm_path; do
   [[ -z "${vm_path}" ]] && continue
-  info=$(govc vm.info -json "${vm_path}" 2>/dev/null || true)
-  is_template=$(printf '%s' "${info}" | python3 -c "${_is_tpl}" 2>/dev/null || echo "false")
+  is_template=$(govc object.collect -s "${vm_path}" config.template 2>/dev/null || echo "")
   if [[ "${is_template}" != "true" ]]; then
-    # Distinguish "vm.info returned no data" from "really not a template" so
-    # an inspector can tell whether the path actually resolved.
-    if [[ -z "${info}" ]]; then
-      echo "  skip (vm.info returned nothing — path may not resolve): ${vm_path}"
-    else
-      echo "  skip (not a template): ${vm_path}"
-    fi
+    # Could be in-flight build or orphan from a failed convert step — leave
+    # untouched. Track separately so a clean dry-run shows the right summary.
+    echo "  skip (not a template, config.template=${is_template:-unknown}): ${vm_path}"
+    non_template_count=$((non_template_count + 1))
     continue
   fi
   name="${vm_path##*/}"
@@ -93,7 +89,10 @@ done <<< "${matches}"
 if [[ ${have_groups} -eq 0 ]]; then
   echo ""
   echo "No templates found among matched items — nothing to prune."
-  echo "(All matches were either WIP VMs or could not be inspected.)"
+  if [[ ${non_template_count} -gt 0 ]]; then
+    echo "(All ${non_template_count} matches are non-templates — in-flight builds"
+    echo " or orphans from a build that never converted. Leaving them alone.)"
+  fi
   exit 0
 fi
 

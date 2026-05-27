@@ -61,27 +61,43 @@ GOSS_VALIDATE_SCRIPT="${REPO_ROOT}/scripts/goss-validate.sh"
 [[ -f "${GOSS_VALIDATE_SCRIPT}" ]] || { echo "❌ goss-validate.sh not found: ${GOSS_VALIDATE_SCRIPT}"; exit 1; }
 
 # ── Locate template ───────────────────────────────────────────────────────────
+# Detection uses `govc object.collect -s <path> config.template`, which returns
+# the property value as a single line of plain text ("true" / "false") — no
+# JSON to parse and no version-specific schema concerns. The previous
+# implementation parsed `govc vm.info -json` output and broke after govc
+# changed its JSON shape (capitalisation + nesting), silently classifying
+# real templates as non-templates.
 echo "==> Locating newest template matching '${TEMPLATE_PATTERN}'..."
 matches=$(govc find . -type m -name "${TEMPLATE_PATTERN}" 2>/dev/null || true)
 if [[ -z "${matches}" ]]; then
-  echo "❌ No VMs found matching ${TEMPLATE_PATTERN}"
+  echo "❌ No VMs match ${TEMPLATE_PATTERN}. Build likely didn't produce a"
+  echo "   template — check the upstream build job."
   exit 1
 fi
 
-_is_tpl='import sys,json;vms=(json.load(sys.stdin) or {}).get("VirtualMachines",[]);print("true" if vms and vms[0].get("Config",{}).get("Template",False) else "false")'
-
 template=""
+# Sort matches newest-first (YYYYMMDD date suffix is zero-padded so lex-desc
+# is newest-first) and pick the first one that's actually a template.
+declare -A diag_states
 while IFS= read -r p; do
   [[ -z "${p}" ]] && continue
-  is_tpl=$(govc vm.info -json "${p}" 2>/dev/null | python3 -c "${_is_tpl}" 2>/dev/null || echo "false")
-  if [[ "${is_tpl}" == "true" ]]; then
+  is_tpl=$(govc object.collect -s "${p}" config.template 2>/dev/null || echo "(unknown)")
+  diag_states["${p}"]="${is_tpl}"
+  if [[ "${is_tpl}" == "true" && -z "${template}" ]]; then
     template="${p}"
-    break
   fi
-done < <(echo "${matches}" | sort -r)
+done < <(printf '%s\n' "${matches}" | sed '/^$/d' | sort -r)
 
 if [[ -z "${template}" ]]; then
-  echo "❌ No actual template (Config.Template=true) found among matches"
+  echo "❌ No template (config.template=true) found among matches:"
+  for p in "${!diag_states[@]}"; do
+    echo "    ${p}  →  config.template=${diag_states[$p]}"
+  done
+  echo ""
+  echo "    If every match is config.template=false, the build job did not"
+  echo "    convert to template. Common cause: a build that's still in flight"
+  echo "    or one that failed before Packer's final convert step. Wait for"
+  echo "    the build to finish or destroy the orphaned VMs, then retry."
   exit 1
 fi
 echo "    template: ${template}"
