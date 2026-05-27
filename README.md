@@ -195,9 +195,9 @@ The script is idempotent — if an ISO is already present in the library it is s
 |---|---|---|
 | 22.04 LTS | [ubuntu-22.04.5-live-server-amd64.iso](https://releases.ubuntu.com/22.04/ubuntu-22.04.5-live-server-amd64.iso) | [SHA256SUMS](https://releases.ubuntu.com/22.04/SHA256SUMS) |
 | 24.04 LTS | [ubuntu-24.04.4-live-server-amd64.iso](https://releases.ubuntu.com/24.04/ubuntu-24.04.4-live-server-amd64.iso) | [SHA256SUMS](https://releases.ubuntu.com/24.04/SHA256SUMS) |
-| 26.04 LTS | [releases.ubuntu.com/26.04](https://releases.ubuntu.com/26.04/) | [SHA256SUMS](https://releases.ubuntu.com/26.04/SHA256SUMS) |
+| 26.04 LTS | [ubuntu-26.04-live-server-amd64.iso](https://releases.ubuntu.com/26.04/ubuntu-26.04-live-server-amd64.iso) | [SHA256SUMS](https://releases.ubuntu.com/26.04/SHA256SUMS) |
 
-> **Note on 26.04:** Ubuntu 26.04 was released in April 2026. If the ISO filename differs from the placeholder in the script, update `ISO_FILENAME[2604]` near the top of `scripts/upload-isos.sh`.
+> **Point releases are auto-detected.** The [`check-iso-updates`](.github/workflows/check-iso-updates.yml) workflow runs every Monday and opens a PR rewriting these filenames across the repo when Ubuntu ships a new `.X` release (e.g. `26.04` → `26.04.1`). You shouldn't need to bump them by hand.
 
 All builds use the **live-server ISO** for both server and desktop images. The desktop environment (`ubuntu-desktop-minimal`) is installed by the `desktop.sh` provisioner after the OS install completes — there is no separate desktop ISO to manage.
 
