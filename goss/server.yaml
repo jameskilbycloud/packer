@@ -39,14 +39,22 @@ file:
   /etc/systemd/system/ssh-host-keygen.service:
     exists: true
     contains:
-      - "ExecStart=/usr/bin/ssh-keygen -A"
+      - "ssh-keygen -A"
       - "ConditionPathExists=!/etc/ssh/ssh_host_rsa_key"
+      # Ordering against rootfs remount — the original unit fired before
+      # /etc was writable, ssh-keygen exited 0 anyway, ExecStartPost
+      # disabled the unit, and clones had no host keys forever.
+      - "After=systemd-remount-fs.service"
 
   # First-boot hostname uniquification unit + script.
   /etc/systemd/system/firstboot-hostname.service:
     exists: true
     contains:
       - "ConditionPathExists=!/var/lib/packer-firstboot/hostname.done"
+      # Same rootfs-remount ordering hazard as ssh-host-keygen — the
+      # previous version touched /var/lib/.../hostname.done before / was
+      # writable and silently failed on every clone.
+      - "After=systemd-remount-fs.service"
   /usr/local/sbin/firstboot-hostname.sh:
     exists: true
     mode: "0755"

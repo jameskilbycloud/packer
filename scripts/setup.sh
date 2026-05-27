@@ -69,20 +69,34 @@ rm -f /etc/ssh/ssh_host_*
 # socket-activated and traditional sshd configurations, and disables itself
 # after the first successful run so subsequent boots are unaffected.
 echo "==> Installing SSH host key regeneration service for cloned VMs..."
+# Ordering note: the earlier version used DefaultDependencies=no +
+# WantedBy=sysinit.target, which fired before systemd-remount-fs.service
+# remounted / read-write. ssh-keygen then printed "Read-only file system"
+# for every key type, exited 0 (it doesn't propagate per-key write failures),
+# ExecStartPost happily disabled the unit, and the clone booted with NO host
+# keys → sshd refused all connections forever. Default deps + ordering
+# against ssh.socket/ssh.service is the right pattern: it runs in late
+# boot when / is writable, but still before sshd tries to start.
+#
+# /usr/bin/sh wrapper: ssh-keygen -A silently no-ops failures across key
+# types, so we add an explicit post-check; if any key is still missing
+# after the run we propagate a non-zero exit so ExecStartPost (and the
+# disable) do NOT run, and the unit remains enabled to retry on next boot.
 cat > /etc/systemd/system/ssh-host-keygen.service << 'UNIT'
 [Unit]
 Description=Regenerate SSH host keys on first boot after cloning
-DefaultDependencies=no
-Before=ssh.socket ssh.service sshd.service network.target
+After=systemd-remount-fs.service local-fs.target
+Before=ssh.socket ssh.service sshd.service
 ConditionPathExists=!/etc/ssh/ssh_host_rsa_key
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/ssh-keygen -A
+ExecStart=/bin/sh -c '/usr/bin/ssh-keygen -A && test -s /etc/ssh/ssh_host_rsa_key && test -s /etc/ssh/ssh_host_ed25519_key'
 ExecStartPost=/bin/systemctl disable ssh-host-keygen.service
+RemainAfterExit=yes
 
 [Install]
-WantedBy=sysinit.target
+WantedBy=ssh.socket ssh.service
 UNIT
 systemctl enable ssh-host-keygen.service
 
@@ -150,13 +164,22 @@ touch /var/lib/packer-firstboot/hostname.done
 SCRIPT
 chmod +x /usr/local/sbin/firstboot-hostname.sh
 
-# Mirror the ssh-host-keygen.service pattern: oneshot, runs early, gated
-# by a sentinel path, disables itself after success.
+# Mirror the ssh-host-keygen.service pattern: oneshot, gated by a sentinel
+# path, disables itself after success.
+#
+# Same ordering bug as ssh-host-keygen — the previous version was
+# DefaultDependencies=no + Before=sysinit.target, which fired before /
+# was remounted read-write. The script's hostnamectl + /etc/hosts edit +
+# `touch /var/lib/packer-firstboot/hostname.done` all failed silently;
+# the unit exited 1 and stayed enabled (no ExecStartPost on failure),
+# but no clone ever got the suffix. Using default deps + ordering
+# against network-pre.target gets us a writable root and still runs
+# before NetworkManager / systemd-networkd sends DHCP with a hostname.
 cat > /etc/systemd/system/firstboot-hostname.service << 'UNIT'
 [Unit]
 Description=Append a unique suffix to the hostname on first boot of each clone
-DefaultDependencies=no
-Before=network-pre.target sysinit.target
+After=systemd-remount-fs.service local-fs.target
+Before=network-pre.target network.target NetworkManager.service systemd-networkd.service
 ConditionPathExists=!/var/lib/packer-firstboot/hostname.done
 
 [Service]
@@ -166,7 +189,7 @@ ExecStartPost=/bin/systemctl disable firstboot-hostname.service
 RemainAfterExit=yes
 
 [Install]
-WantedBy=sysinit.target
+WantedBy=multi-user.target
 UNIT
 systemctl enable firstboot-hostname.service
 
@@ -190,7 +213,32 @@ if [[ -n "${ADMIN_USERNAME:-}" ]]; then
 
   if [[ -n "${ADMIN_GITHUB_USER:-}" ]]; then
     echo "==> Importing SSH keys from GitHub for ${ADMIN_GITHUB_USER}..."
-    sudo -u "${ADMIN_USERNAME}" ssh-import-id-gh "${ADMIN_GITHUB_USER}"
+    admin_home=$(getent passwd "${ADMIN_USERNAME}" | cut -d: -f6)
+    ssh_dir="${admin_home}/.ssh"
+    auth_keys="${ssh_dir}/authorized_keys"
+
+    # -H forces HOME to ${ADMIN_USERNAME}'s home so ssh-import-id's
+    # os.path.expanduser("~") always lands on the right authorized_keys,
+    # regardless of sudoers defaults. (env_reset usually does this for us,
+    # but being explicit removes the dependency.)
+    sudo -H -u "${ADMIN_USERNAME}" ssh-import-id-gh "${ADMIN_GITHUB_USER}"
+
+    # Fail loudly if no key actually made it onto disk. The build log will
+    # otherwise show a happy "[1] SSH keys [Authorized]" while sshd rejects
+    # every login attempt because the file isn't where sshd expects it.
+    if [[ ! -s "${auth_keys}" ]]; then
+      echo "ERROR: ssh-import-id-gh reported success but ${auth_keys} is missing/empty" >&2
+      exit 1
+    fi
+
+    # Enforce the perms sshd requires under StrictModes (the default).
+    # ssh-import-id usually gets these right, but it has historically left
+    # behind a root-owned ~/.ssh on some sudo configurations — explicit
+    # chown/chmod here makes the outcome deterministic.
+    chown -R "${ADMIN_USERNAME}:${ADMIN_USERNAME}" "${ssh_dir}"
+    chmod 700 "${ssh_dir}"
+    chmod 600 "${auth_keys}"
+    echo "==> Authorized $(wc -l < "${auth_keys}") key(s) for ${ADMIN_USERNAME} at ${auth_keys}"
   else
     echo "==> ADMIN_GITHUB_USER not set — skipping SSH key import."
   fi

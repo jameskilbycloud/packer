@@ -92,19 +92,6 @@ jobs:
           #   parallel — value for `-parallel-builds`. 2 for combined (server
           #              + desktop together), 1 for single-target (no need to
           #              spawn a second worker).
-          #              EXCEPTION: 2604 in all-linux / all is split into
-          #              TWO separate matrix entries (2604-server +
-          #              2604-desktop), each in its own job + its own Packer
-          #              process. Combining them in a single Packer process
-          #              poisons the second build — server completes fine,
-          #              then desktop's install runs ~6 min and hangs (CPU
-          #              cliff to idle, memory released, no reboot) until
-          #              ssh_timeout exhausts. Standalone 2604-desktop in a
-          #              fresh Packer process succeeds in ~24 min. Same-
-          #              process state leak in the vsphere plugin is the
-          #              suspected mechanism. PR #26 attempted to fix this
-          #              by going parallel=1 in the combined entry but
-          #              same-process sequential is still broken.
           #   label    — short human label for log/manifest artifact names.
           # Each matrix entry carries:
           #   version  — Ubuntu major version: "2204"/"2404"/"2604"
@@ -123,8 +110,7 @@ jobs:
             all-linux)    BUILDS='[
                             {"version":"2204","label":"2204","only":"ubuntu-2204.*","parallel":2,"manifest":"ubuntu-2204","vm_glob":"ubuntu-2204-*"},
                             {"version":"2404","label":"2404","only":"ubuntu-2404.*","parallel":2,"manifest":"ubuntu-2404","vm_glob":"ubuntu-2404-*"},
-                            {"version":"2604","label":"2604-server","only":"ubuntu-2604.vsphere-iso.ubuntu-2604-server","parallel":1,"manifest":"ubuntu-2604","vm_glob":"ubuntu-2604-server-*"},
-                            {"version":"2604","label":"2604-desktop","only":"ubuntu-2604.vsphere-iso.ubuntu-2604-desktop","parallel":1,"manifest":"ubuntu-2604","vm_glob":"ubuntu-2604-desktop-*"}
+                            {"version":"2604","label":"2604","only":"ubuntu-2604.*","parallel":2,"manifest":"ubuntu-2604","vm_glob":"ubuntu-2604-*"}
                           ]' ;;
             all-servers)  BUILDS='[
                             {"version":"2204","label":"2204-server","only":"ubuntu-2204.vsphere-iso.ubuntu-2204-server","parallel":1,"manifest":"ubuntu-2204","vm_glob":"ubuntu-2204-server-*"},
@@ -139,8 +125,7 @@ jobs:
             all)          BUILDS='[
                             {"version":"2204","label":"2204","only":"ubuntu-2204.*","parallel":2,"manifest":"ubuntu-2204","vm_glob":"ubuntu-2204-*"},
                             {"version":"2404","label":"2404","only":"ubuntu-2404.*","parallel":2,"manifest":"ubuntu-2404","vm_glob":"ubuntu-2404-*"},
-                            {"version":"2604","label":"2604-server","only":"ubuntu-2604.vsphere-iso.ubuntu-2604-server","parallel":1,"manifest":"ubuntu-2604","vm_glob":"ubuntu-2604-server-*"},
-                            {"version":"2604","label":"2604-desktop","only":"ubuntu-2604.vsphere-iso.ubuntu-2604-desktop","parallel":1,"manifest":"ubuntu-2604","vm_glob":"ubuntu-2604-desktop-*"}
+                            {"version":"2604","label":"2604","only":"ubuntu-2604.*","parallel":2,"manifest":"ubuntu-2604","vm_glob":"ubuntu-2604-*"}
                           ]' ;;
             *)            BUILDS='[{"version":"2404","label":"2404-server","only":"ubuntu-2404.vsphere-iso.ubuntu-2404-server","parallel":1,"manifest":"ubuntu-2404","vm_glob":"ubuntu-2404-server-*"}]' ;;
           esac
