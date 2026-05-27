@@ -3,6 +3,10 @@
 ## Quality checks
 
 [![Build Packer Templates](https://github.com/jameskilbycloud/packer/actions/workflows/build-templates.yml/badge.svg)](https://github.com/jameskilbycloud/packer/actions/workflows/build-templates.yml)
+[![Validate](https://github.com/jameskilbycloud/packer/actions/workflows/validate.yml/badge.svg)](https://github.com/jameskilbycloud/packer/actions/workflows/validate.yml)
+[![Pre-commit](https://github.com/jameskilbycloud/packer/actions/workflows/pre-commit.yml/badge.svg)](https://github.com/jameskilbycloud/packer/actions/workflows/pre-commit.yml)
+[![Check ISO updates](https://github.com/jameskilbycloud/packer/actions/workflows/check-iso-updates.yml/badge.svg)](https://github.com/jameskilbycloud/packer/actions/workflows/check-iso-updates.yml)
+[![Rotate templates](https://github.com/jameskilbycloud/packer/actions/workflows/rotate-templates.yml/badge.svg)](https://github.com/jameskilbycloud/packer/actions/workflows/rotate-templates.yml)
 
 Automated golden-image pipeline that builds Ubuntu VM templates directly in vSphere using [HashiCorp Packer](https://www.packer.io/). Supports three Ubuntu LTS versions (22.04, 24.04, 26.04) with server and desktop variants — six templates in total.
 
@@ -716,11 +720,13 @@ workflow_dispatch inputs:
 
 After every successful build the workflow prunes older templates so vSphere does not silently accumulate ~52 dated templates per variant per year. Pruning is grouped by `(version, type)` — `ubuntu-2604-server-*` and `ubuntu-2604-desktop-*` are independent groups, so a combined "build both" run keeps N of each, not N total interleaved.
 
+Implementation lives in [scripts/prune-templates.sh](scripts/prune-templates.sh). It is called from two places: the in-build step in [build-templates.yml](.github/workflows/build-templates.yml) (which only sees the just-built variant) and the standalone [rotate-templates.yml](.github/workflows/rotate-templates.yml) workflow (which prunes every group in one pass).
+
 Configure via repository variables (**Settings → Secrets and variables → Actions → Variables**):
 
 | Variable | Default | Effect |
 |---|---|---|
-| `TEMPLATE_RETENTION_COUNT` | `4` | Templates kept per `(version, type)`. With the weekly cron, `4` ≈ one month of history. |
+| `TEMPLATE_RETENTION_COUNT` | `2` | Templates kept per `(version, type)`. `2` = current + one rollback target. |
 | `TEMPLATE_PRUNE_DRY_RUN` | `false` | Set `true` to log the destroy plan without executing it. Useful for the first run to confirm the right entries are matched. |
 
 Safety properties of the prune step:
@@ -799,6 +805,25 @@ Spec files live in `goss/`:
 
 To extend: add new file/service/command/package assertions to `goss/server.yaml` (or `goss/desktop.yaml` for desktop-only). The expected runtime cost per build is ~30 seconds.
 
+### Post-publish smoke test
+
+The in-build goss pass above runs **before** Packer converts the VM to a template, so it can't catch regressions that only surface on the cloned, first-boot template — first-boot oneshot ordering (e.g. `ssh-host-keygen.service` vs `rootfs-rw`), cloud-init neutralisation breakage, open-vm-tools not surviving the template conversion, etc.
+
+The `smoke` job in [build-templates.yml](.github/workflows/build-templates.yml) closes that gap. After every successful build it:
+
+1. Locates the newest template matching `ubuntu-<version>-<role>-*` via `govc find`.
+2. Clones it (powered off), assigns it a transient name (`smoke-<template>-<run-id>`), powers it on.
+3. Waits up to 10 minutes for VMware Tools to report an IP.
+4. Injects an ephemeral ed25519 pubkey via the VMware Tools Guest Operations API (the template has SSH password auth disabled by [finalize.sh](scripts/finalize.sh), so password SSH login is not an option — `govc guest.upload` bypasses sshd entirely).
+5. SSHes in with the matching private key, runs `scripts/goss-validate.sh` against the spec under `sudo` (the build user is in the `sudo` group but `finalize.sh` removes the NOPASSWD drop-in, so `echo $BUILD_PASSWORD | sudo -S` is used).
+6. Destroys the clone in an `EXIT` trap regardless of pass/fail.
+
+Smoke failure marks the workflow run red. Fan-out: one matrix entry per (version, role), so a combined `all-linux` build produces six smoke runs.
+
+Implementation: [scripts/smoke-test.sh](scripts/smoke-test.sh). Configurable via the same `BUILD_USERNAME` / `BUILD_PASSWORD` / vSphere secrets the build itself uses — no extra setup beyond the existing secrets.
+
+**Known limitation:** the in-build prune step (which keeps the most recent N templates per group) runs in the build job before smoke runs, so a failed smoke does not stop the new (broken) template from displacing the oldest in the retention window. With `TEMPLATE_RETENTION_COUNT=2` you still have the previous (known-good) template as a rollback target, but the third-oldest will be gone.
+
 ### Build retries
 
 `packer build` is wrapped in a one-retry loop in [build-templates.yml](.github/workflows/build-templates.yml). The retry decision is driven by pattern-matching the Packer log:
@@ -856,6 +881,21 @@ APPLY=1 make check-iso-updates
 ```
 
 The single source of truth for the "current" filename is the `ISO_FILENAME` map in `scripts/upload-isos.sh` — the script reads from there to avoid maintaining a duplicate list.
+
+### Workflow: rotate-templates
+
+**File:** `.github/workflows/rotate-templates.yml`
+
+**Triggers:**
+
+- **Schedule** — 1st of every month at 03:00 UTC. Prunes every `(OS, role)` group in one pass, independent of the build cadence so old templates are removed even during quiet weeks.
+- **Manual** (`workflow_dispatch`) — useful for one-off prunes; `retain`, `name_pattern`, and `dry_run` are exposed as inputs so you can preview a destroy plan before committing.
+
+**Runner:** self-hosted (needs vCenter access).
+
+**What it does:** runs `scripts/prune-templates.sh` against all templates matching `ubuntu-*` (or the override pattern), keeping the most recent `TEMPLATE_RETENTION_COUNT` per group and destroying the rest. Same script as the in-build prune step in `build-templates.yml`, just driven without a fresh build first.
+
+**Concurrency:** shares the `packer-build` concurrency group with `build-templates.yml`, so a scheduled rotation queues behind any in-flight build rather than racing to destroy a template a build is currently producing.
 
 ### Concurrency
 

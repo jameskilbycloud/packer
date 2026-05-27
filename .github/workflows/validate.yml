@@ -60,6 +60,19 @@ jobs:
           rm /tmp/packer.zip
           packer version
 
+      # ── Cache the vsphere plugin ─────────────────────────────────────────────
+      # Plugins live under ~/.config/packer/plugins/ on Linux. Keying on the
+      # hash of packer.pkr.hcl invalidates the cache when required_plugins is
+      # bumped. On a cache hit `packer init` is a near no-op (~1 s) instead of
+      # downloading the plugin tarball from GitHub on every run (~6 s).
+      - name: Cache Packer plugin
+        uses: actions/cache@v4
+        with:
+          path: ~/.config/packer/plugins
+          key: packer-plugins-${{ runner.os }}-${{ hashFiles('packer.pkr.hcl') }}
+          restore-keys: |
+            packer-plugins-${{ runner.os }}-
+
       # ── Download vsphere plugin ──────────────────────────────────────────────
       - name: Packer init
         run: packer init .

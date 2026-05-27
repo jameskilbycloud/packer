@@ -1,0 +1,75 @@
+name: Rotate templates
+
+# ── Triggers ──────────────────────────────────────────────────────────────────
+# Runs on the 1st of every month at 03:00 UTC, after the typical weekend
+# rebuild has settled. Independent of the build cadence so old templates get
+# pruned even during quiet weeks when no fresh build has happened. Manual
+# dispatch lets you run a one-off prune (with the dry-run option for a
+# preview).
+on:
+  schedule:
+    - cron: "0 3 1 * *"
+  workflow_dispatch:
+    inputs:
+      retain:
+        description: "Templates to keep per (OS, role) group"
+        required: false
+        default: "2"
+        type: string
+      name_pattern:
+        description: "govc -name glob (default: ubuntu-*)"
+        required: false
+        default: "ubuntu-*"
+        type: string
+      dry_run:
+        description: "Print intent without destroying"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+# ── Concurrency ───────────────────────────────────────────────────────────────
+# Don't race against a build that may be publishing a new template. The
+# `packer-build` group is held by build-templates.yml, so joining it here
+# queues us behind any in-flight build.
+concurrency:
+  group: packer-build
+  cancel-in-progress: false
+
+jobs:
+  rotate:
+    name: Prune old templates
+    runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install govc
+        run: |
+          if command -v govc &>/dev/null; then
+            echo "govc already installed: $(govc version)"
+            exit 0
+          fi
+          GOVC_VERSION=$(curl -fsSL https://api.github.com/repos/vmware/govmomi/releases/latest \
+            | grep '"tag_name"' | cut -d'"' -f4)
+          curl -fsSL \
+            "https://github.com/vmware/govmomi/releases/download/${GOVC_VERSION}/govc_Linux_x86_64.tar.gz" \
+            | sudo tar -xzf - -C /usr/local/bin govc
+          sudo chmod +x /usr/local/bin/govc
+          echo "govc installed: $(govc version)"
+
+      - name: Prune old templates
+        env:
+          GOVC_URL:        ${{ secrets.VSPHERE_SERVER }}
+          GOVC_USERNAME:   ${{ secrets.VSPHERE_USER }}
+          GOVC_PASSWORD:   ${{ secrets.VSPHERE_PASSWORD }}
+          GOVC_INSECURE:   ${{ secrets.VSPHERE_INSECURE || 'false' }}
+          GOVC_DATACENTER: ${{ secrets.VSPHERE_DATACENTER }}
+          # Manual run uses inputs; scheduled run uses repo vars with fallbacks.
+          NAME_PATTERN: ${{ github.event.inputs.name_pattern || 'ubuntu-*' }}
+          RETAIN:       ${{ github.event.inputs.retain || vars.TEMPLATE_RETENTION_COUNT || '2' }}
+          DRY_RUN:      ${{ github.event.inputs.dry_run || vars.TEMPLATE_PRUNE_DRY_RUN || 'false' }}
+        run: bash scripts/prune-templates.sh

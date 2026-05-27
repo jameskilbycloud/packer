@@ -60,6 +60,7 @@ jobs:
     runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
+      smoke_matrix: ${{ steps.set-matrix.outputs.smoke_matrix }}
       dry_run: ${{ steps.set-dry-run.outputs.dry_run }}
 
     steps:
@@ -134,6 +135,48 @@ jobs:
           BUILDS_ONELINE=$(echo "${BUILDS}" | tr -d '\n' | tr -s ' ')
           echo "matrix={\"include\":${BUILDS_ONELINE}}" >> "$GITHUB_OUTPUT"
           echo "Resolved targets: ${BUILDS_ONELINE}"
+
+          # ── Smoke-test matrix ─────────────────────────────────────────────
+          # Always one entry per (version, role). Combined builds (e.g. "all"
+          # with a single matrix entry that builds server + desktop together)
+          # fan out here so each produced template gets its own smoke run.
+          # Fields:
+          #   label      — short human label (matches build label for single
+          #                target, expands to <ver>-<role> for combined)
+          #   role       — "server" | "desktop"
+          #   glob       — govc -name pattern to locate the just-built template
+          #   goss_spec  — relative path to the goss spec file
+          case "${TARGET}" in
+            2204-server)  SMOKE='[{"label":"2204-server", "role":"server", "glob":"ubuntu-2204-server-*", "goss_spec":"goss/server.yaml"}]' ;;
+            2204-desktop) SMOKE='[{"label":"2204-desktop","role":"desktop","glob":"ubuntu-2204-desktop-*","goss_spec":"goss/desktop.yaml"}]' ;;
+            2404-server)  SMOKE='[{"label":"2404-server", "role":"server", "glob":"ubuntu-2404-server-*", "goss_spec":"goss/server.yaml"}]' ;;
+            2404-desktop) SMOKE='[{"label":"2404-desktop","role":"desktop","glob":"ubuntu-2404-desktop-*","goss_spec":"goss/desktop.yaml"}]' ;;
+            2604-server)  SMOKE='[{"label":"2604-server", "role":"server", "glob":"ubuntu-2604-server-*", "goss_spec":"goss/server.yaml"}]' ;;
+            2604-desktop) SMOKE='[{"label":"2604-desktop","role":"desktop","glob":"ubuntu-2604-desktop-*","goss_spec":"goss/desktop.yaml"}]' ;;
+            all-linux|all)
+                          SMOKE='[
+                            {"label":"2204-server", "role":"server", "glob":"ubuntu-2204-server-*", "goss_spec":"goss/server.yaml"},
+                            {"label":"2204-desktop","role":"desktop","glob":"ubuntu-2204-desktop-*","goss_spec":"goss/desktop.yaml"},
+                            {"label":"2404-server", "role":"server", "glob":"ubuntu-2404-server-*", "goss_spec":"goss/server.yaml"},
+                            {"label":"2404-desktop","role":"desktop","glob":"ubuntu-2404-desktop-*","goss_spec":"goss/desktop.yaml"},
+                            {"label":"2604-server", "role":"server", "glob":"ubuntu-2604-server-*", "goss_spec":"goss/server.yaml"},
+                            {"label":"2604-desktop","role":"desktop","glob":"ubuntu-2604-desktop-*","goss_spec":"goss/desktop.yaml"}
+                          ]' ;;
+            all-servers)  SMOKE='[
+                            {"label":"2204-server","role":"server","glob":"ubuntu-2204-server-*","goss_spec":"goss/server.yaml"},
+                            {"label":"2404-server","role":"server","glob":"ubuntu-2404-server-*","goss_spec":"goss/server.yaml"},
+                            {"label":"2604-server","role":"server","glob":"ubuntu-2604-server-*","goss_spec":"goss/server.yaml"}
+                          ]' ;;
+            all-desktops) SMOKE='[
+                            {"label":"2204-desktop","role":"desktop","glob":"ubuntu-2204-desktop-*","goss_spec":"goss/desktop.yaml"},
+                            {"label":"2404-desktop","role":"desktop","glob":"ubuntu-2404-desktop-*","goss_spec":"goss/desktop.yaml"},
+                            {"label":"2604-desktop","role":"desktop","glob":"ubuntu-2604-desktop-*","goss_spec":"goss/desktop.yaml"}
+                          ]' ;;
+            *)            SMOKE='[{"label":"2404-server","role":"server","glob":"ubuntu-2404-server-*","goss_spec":"goss/server.yaml"}]' ;;
+          esac
+          SMOKE_ONELINE=$(echo "${SMOKE}" | tr -d '\n' | tr -s ' ')
+          echo "smoke_matrix={\"include\":${SMOKE_ONELINE}}" >> "$GITHUB_OUTPUT"
+          echo "Smoke targets: ${SMOKE_ONELINE}"
 
   # ── Packer build (one job per matrix entry) ─────────────────────────────────
   # For "all" builds, each matrix entry covers a whole Ubuntu version (server +
@@ -921,23 +964,21 @@ jobs:
       # group and destroy the rest. Without this, every weekly build leaves a
       # fresh dated template in vSphere forever — ~52 per variant per year.
       #
+      # Implementation lives in scripts/prune-templates.sh and is also called
+      # by the standalone rotate-templates.yml workflow on a monthly schedule.
+      #
       # Configurable via repo variables:
-      #   TEMPLATE_RETENTION_COUNT  — how many to keep per group  (default: 4)
+      #   TEMPLATE_RETENTION_COUNT  — how many to keep per group  (default: 2,
+      #                                i.e. current + one rollback target)
       #   TEMPLATE_PRUNE_DRY_RUN    — "true" prints intent but does not destroy
       #                                (default: false). Use this on first
       #                                roll-out to confirm the right entries
       #                                are being identified.
       #
-      # Grouping: templates are named `ubuntu-<version>-<type>-<YYYYMMDD>`.
-      # The group key is everything before the trailing date suffix
-      # (e.g. `ubuntu-2604-server`), so combined builds whose vm_glob is
-      # `ubuntu-2604-*` correctly retain N server AND N desktop templates,
-      # not N total interleaved.
-      #
-      # Safety: only runs after a successful build (success() guard); skipped
-      # entirely on dry-run packer builds; skips items that aren't templates;
-      # never destroys the just-built template (it sorts to the top of its
-      # group by YYYYMMDD).
+      # Note: this in-build prune runs in the same job as `packer build` so it
+      # only sees templates that match THIS matrix entry's vm_glob (server xor
+      # desktop xor both, depending on the build target). The standalone
+      # rotate-templates.yml workflow prunes ALL groups in one pass.
       - name: Prune old templates
         if: success() && needs.resolve-targets.outputs.dry_run == 'false'
         env:
@@ -947,83 +988,9 @@ jobs:
           GOVC_INSECURE:   ${{ secrets.VSPHERE_INSECURE || 'false' }}
           GOVC_DATACENTER: ${{ secrets.VSPHERE_DATACENTER }}
           NAME_PATTERN:    ${{ matrix.vm_glob }}
-          RETAIN:          ${{ vars.TEMPLATE_RETENTION_COUNT || '4' }}
+          RETAIN:          ${{ vars.TEMPLATE_RETENTION_COUNT || '2' }}
           DRY_RUN:         ${{ vars.TEMPLATE_PRUNE_DRY_RUN || 'false' }}
-        run: |
-          echo "Retention policy: keep ${RETAIN} templates per (version, type) group"
-          echo "Pattern: ${NAME_PATTERN}"
-          [[ "${DRY_RUN}" == "true" ]] && echo "*** DRY RUN — no templates will be destroyed ***"
-          echo ""
-
-          # govc find returns full inventory paths, e.g.
-          #   /Datacenter/vm/packer/ubuntu-2604-server-20260510
-          matches=$(govc find . -type m -name "${NAME_PATTERN}" 2>/dev/null || true)
-          if [[ -z "${matches}" ]]; then
-            echo "No items matching '${NAME_PATTERN}' — nothing to prune."
-            exit 0
-          fi
-
-          # Filter to actual templates (Config.Template == true). VMs in
-          # flight (e.g. a concurrent run's WIP) must not be touched.
-          _is_tpl='import sys,json;vms=(json.load(sys.stdin) or {}).get("VirtualMachines",[]);print("true" if vms and vms[0].get("Config",{}).get("Template",False) else "false")'
-
-          declare -A by_group
-          while IFS= read -r vm_path; do
-            [[ -z "${vm_path}" ]] && continue
-            is_template=$(govc vm.info -json "${vm_path}" 2>/dev/null \
-              | python3 -c "${_is_tpl}" 2>/dev/null || echo "false")
-            if [[ "${is_template}" != "true" ]]; then
-              echo "  skip (not a template): ${vm_path}"
-              continue
-            fi
-            name="${vm_path##*/}"
-            # Strip the trailing -YYYYMMDD to get the group key.
-            # `${name%-*}` works because the date is the only segment after
-            # the last dash; the rest of the name has no digits-only segments
-            # we'd accidentally trim.
-            group="${name%-*}"
-            by_group[$group]+="${vm_path}"$'\n'
-          done <<< "${matches}"
-
-          if [[ ${#by_group[@]} -eq 0 ]]; then
-            echo "No templates found (only WIP VMs) — nothing to prune."
-            exit 0
-          fi
-
-          destroyed=0
-          for group in "${!by_group[@]}"; do
-            echo ""
-            echo "=== Group: ${group} ==="
-            # Sort by full path desc; because the YYYYMMDD suffix is at the
-            # end and zero-padded, lex desc == newest-first.
-            sorted=$(printf "%s" "${by_group[$group]}" | sed '/^$/d' | sort -r)
-            count=0
-            while IFS= read -r p; do
-              [[ -z "${p}" ]] && continue
-              count=$((count + 1))
-              if [[ ${count} -le ${RETAIN} ]]; then
-                printf "  KEEP    [%d/%s]: %s\n" "${count}" "${RETAIN}" "${p}"
-              else
-                if [[ "${DRY_RUN}" == "true" ]]; then
-                  printf "  WOULD DESTROY  : %s\n" "${p}"
-                else
-                  printf "  DESTROY        : %s\n" "${p}"
-                  if govc vm.destroy "${p}"; then
-                    destroyed=$((destroyed + 1))
-                  else
-                    echo "    ✘ destroy failed for ${p} — continuing"
-                  fi
-                fi
-              fi
-            done <<< "${sorted}"
-          done
-
-          echo ""
-          if [[ "${DRY_RUN}" == "true" ]]; then
-            echo "Dry-run complete. No templates were destroyed."
-          else
-            echo "Prune complete. Destroyed: ${destroyed} template(s)."
-          fi
+        run: bash scripts/prune-templates.sh
 
       # ── Slack notifications ──────────────────────────────────────────────────
       - name: Notify Slack — success
@@ -1085,3 +1052,62 @@ jobs:
             rm -rf "$(dirname "${{ steps.build-keypair.outputs.private_key_path }}")"
             echo "Wiped ephemeral keypair directory."
           fi
+
+  # ── Post-publish smoke test ─────────────────────────────────────────────────
+  # Closes the regression-class gap left by the in-build goss pass: that one
+  # runs BEFORE Packer converts the VM to a template, so it cannot exercise
+  # first-boot oneshot ordering, cloud-init neutralisation, or open-vm-tools
+  # surviving the template conversion. This job clones the just-built
+  # template, boots it, injects an ephemeral pubkey via VMware Tools guest
+  # ops (password SSH auth is disabled by finalize.sh), SSHes in, and re-runs
+  # goss against the spec. Cleans up the clone in an EXIT trap regardless of
+  # pass/fail.
+  #
+  # Matrix: one entry per (version, role) — combined builds fan out so each
+  # produced template gets its own smoke run.
+  smoke:
+    name: Smoke ubuntu-${{ matrix.label }}
+    needs: [resolve-targets, build]
+    if: success() && needs.resolve-targets.outputs.dry_run == 'false'
+    runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
+    timeout-minutes: 30
+
+    strategy:
+      matrix: ${{ fromJson(needs.resolve-targets.outputs.smoke_matrix) }}
+      fail-fast: false
+      max-parallel: 1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install govc
+        run: |
+          if command -v govc &>/dev/null; then
+            echo "govc already installed: $(govc version)"
+            exit 0
+          fi
+          GOVC_VERSION=$(curl -fsSL https://api.github.com/repos/vmware/govmomi/releases/latest \
+            | grep '"tag_name"' | cut -d'"' -f4)
+          curl -fsSL \
+            "https://github.com/vmware/govmomi/releases/download/${GOVC_VERSION}/govc_Linux_x86_64.tar.gz" \
+            | sudo tar -xzf - -C /usr/local/bin govc
+          sudo chmod +x /usr/local/bin/govc
+          echo "govc installed: $(govc version)"
+
+      - name: Run smoke test against cloned template
+        env:
+          GOVC_URL:          ${{ secrets.VSPHERE_SERVER }}
+          GOVC_USERNAME:     ${{ secrets.VSPHERE_USER }}
+          GOVC_PASSWORD:     ${{ secrets.VSPHERE_PASSWORD }}
+          GOVC_INSECURE:     ${{ secrets.VSPHERE_INSECURE || 'false' }}
+          GOVC_DATACENTER:   ${{ secrets.VSPHERE_DATACENTER }}
+          VSPHERE_FOLDER:    ${{ secrets.VSPHERE_FOLDER || 'packer' }}
+          VSPHERE_CLUSTER:   ${{ secrets.VSPHERE_CLUSTER }}
+          VSPHERE_HOST:      ${{ secrets.VSPHERE_HOST }}
+          VSPHERE_DATASTORE: ${{ secrets.VSPHERE_DATASTORE }}
+          BUILD_USERNAME:    ${{ secrets.BUILD_USERNAME }}
+          BUILD_PASSWORD:    ${{ secrets.BUILD_PASSWORD }}
+          TEMPLATE_PATTERN:  ${{ matrix.glob }}
+          GOSS_SPEC:         ${{ matrix.goss_spec }}
+        run: bash scripts/smoke-test.sh
