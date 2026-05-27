@@ -68,21 +68,32 @@ sudo ./svc.sh start
 
 4. **Pre-install the workflow dependencies as root**, one time, so the runner user does *not* need sudo for normal operation. The workflow steps `Install Packer`, `Install xorriso`, `Install govc`, and `Install pre-commit` all check `command -v` first and skip if the tool is already on PATH. `gh` is also required (used by `check-iso-updates` to open the bump PR and dispatch the upload).
 
+   Become root first with `sudo -i` and paste the block, **or** prefix every line with `sudo`. Mixing `sudo apt-get update && apt-get install …` will fail with `Could not open lock file /var/lib/dpkg/lock-frontend` because the chained `&&` only carries sudo across to the first command.
+
    ```bash
-   # As root (or via interactive sudo, one-time)
-   apt-get update && apt-get install -y \
+   # Run as root (sudo -i first, or prefix each line with sudo)
+
+   # System packages
+   apt-get update
+   apt-get install -y \
      xorriso curl python3 git perl unzip openssh-client pre-commit
+
    # gh CLI (used by check-iso-updates to open the bump PR + dispatch upload)
    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
      | gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg
    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-     | tee /etc/apt/sources.list.d/github-cli.list
-   apt-get update && apt-get install -y gh
+     > /etc/apt/sources.list.d/github-cli.list
+   apt-get update
+   apt-get install -y gh
+
    # Packer
    PACKER_VERSION=$(curl -fsSL https://api.releases.hashicorp.com/v1/releases/packer/latest \
      | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
    curl -fsSL "https://releases.hashicorp.com/packer/${PACKER_VERSION}/packer_${PACKER_VERSION}_linux_amd64.zip" \
-     -o /tmp/packer.zip && (cd /usr/local/bin && unzip -o /tmp/packer.zip) && rm /tmp/packer.zip
+     -o /tmp/packer.zip
+   (cd /usr/local/bin && unzip -o /tmp/packer.zip)
+   rm /tmp/packer.zip
+
    # govc
    GOVC_VERSION=$(curl -fsSL https://api.github.com/repos/vmware/govmomi/releases/latest \
      | grep '"tag_name"' | cut -d'"' -f4)
