@@ -2,15 +2,11 @@
 # Ubuntu 24.04 LTS (Noble Numbat) — Server & Desktop
 # =============================================================================
 # Server + desktop are defined as two sources inside a single `build {}` block,
-# which lets Packer run them in parallel from one runner. Cap concurrency with
-# `-parallel-builds=N` so vSphere isn't overwhelmed.
-#
-# Run server + desktop in parallel (one Packer process):
-#   packer build -var-file=variables.pkrvars.hcl -parallel-builds=2 -only='ubuntu-2404.*' .
-#
-# Run a single source:
-#   packer build -var-file=variables.pkrvars.hcl -only='ubuntu-2404.vsphere-iso.ubuntu-2404-server'  .
-#   packer build -var-file=variables.pkrvars.hcl -only='ubuntu-2404.vsphere-iso.ubuntu-2404-desktop' .
+# which lets Packer run them in parallel from one runner. The build workflow
+# uses `-parallel-builds=2` for combined runs and a `-only` glob to select the
+# source(s) to build (e.g. `ubuntu-2404.*` for both, or
+# `ubuntu-2404.vsphere-iso.ubuntu-2404-server` for one). See
+# .github/workflows/build-templates.yml for the exact invocation.
 # =============================================================================
 
 # ── Ubuntu 24.04 Server ───────────────────────────────────────────────────────

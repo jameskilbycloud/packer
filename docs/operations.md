@@ -4,41 +4,44 @@ Day-to-day this repo runs from GitHub Actions. This doc covers the parts that ar
 
 ## Overview
 
-Six workflows cover the full pipeline. Almost everything runs from Actions — the only local step is the one-time `make secrets` to populate credentials (you can't set GitHub secrets from within Actions itself without a Personal Access Token).
+Six workflows cover the full pipeline. Nothing runs locally — secrets are set via the GitHub Settings UI, builds are triggered from the Actions tab, and everything else is on a schedule.
 
 ```
-Local (one-time)                 GitHub Actions (ongoing, automated)
-────────────────                 ───────────────────────────────────────────
-1. Fill in pkrvars file
-2. make secrets               ─► secrets stored in GitHub
+One-time setup (GitHub UI)         Ongoing automation
+──────────────────────────         ──────────────────────────────────────
+Settings → Secrets → add        ─► secrets available to all workflows
+Settings → Runners → register
+  the self-hosted runner
 
-                                 PR opened
-                                 └─► validate.yml + pre-commit.yml
-                                     fmt check + packer validate + hooks
-                                     (ubuntu-latest, no secrets needed)
+                                   PR opened
+                                   └─► validate.yml + pre-commit.yml
+                                       fmt check + packer validate + hooks
+                                       (ubuntu-latest, no secrets needed)
 
-                                 Manual trigger / weekly cron (Sun 02:00 UTC)
-                                 └─► build-templates.yml
-                                     packer build → smoke test → template
-                                     (self-hosted runner)
+                                   Sundays 02:00 UTC / manual dispatch
+                                   └─► build-templates.yml
+                                       packer build → in-build goss →
+                                       template → post-publish smoke clone
+                                       (self-hosted runner)
 
-3. Initial ISO seed: trigger  ─► upload-isos.yml
-   upload-isos.yml manually       govc library.import → Content Library
+Actions → Upload ISOs           ─► upload-isos.yml
+  → Run workflow (initial seed)    govc library.import → Content Library
                                    (self-hosted, manual + auto-dispatched
                                     by check-iso-updates on new releases)
 
-                                 Weekly cron (Mon 06:00 UTC)
-                                 └─► check-iso-updates.yml
-                                     SHA256SUMS diff → bump PR + upload
-                                     (ubuntu-latest)
+                                   Mondays 06:00 UTC
+                                   └─► check-iso-updates.yml
+                                       SHA256SUMS diff → bump PR + dispatch
+                                       upload against the bump branch
+                                       (ubuntu-latest)
 
-                                 Monthly cron (1st 03:00 UTC)
-                                 └─► rotate-templates.yml
-                                     prune old templates
-                                     (self-hosted)
+                                   1st of month 03:00 UTC
+                                   └─► rotate-templates.yml
+                                       prune all template groups
+                                       (self-hosted)
 ```
 
-> **Steps 1–3 are one-time setup.** After that, builds run automatically on the weekly schedule or on demand from the Actions UI. Push to `main` deliberately does *not* trigger a full build — PR validation is handled by `validate.yml`, and full builds are reserved for the schedule or an explicit `workflow_dispatch` so a routine code change cannot accidentally rebuild every template. No local tooling is needed day-to-day.
+> **After the one-time setup, no local tooling is needed.** Builds run automatically on the weekly schedule or on demand from the Actions UI. Push to `main` deliberately does *not* trigger a full build — PR validation is handled by `validate.yml`, and full builds are reserved for the schedule or an explicit `workflow_dispatch` so a routine code change cannot accidentally rebuild every template.
 
 ## Why a self-hosted runner
 
@@ -159,25 +162,7 @@ If your repository lives under an organisation, the same two toggles also exist 
 
 ## GitHub Secrets
 
-The easiest way to populate secrets is with the included sync script, which reads your local `variables.pkrvars.hcl` and pushes every value to GitHub in one step:
-
-```bash
-# Authenticate the GitHub CLI (one-time)
-gh auth login
-
-# Push all secrets from your local vars file
-make secrets
-
-# Preview what would be pushed without actually setting anything
-DRY_RUN=true make secrets
-
-# Target a specific repo (if auto-detection fails)
-GH_REPO=owner/repo make secrets
-```
-
-The script (`scripts/set-github-secrets.sh`) detects the repository from your `git remote origin` automatically, so there's nothing to configure. Re-run it any time you change a value in `variables.pkrvars.hcl` — existing secrets are overwritten in place.
-
-To set secrets manually instead, go to **Settings → Secrets and variables → Actions → New repository secret** and create each one from the table below.
+Add each secret via **Settings → Secrets and variables → Actions → New repository secret**. Re-paste the new value any time it changes; secrets are overwritten in place.
 
 | Secret | Source variable | Description |
 |---|---|---|
@@ -334,7 +319,7 @@ Spec files live in `goss/`:
 - `goss/server.yaml` — universal post-build assertions: sudoers entry for the build user, cloud-init neutralisation file, SSH host keys absent (regenerated on first boot), first-boot oneshot units enabled, `open-vm-tools` running, swap off, UFW masked, build-metadata snapshots present, etc.
 - `goss/desktop.yaml` — desktop-only additions on top of the server spec via gossfile include: `ubuntu-desktop-minimal`, `open-vm-tools-desktop`, `gdm3` enabled.
 
-`build_username` is threaded into the spec via goss's `--vars-inline`, so the sudoers-file assertion (`/etc/sudoers.d/90-packer-<username>`) tracks whatever you set in `variables.pkrvars.hcl`.
+`build_username` is threaded into the spec via goss's `--vars-inline`, so the sudoers-file assertion (`/etc/sudoers.d/90-packer-<username>`) tracks whatever you set as the `BUILD_USERNAME` secret.
 
 `scripts/goss-validate.sh` downloads goss (pinned via `GOSS_VERSION`, default `v0.4.9`), runs `goss validate --format documentation`, and removes the binary + spec afterwards so neither ships in the produced template.
 
@@ -405,17 +390,7 @@ workflow_dispatch inputs:
    - Dispatches `upload-isos.yml` against the new branch (`gh workflow run --ref <branch>`) so the new ISO is pushed into the Content Library before the PR is merged. Running against the branch (not `main`) is critical — the filename map only exists in its updated form on the branch.
 3. If everything is up to date, the workflow exits early with a single log line.
 
-Local equivalent:
-
-```bash
-# Detect drift
-make check-iso-updates
-
-# Apply (rewrite filenames across the repo)
-APPLY=1 make check-iso-updates
-```
-
-The single source of truth for the "current" filename is the `ISO_FILENAME` map in `scripts/upload-isos.sh` — the script reads from there to avoid maintaining a duplicate list.
+The single source of truth for the "current" filename is the `ISO_FILENAME` map in `scripts/upload-isos.sh` — the detection script reads from there to avoid maintaining a duplicate list. If you ever want to dry-run the detection by hand, the script can be invoked directly (`bash scripts/check-iso-updates.sh` for detect-only, `bash scripts/check-iso-updates.sh --apply` to rewrite filenames across tracked files), but the scheduled workflow handles this automatically.
 
 ## Workflow: rotate-templates
 
@@ -444,7 +419,7 @@ The build workflow uses a `concurrency` group (`packer-build`) so that only one 
 Packer's full source reference format is `<build-label>.<source-type>.<source-name>` (e.g. `ubuntu-2404-server.vsphere-iso.ubuntu-2404-server`). Passing just `vsphere-iso.ubuntu-2404-server` does not match. Use a glob: `-only='*.vsphere-iso.ubuntu-2404-server'`. The Makefile and workflows already use this format.
 
 **`vcenter_server is required` / `ssh_username must be specified` errors**
-The build workflow pre-flight check will list exactly which secrets are absent before Packer runs. Go to **Settings → Secrets and variables → Actions** and add any missing secrets, or re-run `make secrets` after updating `variables.pkrvars.hcl`.
+The build workflow pre-flight check will list exactly which secrets are absent before Packer runs. Go to **Settings → Secrets and variables → Actions** and add any missing secrets.
 
 **Runner not picking up jobs**
 Check the label the runner was registered with (visible in **Settings → Actions → Runners**). If it does not match `self-hosted`, set the `RUNNER_LABEL` repository variable to the correct label. See [Setting up the runner](#setting-up-the-runner).

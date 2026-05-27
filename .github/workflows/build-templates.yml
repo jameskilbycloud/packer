@@ -246,7 +246,6 @@ jobs:
             done
             echo ""
             echo "Set them via: Settings → Secrets and variables → Actions"
-            echo "Or run: make secrets  (reads from variables.pkrvars.hcl)"
             exit 1
           fi
 

@@ -46,29 +46,45 @@ The machine running Packer must be able to reach the vCenter API (port 443) and 
 
 ```
 packer/
-├── packer.pkr.hcl                  # Plugin requirements (vsphere ≥ 2.1.2 from vmware/vsphere)
-├── variables.pkr.hcl               # All variable declarations with descriptions
-├── locals.pkr.hcl                  # Shared locals: build_date, build_timestamp
+├── packer.pkr.hcl                  # Plugin requirements (vsphere ≥ 2.1.2)
+├── variables.pkr.hcl               # All variable declarations + defaults
+├── locals.pkr.hcl                  # Shared locals: build_date, ssh_timeout
 │
-├── ubuntu-2204.pkr.hcl             # 22.04 server + desktop sources and builds
-├── ubuntu-2404.pkr.hcl             # 24.04 server + desktop sources and builds
-├── ubuntu-2604.pkr.hcl             # 26.04 server + desktop sources and builds
+├── ubuntu-2204.pkr.hcl             # 22.04 server + desktop sources
+├── ubuntu-2404.pkr.hcl             # 24.04 server + desktop sources
+├── ubuntu-2604.pkr.hcl             # 26.04 server + desktop sources
 │
 ├── templates/
-│   ├── server-user-data.pkrtpl              # Cloud-init autoinstall — Ubuntu server (22/24)
-│   ├── desktop-user-data.pkrtpl             # Cloud-init autoinstall — Ubuntu desktop (22/24)
-│   ├── server-2604-user-data.pkrtpl         # Cloud-init autoinstall — Ubuntu 26.04 server
-│   └── desktop-2604-user-data.pkrtpl        # Cloud-init autoinstall — Ubuntu 26.04 desktop
+│   ├── server-user-data.pkrtpl     # Cloud-init autoinstall (server, all versions)
+│   └── desktop-user-data.pkrtpl    # Cloud-init autoinstall (desktop, all versions)
 │
 ├── scripts/
-│   ├── upload-isos.sh              # Download Ubuntu ISOs and import to Content Library
-│   ├── setup.sh                    # Ubuntu: apt upgrade, SSH hardening
-│   ├── vmtools.sh                  # Ubuntu: verify open-vm-tools
-│   └── desktop.sh                  # Ubuntu desktop-only: ubuntu-desktop-minimal install
+│   ├── upload-isos.sh              # Download ISOs → Content Library (called by upload-isos.yml)
+│   ├── check-iso-updates.sh        # Detect new Ubuntu point releases; --apply rewrites refs
+│   ├── setup.sh                    # Post-install: upgrade, SSH hardening, host key wipe
+│   ├── finalize.sh                 # Last provisioner: remove build-time pwauth + sudoers drop-ins
+│   ├── vmtools.sh                  # Verify / install open-vm-tools
+│   ├── desktop.sh                  # Desktop-only: ubuntu-desktop-minimal install
+│   ├── goss-validate.sh            # Goss smoke runner (in-build + post-publish)
+│   ├── smoke-test.sh               # Clone just-built template, boot, re-run goss
+│   └── prune-templates.sh          # Retention policy: keep last N per (version, role)
 │
-├── variables.pkrvars.hcl.example   # Copy this → variables.pkrvars.hcl and fill in
-├── Makefile                        # Convenience build targets
-└── manifests/                      # Build manifests written here after each run
+├── goss/
+│   ├── server.yaml                 # Post-build assertions (universal)
+│   └── desktop.yaml                # Desktop-only additions (gossfile-includes server.yaml)
+│
+├── docs/
+│   └── operations.md               # Operator reference: runner, perms, workflows, troubleshooting
+│
+├── manifests/                      # Build manifests written here after each run
+│
+└── .github/workflows/
+    ├── validate.yml                # PR fmt + packer validate (ubuntu-latest)
+    ├── pre-commit.yml              # Pre-commit hooks (ubuntu-latest)
+    ├── build-templates.yml         # Packer build + post-publish smoke + prune (self-hosted)
+    ├── upload-isos.yml             # ISO uploads, manual + auto-dispatched (self-hosted)
+    ├── check-iso-updates.yml       # Mon 06:00 UTC: bump PR + auto-upload on drift
+    └── rotate-templates.yml        # 1st of month 03:00 UTC: prune all groups
 ```
 
 All `.pkr.hcl` files in the root are combined by Packer into a single build graph; the `build-templates` workflow uses `-only=` to target a specific source.
@@ -77,7 +93,7 @@ All `.pkr.hcl` files in the root are combined by Packer into a single build grap
 
 ## Deploy from scratch — GitHub-only
 
-Every step happens in the GitHub web UI, your vCenter, or a single self-hosted runner VM. No local checkout, no `make` commands, no `variables.pkrvars.hcl` on a workstation.
+Every step happens in the GitHub web UI, your vCenter, or a single self-hosted runner VM. No local checkout, no local Packer install, no credentials file on a workstation.
 
 ### Prerequisites (one-time, outside GitHub)
 
@@ -155,39 +171,19 @@ After this initial setup the pipeline runs itself:
 
 ## ISO upload in detail
 
-`scripts/upload-isos.sh` is controlled entirely by environment variables.
+Triggered from **Actions → Upload ISOs to Content Library → Run workflow**. The workflow shells out to `scripts/upload-isos.sh` on the self-hosted runner, which downloads each ISO from `releases.ubuntu.com` with SHA256 verification and imports it via `govc`. Idempotent — already-present ISOs are skipped, so it's safe to re-run after a partial failure. Also dispatched automatically by `check-iso-updates.yml` when Ubuntu publishes a new point release.
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `GOVC_URL` | yes | — | vCenter URL, e.g. `https://vcenter.example.com` |
-| `GOVC_USERNAME` | yes | — | vCenter username |
-| `GOVC_PASSWORD` | yes | — | vCenter password |
-| `GOVC_INSECURE` | no | `false` | Skip TLS verification |
-| `GOVC_DATACENTER` | yes | — | Datacenter name |
-| `LIBRARY_DATASTORE` | yes | — | Datastore to back the Content Library |
-| `CONTENT_LIBRARY` | no | `Packer-ISOs` | Content Library name to create or reuse |
-| `UBUNTU_VERSIONS` | no | `2204 2404 2604` | Space-separated versions to process |
-| `DOWNLOAD_DIR` | no | `/var/tmp/packer-isos` | Local directory for ISO downloads |
-| `KEEP_DOWNLOADS` | no | `false` | Set `true` to keep local ISOs after upload |
-| `SKIP_CHECKSUM` | no | `false` | Set `true` to skip SHA256 verification |
+**Workflow inputs (`workflow_dispatch`):**
 
-**Examples:**
+| Input | Default | Description |
+|---|---|---|
+| `ubuntu_versions` | `2204 2404 2604` | Space-separated versions to process |
+| `content_library` | `Packer-ISOs` | Content Library name to create or reuse |
+| `download_dir` | `/var/tmp/packer-isos` | Runner-side directory for ISO downloads |
+| `keep_downloads` | `false` | `true` keeps the local copy after upload (useful when uploading to multiple vCenters) |
+| `skip_checksum` | `false` | `true` skips SHA256 verification (not recommended) |
 
-```bash
-# Upload a single version
-UBUNTU_VERSIONS="2404" make upload-isos
-
-# Keep ISOs locally (useful if you need to upload to multiple vCenters)
-KEEP_DOWNLOADS=true make upload-isos
-
-# Use a custom library name
-CONTENT_LIBRARY=Ubuntu-ISOs make upload-isos
-
-# Skip checksum verification (not recommended)
-SKIP_CHECKSUM=true make upload-isos
-```
-
-The script is idempotent — if an ISO is already present in the library it is skipped, so it is safe to re-run after a partial failure.
+vCenter credentials and the Content Library backing datastore come from the GitHub Secrets you set during deploy (`VSPHERE_SERVER`, `VSPHERE_USER`, `VSPHERE_PASSWORD`, `VSPHERE_DATACENTER`, `VSPHERE_ISO_LIBRARY_DATASTORE`).
 
 ### ISO sources
 
@@ -205,7 +201,7 @@ All builds use the **live-server ISO** for both server and desktop images. The d
 
 ## Variable reference
 
-All variables are declared in `variables.pkr.hcl`. Set them in `variables.pkrvars.hcl`.
+All variables are declared in `variables.pkr.hcl`. Connection details and credentials are supplied via GitHub Secrets at workflow runtime (see [docs/operations.md → GitHub Secrets](docs/operations.md#github-secrets) for the secret-to-variable mapping). Anything not covered by a secret — typically the hardware sizing defaults below — is overridden by editing the default in `variables.pkr.hcl` directly (via the GitHub web editor or a PR).
 
 ### vSphere connection
 
@@ -416,12 +412,18 @@ Or to add a separate `/data` partition, use the full `storage` config syntax doc
 
 ### Adjusting VM hardware
 
-Override any of the hardware variables in `variables.pkrvars.hcl`:
+Edit the defaults in [`variables.pkr.hcl`](variables.pkr.hcl) directly — via the GitHub web editor (pencil icon → commit) or a PR. The `build-templates` workflow uses these defaults as-is; there is no separate hardware overrides file.
 
 ```hcl
-server_cpu_count = 4
-server_ram_mb    = 4096
-server_disk_gb   = 80
+variable "server_cpu_count" {
+  default = 4
+}
+variable "server_ram_mb" {
+  default = 4096
+}
+variable "server_disk_gb" {
+  default = 80
+}
 ```
 
 ### Storing templates in a Content Library
@@ -455,7 +457,7 @@ Key anchors:
 
 ## Security notes
 
-- `variables.pkrvars.hcl` contains credentials — never commit it. The `.gitignore` entry is set up in the quick start.
-- The build user is granted passwordless sudo during the build. `setup.sh` does **not** remove this — if you want to lock it down in the final template, add a `late-commands` step or a provisioner that removes `/etc/sudoers.d/90-packer-${build_username}`.
+- Credentials live in GitHub Secrets, never in the repo. `.gitignore` covers `*.pkrvars.hcl` as a belt-and-braces guard in case anyone ever creates a local vars file for ad-hoc testing.
+- The build user gets passwordless sudo and SSH password auth during the build (needed for Packer's provisioners). `scripts/finalize.sh` runs as the last provisioner and removes both — `/etc/sudoers.d/90-packer-${build_username}` and `/etc/ssh/sshd_config.d/10-packer-pwauth.conf` — before Packer converts the VM to a template. Clones therefore require pubkey SSH and password-prompted sudo, matching Ubuntu 22.04+ defaults. The goss specs assert both files are absent post-finalize so a regression here would fail the build.
 - SSH host keys are wiped by `setup.sh` and regenerated on the first boot of each cloned VM by a oneshot systemd unit (`ssh-host-keygen.service`) that runs before `ssh.socket` and `ssh.service`, then disables itself. This works around the fact that 22.04+ socket-activated SSH never triggers the stock `ssh-keygen@.service`.
 - Cloud-init is neutralised on cloned VMs via `/etc/cloud/cloud.cfg.d/99-packer.cfg` containing `datasource_list: [None]` (a no-op datasource). Cloud-init's systemd units still run but do nothing — they are intentionally **not** disabled because cloud-init's boot units are in the dependency chain on 24.04 and disabling them breaks networking. To re-enable cloud-init in your deployment workflow, remove that file.

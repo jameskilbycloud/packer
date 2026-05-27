@@ -1,19 +1,13 @@
 # =============================================================================
 # Ubuntu 26.04 LTS (Plucky Puffin) — Server & Desktop
 # =============================================================================
-# NOTE: Ubuntu 26.04 was released in April 2026. Update ubuntu_2604_iso_path
-# in your .pkrvars.hcl once you have downloaded the final ISO.
-#
 # Server + desktop are defined as two sources inside a single `build {}` block,
-# which lets Packer run them in parallel from one runner. Cap concurrency with
-# `-parallel-builds=N` so vSphere isn't overwhelmed.
-#
-# Run server + desktop in parallel (one Packer process):
-#   packer build -var-file=variables.pkrvars.hcl -parallel-builds=2 -only='ubuntu-2604.*' .
-#
-# Run a single source:
-#   packer build -var-file=variables.pkrvars.hcl -only='ubuntu-2604.vsphere-iso.ubuntu-2604-server'  .
-#   packer build -var-file=variables.pkrvars.hcl -only='ubuntu-2604.vsphere-iso.ubuntu-2604-desktop' .
+# which lets Packer run them in parallel from one runner. The build workflow
+# uses `-parallel-builds=2` for combined runs and a `-only` glob to select the
+# source(s) to build (e.g. `ubuntu-2604.*` for both, or
+# `ubuntu-2604.vsphere-iso.ubuntu-2604-server` for one). See
+# .github/workflows/build-templates.yml for the exact invocation. The ISO
+# filename is kept current automatically by check-iso-updates.yml.
 # =============================================================================
 
 # ── Ubuntu 26.04 Server ───────────────────────────────────────────────────────
