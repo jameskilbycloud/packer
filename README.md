@@ -71,13 +71,13 @@ packer/
 └── manifests/                      # Build manifests written here after each run
 ```
 
-All `.pkr.hcl` files in the root are combined by Packer into a single build graph. Use `-only=` to target a specific build (see [Running builds locally](#running-builds-locally)).
+All `.pkr.hcl` files in the root are combined by Packer into a single build graph; the `build-templates` workflow uses `-only=` to target a specific source.
 
 ---
 
 ## Deploy from scratch — GitHub-only
 
-This is the primary path: every step happens in the GitHub web UI, your vCenter, or a single self-hosted runner VM. No local checkout, no `make` commands, no `variables.pkrvars.hcl` on a workstation. (Local builds are still supported for development — see [Running builds locally](#running-builds-locally).)
+Every step happens in the GitHub web UI, your vCenter, or a single self-hosted runner VM. No local checkout, no `make` commands, no `variables.pkrvars.hcl` on a workstation.
 
 ### Prerequisites (one-time, outside GitHub)
 
@@ -270,67 +270,6 @@ All variables are declared in `variables.pkr.hcl`. Set them in `variables.pkrvar
 | `ubuntu_2604_iso_path` | `ISOs/ubuntu-26.04-live-server-amd64.iso` | As above for 26.04 |
 
 **Datastore vs Content Library:** the `vsphere_iso_datastore` variable accepts either a datastore name or a Content Library name — the vSphere bracket notation `[name]` works identically for both. When pointing at a Content Library, the ISO path should be just the filename with no subfolder prefix.
-
----
-
-## Running builds locally
-
-For development work — testing template changes without going through CI, or building when you don't yet have a self-hosted runner — the same Packer commands run on any workstation with `packer` and `govc` on PATH. The [Deploy from scratch](#deploy-from-scratch--github-only) path above is recommended for production use.
-
-**One-time local setup** (skip if you're using the GitHub-only path):
-
-```bash
-make init                                              # downloads the vsphere plugin
-cp variables.pkrvars.hcl.example variables.pkrvars.hcl # copy + fill in your values
-openssl passwd -6 'YourBuildPassword'                  # paste output into build_password_encrypted
-```
-
-`variables.pkrvars.hcl` contains credentials and is covered by `.gitignore` — never commit it.
-
-All builds are run from the repository root. Packer combines every `.pkr.hcl` file in the directory; use `-only=` to target a specific source.
-
-### Via Makefile (recommended)
-
-```bash
-make 2204-server     # Ubuntu 22.04 Server
-make 2204-desktop    # Ubuntu 22.04 Desktop
-make 2404-server     # Ubuntu 24.04 Server
-make 2404-desktop    # Ubuntu 24.04 Desktop
-make 2604-server     # Ubuntu 26.04 Server
-make 2604-desktop    # Ubuntu 26.04 Desktop
-
-make 2204            # Both 22.04 images
-make 2404            # Both 24.04 images
-make 2604            # Both 26.04 images
-make build-all       # All Ubuntu images (sequential)
-```
-
-### Via Packer directly
-
-Packer's `-only` flag requires the full `<build-label>.<source-type>.<source-name>` reference. Use a glob to avoid hard-coding the build label:
-
-```bash
-packer build -var-file=variables.pkrvars.hcl -only='*.vsphere-iso.ubuntu-2404-server' .
-```
-
-### Useful flags
-
-```bash
-# Validate without building
-packer validate -var-file=variables.pkrvars.hcl .
-
-# Enable debug output
-PACKER_LOG=1 packer build -var-file=variables.pkrvars.hcl -only='*.vsphere-iso.ubuntu-2404-server' .
-
-# Destroy the VM on failure instead of leaving it running
-packer build -on-error=cleanup -var-file=variables.pkrvars.hcl .
-```
-
-### Build outputs
-
-Each build produces:
-- A **vSphere template** in the folder specified by `vsphere_folder`, named `ubuntu-<version>-<type>-<YYYYMMDD>` (e.g. `ubuntu-2404-server-20260429`)
-- A **manifest JSON** in `manifests/` recording the template name and build metadata
 
 ---
 
