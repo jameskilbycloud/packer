@@ -265,8 +265,8 @@ Threaded into the autoinstall user-data at render time, so they apply to every c
 
 | Variable | Default | Description |
 |---|---|---|
-| `locale` | `en_US.UTF-8` | System locale (LANG / LC_*). Examples: `en_GB.UTF-8`, `de_DE.UTF-8`, `fr_FR.UTF-8`. Must be a locale Ubuntu's autoinstall accepts — check `locale -a` on any Ubuntu host for valid values. |
-| `keyboard_layout` | `us` | Keyboard layout code mapped to subiquity's `keyboard.layout`. Examples: `gb`, `de`, `fr`, `es`. See `localectl list-keymaps` for valid values. |
+| `locale` | `en_GB.UTF-8` | System locale (LANG / LC_*). Examples: `en_US.UTF-8`, `de_DE.UTF-8`, `fr_FR.UTF-8`. Must be a locale Ubuntu's autoinstall accepts — check `locale -a` on any Ubuntu host for valid values. |
+| `keyboard_layout` | `gb` | Keyboard layout code mapped to subiquity's `keyboard.layout`. Examples: `us`, `de`, `fr`, `es`. See `localectl list-keymaps` for valid values. |
 | `timezone` | `Europe/London` | IANA timezone name, e.g. `America/New_York`, `Asia/Tokyo`. Sets `/etc/localtime` and `/etc/timezone` in the installed OS. |
 
 ### ISO paths
