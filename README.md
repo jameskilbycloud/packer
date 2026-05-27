@@ -71,77 +71,85 @@ packer/
 └── manifests/                      # Build manifests written here after each run
 ```
 
-All `.pkr.hcl` files in the root are combined by Packer into a single build graph. Use `-only=` to target a specific build (see [Running builds](#running-builds)).
+All `.pkr.hcl` files in the root are combined by Packer into a single build graph. Use `-only=` to target a specific build (see [Running builds locally](#running-builds-locally)).
 
 ---
 
-## Quick start
+## Deploy from scratch — GitHub-only
 
-### 1. Install the vSphere plugin
+This is the primary path: every step happens in the GitHub web UI, your vCenter, or a single self-hosted runner VM. No local checkout, no `make` commands, no `variables.pkrvars.hcl` on a workstation. (Local builds are still supported for development — see [Running builds locally](#running-builds-locally).)
 
-```bash
-make init
-# equivalent to: packer init .
-```
+### Prerequisites (one-time, outside GitHub)
 
-### 2. Configure your variables
+Two things must exist before GitHub can drive the pipeline:
 
-```bash
-cp variables.pkrvars.hcl.example variables.pkrvars.hcl
-```
+1. **A dedicated vCenter SSO user** (e.g. `packer@vsphere.local`) with the privileges listed in [docs/operations.md → vSphere](docs/operations.md#vsphere). `Administrator` works for first-time setup; the minimum role is more restrictive.
+2. **A small Ubuntu VM inside your vSphere network** that will host the GitHub self-hosted runner. The runner dials *out* to GitHub on port 443 — no inbound firewall rules needed.
 
-Edit `variables.pkrvars.hcl` with your vSphere details and credentials. See [Variable reference](#variable-reference) for every option.
+### 1. Fork the repo
 
-> **Important:** `variables.pkrvars.hcl` contains credentials and must never be committed. The `.gitignore` already covers `*.pkrvars.hcl` so the file is ignored automatically — no extra steps needed.
+Click **Fork** on github.com. The workflows ship with the repo so they're enabled immediately on your copy.
 
-### 3. Generate the build password hash
+### 2. Enable GitHub Actions permissions
 
-The autoinstall user-data requires a SHA-512 hashed password. Generate one and paste it into `variables.pkrvars.hcl`:
+**Settings → Actions → General → Workflow permissions:**
+
+- Set to **Read and write permissions**
+- Tick **Allow GitHub Actions to create and approve pull requests**
+
+Without these, `check-iso-updates` can't open the weekly bump PR or auto-dispatch the upload. See [docs/operations.md → GitHub Actions permissions](docs/operations.md#github-actions) for the per-workflow detail.
+
+### 3. Register the self-hosted runner
+
+**Settings → Actions → Runners → New self-hosted runner.** GitHub displays a setup script — paste it into a terminal on the runner VM from the prerequisites.
+
+For zero-sudo operation, also pre-install `packer`, `xorriso`, and `govc` as root one time on the runner. The exact commands are in [docs/operations.md → Setting up the runner](docs/operations.md#setting-up-the-runner). The workflows skip the install steps if these binaries are already on PATH.
+
+### 4. Add repository secrets
+
+**Settings → Secrets and variables → Actions → New repository secret.** Paste each value. The full reference (every secret + which workflow uses it) is in [docs/operations.md → GitHub Secrets](docs/operations.md#github-secrets). Minimum:
+
+| Category | Secrets |
+|---|---|
+| vCenter connection | `VSPHERE_SERVER`, `VSPHERE_USER`, `VSPHERE_PASSWORD`, `VSPHERE_DATACENTER`, `VSPHERE_CLUSTER` (or `VSPHERE_HOST`), `VSPHERE_DATASTORE`, `VSPHERE_NETWORK`, `VSPHERE_FOLDER`, `VSPHERE_ISO_LIBRARY_DATASTORE` |
+| Build credentials | `BUILD_USERNAME`, `BUILD_PASSWORD`, `BUILD_PASSWORD_ENCRYPTED` |
+
+For `BUILD_PASSWORD_ENCRYPTED` you need a SHA-512 hash. Generate it on the runner VM (or any Linux shell — Codespace, WSL, an existing server):
 
 ```bash
 openssl passwd -6 'YourBuildPassword'
 ```
 
-Set both fields in the vars file:
+Paste the `$6$…` output into the secret value field.
 
-```hcl
-build_password           = "YourBuildPassword"       # plaintext — for SSH connection
-build_password_encrypted = "$6$salt$hash..."          # output of openssl passwd -6
-```
+### 5. Add repository variables (optional)
 
-### 4. Upload ISOs to vSphere
+**Settings → Secrets and variables → Actions → Variables tab:**
 
-Set your govc environment and run the upload script:
+| Variable | Default | Purpose |
+|---|---|---|
+| `CONTENT_LIBRARY` | `Packer-ISOs` | Content Library name |
+| `RUNNER_LABEL` | `self-hosted` | Override if you registered the runner with a custom label |
+| `TEMPLATE_RETENTION_COUNT` | `2` | Templates kept per `(version, role)` after prune |
+| `TEMPLATE_PRUNE_DRY_RUN` | `false` | Set `true` to preview destroy plans before the first real prune |
 
-```bash
-export GOVC_URL="https://vcenter.example.com"
-export GOVC_USERNAME="administrator@vsphere.local"
-export GOVC_PASSWORD="secret"
-export GOVC_DATACENTER="Datacenter"
-export LIBRARY_DATASTORE="datastore1"
+### 6. Seed the Content Library with ISOs
 
-make upload-isos
-```
+**Actions → Upload ISOs to Content Library → Run workflow.** Default `ubuntu_versions` is `2204 2404 2604`. Takes roughly 10–20 minutes per ISO depending on bandwidth. The workflow creates the Content Library if it doesn't exist, downloads each ISO with SHA256 verification, and imports it.
 
-The script creates a Content Library called `Packer-ISOs` (configurable), downloads each ISO with checksum verification, and imports it. It prints the exact variable values to copy into your vars file when done.
+### 7. Trigger your first build
 
-See [ISO upload in detail](#iso-upload-in-detail) for all options.
+**Actions → Build Packer Templates → Run workflow.** Pick `2404-server` (or any single target) for a quick first smoke. Expect roughly 25 minutes wall-clock for a server build, plus another 5 for the post-publish smoke test.
 
-### 5. Validate
+After this initial setup the pipeline runs itself:
 
-```bash
-make validate
-```
-
-### 6. Build
-
-```bash
-# Build one image
-make 2404-server
-
-# Build all six images (sequential)
-make build-all
-```
+| When | What |
+|---|---|
+| Sundays 02:00 UTC | Rebuild every template, picking up the latest security patches |
+| Mondays 06:00 UTC | Check Ubuntu for new ISO point releases; open a bump PR + dispatch the upload if drift is found |
+| 1st of each month 03:00 UTC | Prune old templates per the retention policy |
+| Every PR | `packer fmt` + `packer validate` + pre-commit hooks |
+| Every successful build | Goss smoke test against a freshly-cloned template |
 
 ---
 
@@ -265,7 +273,19 @@ All variables are declared in `variables.pkr.hcl`. Set them in `variables.pkrvar
 
 ---
 
-## Running builds
+## Running builds locally
+
+For development work — testing template changes without going through CI, or building when you don't yet have a self-hosted runner — the same Packer commands run on any workstation with `packer` and `govc` on PATH. The [Deploy from scratch](#deploy-from-scratch--github-only) path above is recommended for production use.
+
+**One-time local setup** (skip if you're using the GitHub-only path):
+
+```bash
+make init                                              # downloads the vsphere plugin
+cp variables.pkrvars.hcl.example variables.pkrvars.hcl # copy + fill in your values
+openssl passwd -6 'YourBuildPassword'                  # paste output into build_password_encrypted
+```
+
+`variables.pkrvars.hcl` contains credentials and is covered by `.gitignore` — never commit it.
 
 All builds are run from the repository root. Packer combines every `.pkr.hcl` file in the directory; use `-only=` to target a specific source.
 
@@ -481,17 +501,16 @@ content_library_destination {
 
 ## Operations
 
-Day-to-day operation runs from GitHub Actions: PRs validate, scheduled crons rebuild and rotate, a post-publish smoke job exercises every new template, and a weekly check opens a PR when Ubuntu releases a new point ISO.
+The full operator reference — self-hosted runner setup, per-workflow detail, required vSphere + GitHub Actions permissions, build lifecycle (smoke + retention), and troubleshooting — lives in **[docs/operations.md](docs/operations.md)**.
 
-The full operator reference — self-hosted runner setup, required vSphere + GitHub Actions permissions, per-workflow detail, build lifecycle, and troubleshooting — lives in **[docs/operations.md](docs/operations.md)**.
+Key anchors:
 
-After completing the [Quick start](#quick-start) above, the typical setup path is:
-
-1. Register a self-hosted runner — see [Why a self-hosted runner](docs/operations.md#why-a-self-hosted-runner) and [Setting up the runner](docs/operations.md#setting-up-the-runner).
-2. Grant the Packer service account the [required vCenter privileges](docs/operations.md#vsphere) and enable the [GitHub Actions toggles](docs/operations.md#github-actions).
-3. Populate secrets with `make secrets` — see [GitHub Secrets](docs/operations.md#github-secrets).
-4. Trigger `upload-isos.yml` once to seed the Content Library.
-5. Trigger your first build from the Actions tab.
+- [Setting up the runner](docs/operations.md#setting-up-the-runner) — pre-install commands for zero-sudo operation
+- [Required vSphere privileges](docs/operations.md#vsphere) and [GitHub Actions permissions](docs/operations.md#github-actions)
+- [GitHub Secrets reference](docs/operations.md#github-secrets) — every secret + which workflow uses it
+- [Workflow: build-templates](docs/operations.md#workflow-build-templates) and [Post-publish smoke test](docs/operations.md#post-publish-smoke-test)
+- [Template lifecycle](docs/operations.md#template-lifecycle) — retention policy + the standalone rotation workflow
+- [Troubleshooting](docs/operations.md#troubleshooting)
 
 ---
 
