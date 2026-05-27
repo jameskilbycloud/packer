@@ -66,11 +66,12 @@ sudo ./svc.sh install
 sudo ./svc.sh start
 ```
 
-4. **Pre-install the workflow dependencies as root**, one time, so the runner user does *not* need sudo for normal operation. The workflow steps `Install Packer`, `Install xorriso`, and `Install govc` all check `command -v` first and skip the install if the tool is already on PATH. `gh` is also required (used by `check-iso-updates` to open the bump PR and dispatch the upload).
+4. **Pre-install the workflow dependencies as root**, one time, so the runner user does *not* need sudo for normal operation. The workflow steps `Install Packer`, `Install xorriso`, `Install govc`, and `Install pre-commit` all check `command -v` first and skip if the tool is already on PATH. `gh` is also required (used by `check-iso-updates` to open the bump PR and dispatch the upload).
 
    ```bash
    # As root (or via interactive sudo, one-time)
-   apt-get update && apt-get install -y xorriso curl python3 git perl unzip openssh-client
+   apt-get update && apt-get install -y \
+     xorriso curl python3 git perl unzip openssh-client pre-commit
    # gh CLI (used by check-iso-updates to open the bump PR + dispatch upload)
    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
      | gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg
@@ -88,6 +89,8 @@ sudo ./svc.sh start
    curl -fsSL "https://github.com/vmware/govmomi/releases/download/${GOVC_VERSION}/govc_Linux_x86_64.tar.gz" \
      | tar -xzf - -C /usr/local/bin govc
    ```
+
+   > **Note on Ubuntu 26.04 runners:** `actions/setup-python` is intentionally **not** used by any workflow because as of writing, upstream `actions/python-versions` doesn't yet publish 26.04 binaries — `version '3.x' ... was not found for Ubuntu 26.04`. The pre-commit workflow uses the runner's system `python3` directly. Pre-installing `pre-commit` as above means it never has to `pip install` at job time.
 
    With these in place, the runner user only needs its own home directory and the GitHub Actions runner agent — no `sudoers` entry, no privilege escalation. This dramatically reduces the runner's blast radius if a workflow is ever compromised.
 

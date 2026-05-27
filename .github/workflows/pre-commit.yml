@@ -62,14 +62,33 @@ jobs:
           rm /tmp/packer.zip
           packer version
 
-      - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: '3.x'
+      # ── Install pre-commit (idempotent) ──────────────────────────────────────
+      # Prefer the runner's system pre-commit (apt-installed per
+      # docs/operations.md). Fall back to a per-user pip install so the
+      # workflow still passes on a stock runner.
+      #
+      # We deliberately do NOT use actions/setup-python here: as of Ubuntu
+      # 26.04 the upstream actions/python-versions catalogue does not yet
+      # publish a 26.04 build, and setup-python errors out with
+      # "version 3.x ... was not found for Ubuntu 26.04". The runner's
+      # system python3 is what we actually want anyway.
+      - name: Install pre-commit
+        run: |
+          if command -v pre-commit &>/dev/null; then
+            echo "pre-commit already installed: $(pre-commit --version)"
+            exit 0
+          fi
+          echo "pre-commit not pre-installed; doing a per-user pip install."
+          # --break-system-packages is required on PEP 668 distros (Ubuntu
+          # 23.04+). It only affects the runner user's site-packages, not
+          # the system Python.
+          python3 -m pip install --user --break-system-packages pre-commit
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+          "${HOME}/.local/bin/pre-commit" --version
 
       # ── Run pre-commit ───────────────────────────────────────────────────────
-      # The official pre-commit/action runs the hooks defined in
-      # .pre-commit-config.yaml against the changed files (on PR) or the
-      # full repo (on push to main / manual runs).
+      # Runs the hooks defined in .pre-commit-config.yaml against the full
+      # tree. Mirrors what a contributor gets from `pre-commit run --all-files`
+      # locally, but enforced server-side so it can't be skipped.
       - name: Run pre-commit
-        uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
+        run: pre-commit run --show-diff-on-failure --color=always --all-files
