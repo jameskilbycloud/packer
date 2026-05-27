@@ -197,6 +197,93 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - New `.github/workflows/pre-commit.yml` workflow runs the same hook set
   on every PR via `pre-commit/action@v3.0.1`, so PRs are checked even if
   the contributor didn't `pre-commit install` locally.
+- **Post-publish smoke test job** in `build-templates.yml`. After every
+  successful build the new `smoke` job (one matrix entry per template)
+  clones the just-built template, powers it on, injects an ephemeral
+  ed25519 pubkey via the VMware Tools Guest Operations API (since
+  `finalize.sh` disables SSH password auth on the template), SSHes in,
+  re-runs `goss-validate.sh` against the spec under `sudo`, then
+  destroys the clone in an `EXIT` trap. Closes the regression-class gap
+  that the in-build goss can't see — first-boot oneshot ordering,
+  cloud-init neutralisation breakage, open-vm-tools surviving the
+  template conversion. A smoke failure marks the workflow run red.
+  Implementation: `scripts/smoke-test.sh`.
+- **`check-iso-updates.yml` workflow.** Weekly cron on Monday 06:00 UTC
+  (plus manual dispatch). Compares the live-server ISO filename
+  hardcoded in `scripts/upload-isos.sh` against the latest filename in
+  `releases.ubuntu.com/<v>/SHA256SUMS`; on drift, rewrites every
+  reference across tracked files via `git grep -l` + `perl -i`, pushes
+  an `iso-bump-YYYYMMDD` branch, opens a PR with a summary table, and
+  dispatches `upload-isos.yml` against the new branch so the ISO lands
+  in the Content Library before merge. Detection runs on
+  `ubuntu-latest` (single `curl` per version — no vSphere contact
+  needed). Implementation: `scripts/check-iso-updates.sh`.
+- **`rotate-templates.yml` workflow.** Monthly cron on the 1st at 03:00
+  UTC (plus manual dispatch with `retain` / `name_pattern` / `dry_run`
+  inputs). Prunes every `(version, role)` group in one pass,
+  independent of the build cadence so old templates are removed even
+  during quiet weeks. Shares the `packer-build` concurrency group with
+  `build-templates.yml` so a scheduled rotation queues behind any
+  in-flight build. The pruning logic was extracted from the in-build
+  step into `scripts/prune-templates.sh` so both call sites share one
+  implementation.
+- **Packer plugin cache in `validate.yml`** via `actions/cache@v4`
+  keyed on `hashFiles('packer.pkr.hcl')`. On cache hit `packer init`
+  is a near no-op (~5 s saved per PR validation).
+- **Status badges** at the top of the README for all five workflows
+  (`build-templates`, `validate`, `pre-commit`, `check-iso-updates`,
+  `rotate-templates`).
+- **`docs/operations.md`** — operator reference split out of the
+  README. Covers self-hosted runner setup, required vSphere + GitHub
+  Actions permissions, per-workflow detail, build lifecycle (smoke +
+  retention), and troubleshooting. README is now focused on quick
+  reference + the GitHub-only deploy path; deep operator material
+  lives in the new doc.
+- **`CODE_OF_CONDUCT.md`** (Contributor Covenant 2.1) — required-ish
+  for a polished public repo.
+
+### Changed
+
+- **README rewritten around a "Deploy from scratch — GitHub-only" path.**
+  Replaces the previous six-step local-flavoured Quick start (`make
+  init`, edit `pkrvars.hcl`, `openssl passwd`, `make upload-isos`,
+  `make validate`, `make build`) with a seven-step GitHub web UI flow
+  covering fork, Actions permissions, runner registration, secrets,
+  optional variables, ISO seed, first build. Calls out the two genuine
+  prerequisites outside GitHub (vCenter user + privileges, runner VM)
+  up front. The local-build commands move to a "Running builds
+  locally" section further down the doc, framed as the development
+  alternative rather than the primary path.
+- **Default template retention dropped from 4 to 2** (current + one
+  rollback target). Configurable via the `TEMPLATE_RETENTION_COUNT`
+  repository variable.
+- **In-build prune step refactored to call the shared
+  `scripts/prune-templates.sh`** rather than duplicating the logic
+  inline in `build-templates.yml`.
+
+### Fixed
+
+- **`prune-templates.sh` no longer crashes on empty `by_group`** under
+  `set -u`. When every matched VM is a non-template (typically a
+  mid-build WIP from an in-flight run), the script now exits cleanly
+  with "no templates to prune" rather than aborting with
+  `by_group: unbound variable`. Tracks non-emptiness via an explicit
+  sentinel counter so `${#assoc[@]}` / `${!assoc[@]}` is never invoked
+  on a potentially-empty associative array. Also distinguishes
+  "vm.info returned nothing" from "really not a template" in the skip
+  log so an inspector can tell which case applies.
+
+### Removed
+
+- **`draft-post-review.md`** and **`build-monitor-status.md`** (repo
+  root). Internal scratch files — a blog-post review and a Cowork
+  session status report — that weren't referenced from anywhere.
+- **`feature/windows-support`** remote branch (0 ahead of main, 46
+  behind — no unique content).
+- **`feat/windows-templates`** remote branch. Its one commit
+  (`2be77c2` "kill unattended-upgrades in early-commands before
+  desktop install") was already on main via the squashed commit
+  `8334922` ("fix desktop unattended-upgrades deadlock").
 
 ## [1.0.0] — 2026-05-10
 
