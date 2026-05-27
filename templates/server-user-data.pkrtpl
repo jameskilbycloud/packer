@@ -3,9 +3,9 @@ autoinstall:
   version: 1
 
   # ── Locale / Keyboard ─────────────────────────────────────────────────────
-  locale: en_US.UTF-8
+  locale: ${locale}
   keyboard:
-    layout: us
+    layout: ${keyboard_layout}
     variant: ''
 
   # ── Early commands ────────────────────────────────────────────────────────

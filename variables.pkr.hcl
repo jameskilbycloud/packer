@@ -187,6 +187,18 @@ variable "timezone" {
   default     = "Europe/London"
 }
 
+variable "locale" {
+  type        = string
+  description = "System locale (LANG / LC_*) — e.g. en_US.UTF-8, en_GB.UTF-8, de_DE.UTF-8. Must be a locale Ubuntu's autoinstall accepts; check `locale -a` on any Ubuntu host for valid values."
+  default     = "en_US.UTF-8"
+}
+
+variable "keyboard_layout" {
+  type        = string
+  description = "Keyboard layout code — e.g. `us`, `gb`, `de`, `fr`. Matches subiquity's `keyboard.layout` field; see `localectl list-keymaps` for valid values."
+  default     = "us"
+}
+
 # =============================================================================
 # ISO Paths (relative to vsphere_iso_datastore)
 # =============================================================================

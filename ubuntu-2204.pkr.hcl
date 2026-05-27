@@ -70,6 +70,8 @@ source "vsphere-iso" "ubuntu-2204-server" {
       build_password_encrypted  = var.build_password_encrypted
       build_ssh_authorized_keys = var.build_ssh_authorized_keys
       timezone                  = var.timezone
+      locale                    = var.locale
+      keyboard_layout           = var.keyboard_layout
     })
   }
   cd_label = "cidata"
@@ -169,6 +171,8 @@ source "vsphere-iso" "ubuntu-2204-desktop" {
       build_password_encrypted  = var.build_password_encrypted
       build_ssh_authorized_keys = var.build_ssh_authorized_keys
       timezone                  = var.timezone
+      locale                    = var.locale
+      keyboard_layout           = var.keyboard_layout
     })
   }
   cd_label = "cidata"
