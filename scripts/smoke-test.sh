@@ -51,7 +51,7 @@ export GOVC_INSECURE="${GOVC_INSECURE:-false}"
 
 VSPHERE_FOLDER="${VSPHERE_FOLDER:-packer}"
 SMOKE_TIMEOUT_SECONDS="${SMOKE_TIMEOUT_SECONDS:-600}"
-SSH_TIMEOUT_SECONDS="${SSH_TIMEOUT_SECONDS:-180}"
+SSH_TIMEOUT_SECONDS="${SSH_TIMEOUT_SECONDS:-240}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GOSS_SPEC_ABS="$(cd "$(dirname "${GOSS_SPEC}")" && pwd)/$(basename "${GOSS_SPEC}")"
@@ -196,6 +196,55 @@ while [[ $(date +%s) -lt ${ssh_deadline} ]]; do
 done
 if [[ "${ssh_up}" != "true" ]]; then
   echo "❌ SSH on ${ip}:22 not reachable within ${SSH_TIMEOUT_SECONDS}s"
+  echo ""
+  echo "==> Diagnostic dump via VMware Tools guest.run (no SSH needed):"
+  # Use guest.run to query systemd state directly on the clone. If this
+  # works, we can tell whether ssh.* units are running, whether the
+  # first-boot oneshots fired, and what failed. Wraps everything in
+  # `|| true` so a guest.run failure here doesn't mask the original
+  # SSH-timeout exit.
+  diag_script='
+    set +e
+    echo "--- uname ---"
+    uname -a
+    echo
+    echo "--- hostname ---"
+    hostname
+    cat /etc/hostname
+    echo
+    echo "--- systemctl is-system-running ---"
+    systemctl is-system-running --wait=false 2>&1 | head -3
+    echo
+    echo "--- ssh / ssh-host-keygen / firstboot-hostname service state ---"
+    for u in ssh.service ssh.socket sshd.service ssh-host-keygen.service firstboot-hostname.service; do
+      printf "%-40s  " "$u"
+      systemctl is-active "$u" 2>&1
+    done
+    echo
+    echo "--- listening tcp sockets ---"
+    ss -lntp 2>&1 | head -20 || netstat -lntp 2>&1 | head -20
+    echo
+    echo "--- /etc/ssh/ssh_host_*_key ---"
+    ls -l /etc/ssh/ssh_host_*_key 2>&1 | head -10
+    echo
+    echo "--- /var/lib/packer-firstboot ---"
+    ls -la /var/lib/packer-firstboot/ 2>&1 | head -10
+    echo
+    echo "--- journalctl: firstboot-hostname ---"
+    journalctl -u firstboot-hostname --no-pager 2>&1 | tail -30
+    echo
+    echo "--- journalctl: ssh-host-keygen ---"
+    journalctl -u ssh-host-keygen --no-pager 2>&1 | tail -30
+    echo
+    echo "--- journalctl: ssh.service ---"
+    journalctl -u ssh.service --no-pager 2>&1 | tail -30
+    echo
+    echo "--- failed units ---"
+    systemctl --failed --no-pager 2>&1 | head -30
+  '
+  govc guest.run "${guest_auth[@]}" -- /bin/sh -c "${diag_script}" 2>&1 \
+    | sed 's/^/   /' || echo "   (guest.run diagnostic itself failed)"
+  echo ""
   exit 1
 fi
 
