@@ -125,7 +125,14 @@ cat > /usr/local/sbin/firstboot-hostname.sh << 'SCRIPT'
 # ConditionPathExists guard.
 set -euo pipefail
 
-current=$(hostnamectl --static)
+# Read /etc/hostname directly instead of `hostnamectl --static`. hostnamectl
+# is a D-Bus client and this unit fires before network.target / dbus is
+# guaranteed up at that early-boot point. The previous version exited
+# non-zero at this line on every clone, `set -e` aborted before the
+# sentinel touch + ExecStartPost=disable, and the unit stayed enabled
+# forever with no clone ever getting a unique hostname.
+current=$(cat /etc/hostname 2>/dev/null || hostname -s 2>/dev/null || echo "ubuntu")
+current="${current// /}"  # trim any whitespace
 uuid_file="/sys/class/dmi/id/product_uuid"
 
 if [[ ! -r "${uuid_file}" ]]; then
@@ -151,7 +158,12 @@ if [[ "${current}" == "${new}" ]]; then
 fi
 
 echo "firstboot-hostname: ${current} -> ${new}"
-hostnamectl set-hostname "${new}"
+# Write /etc/hostname directly and update the running kernel hostname with
+# the `hostname` syscall, both of which work without D-Bus / systemd-hostnamed.
+# Equivalent to `hostnamectl set-hostname` end-state-wise: /etc/hostname is
+# the source of truth at next boot, and `hostname` sets the live value now.
+echo "${new}" > /etc/hostname
+hostname "${new}"
 
 # Update /etc/hosts so loopback resolution matches the new hostname.
 if grep -qE '^127\.0\.1\.1[[:space:]]' /etc/hosts; then
