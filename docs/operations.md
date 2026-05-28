@@ -66,7 +66,7 @@ sudo ./svc.sh install
 sudo ./svc.sh start
 ```
 
-4. **Pre-install the workflow dependencies as root**, one time, so the runner user does *not* need sudo for normal operation. The workflow steps `Install Packer`, `Install xorriso`, `Install govc`, and `Install pre-commit` all check `command -v` first and skip if the tool is already on PATH. `gh` is also required (used by `check-iso-updates` to open the bump PR and dispatch the upload).
+4. **Pre-install the workflow dependencies as root**, one time, so the runner user does *not* need sudo for normal operation. The workflow steps `Install Packer`, `Install xorriso`, `Install govc`, and `Install pre-commit` all check `command -v` first and skip if the tool is already on PATH. `gh` is also required (used by `check-iso-updates` to open the bump PR and dispatch the upload). `cloud-init` is required by the user-data lint step in `validate.yml` — it provides the `cloud-init schema` CLI.
 
    Become root first with `sudo -i` and paste the block, **or** prefix every line with `sudo`. Mixing `sudo apt-get update && apt-get install …` will fail with `Could not open lock file /var/lib/dpkg/lock-frontend` because the chained `&&` only carries sudo across to the first command.
 
@@ -76,7 +76,7 @@ sudo ./svc.sh start
    # System packages
    apt-get update
    apt-get install -y \
-     xorriso curl python3 git perl unzip openssh-client pre-commit
+     xorriso curl python3 git perl unzip openssh-client pre-commit cloud-init
 
    # gh CLI (used by check-iso-updates to open the bump PR + dispatch upload)
    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -220,6 +220,7 @@ Add each secret via **Settings → Secrets and variables → Actions → New rep
 1. Installs Packer and downloads the vsphere plugin (`packer init`)
 2. Runs `packer fmt --check` — fails the PR if any file needs reformatting (fix with `packer fmt .` locally)
 3. Runs `packer validate` against all six builds — catches undefined variables, bad HCL, and broken `templatefile()` references before anything reaches main
+4. Runs [`scripts/lint-user-data.sh`](../scripts/lint-user-data.sh) — renders each `templates/*-user-data.pkrtpl` with placeholder values and pipes the result through `cloud-init schema --config-file -`. `packer validate` treats the user-data body as opaque text; this step catches malformed cloud-config, un-nested netplan, bad `early-commands` / `late-commands` shapes, etc. without needing a real Packer build to expose them.
 
 This gives fast feedback (typically under 2 minutes) on every PR with no infrastructure cost. The vsphere Packer plugin is cached via `actions/cache@v4` keyed on the hash of `packer.pkr.hcl` so `packer init` is a near no-op on cache hit.
 

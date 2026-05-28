@@ -116,3 +116,14 @@ jobs:
             -var="build_password=ci-validate" \
             -var="build_password_encrypted=ci-validate" \
             .
+
+      # ── Cloud-init schema validation of the autoinstall user-data ───────────
+      # `packer validate` catches HCL-side errors, but the body of each
+      # autoinstall user-data file is cloud-config YAML that Packer treats as
+      # opaque text. Without this step, the only validator for the user-data
+      # is the actual install: a malformed `network:` or an un-nested netplan
+      # key wouldn't surface until subiquity choked on it 5-15 minutes into a
+      # real Packer build. This step renders each template with placeholder
+      # values and runs `cloud-init schema` against the result — ~1 second.
+      - name: Validate user-data against cloud-init schema
+        run: bash scripts/lint-user-data.sh
