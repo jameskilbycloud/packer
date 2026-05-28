@@ -223,6 +223,11 @@ keydir=$(mktemp -d)
 # Capture the script's true exit code as the FIRST thing in the trap body —
 # otherwise the preceding `rm` clobbers $? to 0 and cleanup mis-reports
 # success on a failed run, silently skipping the diagnostic dump.
+#
+# shellcheck disable=SC2154
+# (_exit_rc is assigned at the start of the same trap string, before it's
+# referenced — shellcheck's scope analysis doesn't see the assignment-then-
+# use happen inside a single-quoted trap body.)
 trap '_exit_rc=$?; rm -rf "${keydir}"; cleanup "${_exit_rc}"' EXIT
 ssh-keygen -t ed25519 -N '' -f "${keydir}/id_ed25519" \
   -C "smoke-test-${GITHUB_RUN_ID:-local}" >/dev/null
