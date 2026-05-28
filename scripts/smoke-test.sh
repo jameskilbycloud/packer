@@ -120,47 +120,56 @@ cleanup() {
   if [[ ${rc} -ne 0 && -n "${guest_auth:-}" ]]; then
     echo ""
     echo "==> Smoke failed (rc=${rc}). Diagnostic dump from the clone via VMware Tools:"
-    local diag='
-      set +e
-      echo "--- hostname (live + /etc/hostname) ---"
-      hostname
-      cat /etc/hostname 2>&1
-      echo
-      echo "--- systemctl is-system-running ---"
-      systemctl is-system-running --wait=false 2>&1 | head -3
-      echo
-      echo "--- first-boot service states ---"
-      for u in ssh.service ssh.socket sshd.service ssh-host-keygen.service firstboot-hostname.service; do
-        printf "%-40s  " "$u"
-        echo "is-active=$(systemctl is-active "$u" 2>&1) is-enabled=$(systemctl is-enabled "$u" 2>&1)"
-      done
-      echo
-      echo "--- /var/lib/packer-firstboot/ ---"
-      ls -la /var/lib/packer-firstboot/ 2>&1 | head -10
-      echo
-      echo "--- /usr/local/sbin/firstboot-hostname.sh (first 30 lines) ---"
-      head -30 /usr/local/sbin/firstboot-hostname.sh 2>&1
-      echo
-      echo "--- journalctl: firstboot-hostname (full) ---"
-      journalctl -u firstboot-hostname --no-pager 2>&1 | tail -50
-      echo
-      echo "--- journalctl: ssh-host-keygen (full) ---"
-      journalctl -u ssh-host-keygen --no-pager 2>&1 | tail -30
-      echo
-      echo "--- systemctl --failed ---"
-      systemctl --failed --no-pager 2>&1 | head -30
-    '
-    # Capture to a variable so we can report exit code + byte count even when
-    # the call returns empty output. Earlier `govc guest.run | sed` swallowed
-    # both — empty stdout produced no visible diagnostic and `|| echo "..."`
-    # never fired because the sed in the pipe always exited 0.
-    local diag_output diag_rc=0
-    diag_output=$(govc guest.run "${guest_auth[@]}" -- /bin/sh -c "${diag}" 2>&1) || diag_rc=$?
+    # Write the diagnostic script to a local temp file, upload it to the
+    # guest, then invoke /bin/sh against the uploaded path. We do NOT pass
+    # the script body inline via `sh -c "<multi-line>"` because vmtoolsd's
+    # Guest Operations API does not preserve newlines in the arguments
+    # parameter — only the first line of a multi-line `-c` script survives.
+    # That bug is what produced run 26570996931's "rc=0, bytes=0" empty
+    # diagnostic.
+    local diag_local diag_guest diag_output diag_rc=0
+    diag_local=$(mktemp)
+    diag_guest="/tmp/smoke-diag-${GITHUB_RUN_ID:-$$}.sh"
+    cat > "${diag_local}" <<'DIAG'
+#!/bin/sh
+set +e
+echo "--- hostname (live + /etc/hostname) ---"
+hostname
+cat /etc/hostname 2>&1
+echo
+echo "--- systemctl is-system-running ---"
+systemctl is-system-running --wait=false 2>&1 | head -3
+echo
+echo "--- first-boot service states ---"
+for u in ssh.service ssh.socket sshd.service ssh-host-keygen.service firstboot-hostname.service; do
+  printf "%-40s  " "$u"
+  echo "is-active=$(systemctl is-active "$u" 2>&1) is-enabled=$(systemctl is-enabled "$u" 2>&1)"
+done
+echo
+echo "--- /var/lib/packer-firstboot/ ---"
+ls -la /var/lib/packer-firstboot/ 2>&1 | head -10
+echo
+echo "--- /usr/local/sbin/firstboot-hostname.sh (first 30 lines) ---"
+head -30 /usr/local/sbin/firstboot-hostname.sh 2>&1
+echo
+echo "--- journalctl: firstboot-hostname (full) ---"
+journalctl -u firstboot-hostname --no-pager 2>&1 | tail -50
+echo
+echo "--- journalctl: ssh-host-keygen (full) ---"
+journalctl -u ssh-host-keygen --no-pager 2>&1 | tail -30
+echo
+echo "--- systemctl --failed ---"
+systemctl --failed --no-pager 2>&1 | head -30
+DIAG
+    govc guest.upload -f "${guest_auth[@]}" "${diag_local}" "${diag_guest}" 2>&1 \
+      | sed "s/^/   [upload] /" || echo "   (diag upload failed)"
+    diag_output=$(govc guest.run "${guest_auth[@]}" -- /bin/sh "${diag_guest}" 2>&1) || diag_rc=$?
+    rm -f "${diag_local}"
     echo "--- govc guest.run rc=${diag_rc}, output bytes=${#diag_output} ---"
     if [[ -n "${diag_output}" ]]; then
       printf '%s\n' "${diag_output}" | sed "s/^/   /"
     else
-      echo "   (no output from govc guest.run — likely auth/communication failure)"
+      echo "   (no output — auth/comms failure, or the diag script itself returned nothing)"
     fi
     echo "--- end diagnostic dump ---"
     echo ""
