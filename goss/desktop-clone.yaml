@@ -1,0 +1,23 @@
+# Goss smoke-test spec for the POST-FIRST-BOOT state of a *cloned* desktop
+# template. Mirrors desktop.yaml but includes server-clone.yaml instead of
+# server.yaml so the SSH-host-key / first-boot-oneshot assertions reflect
+# post-clone-boot state. See goss/server-clone.yaml for the full rationale.
+#
+# Variables (passed via --vars-inline by scripts/goss-validate.sh):
+#   build_username — the OS user created by autoinstall (defaults to `ubuntu`)
+
+gossfile:
+  ./server-clone.yaml: {}
+
+package:
+  # Installed by desktop.sh.
+  ubuntu-desktop-minimal:
+    installed: true
+  open-vm-tools-desktop:
+    installed: true
+
+service:
+  # Display manager — pulled in by ubuntu-desktop-minimal. Must be enabled
+  # so the GUI starts on first boot of clones.
+  gdm3:
+    enabled: true

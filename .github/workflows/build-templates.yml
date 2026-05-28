@@ -147,32 +147,32 @@ jobs:
           #   glob       — govc -name pattern to locate the just-built template
           #   goss_spec  — relative path to the goss spec file
           case "${TARGET}" in
-            2204-server)  SMOKE='[{"label":"2204-server", "role":"server", "glob":"ubuntu-2204-server-*", "goss_spec":"goss/server.yaml"}]' ;;
-            2204-desktop) SMOKE='[{"label":"2204-desktop","role":"desktop","glob":"ubuntu-2204-desktop-*","goss_spec":"goss/desktop.yaml"}]' ;;
-            2404-server)  SMOKE='[{"label":"2404-server", "role":"server", "glob":"ubuntu-2404-server-*", "goss_spec":"goss/server.yaml"}]' ;;
-            2404-desktop) SMOKE='[{"label":"2404-desktop","role":"desktop","glob":"ubuntu-2404-desktop-*","goss_spec":"goss/desktop.yaml"}]' ;;
-            2604-server)  SMOKE='[{"label":"2604-server", "role":"server", "glob":"ubuntu-2604-server-*", "goss_spec":"goss/server.yaml"}]' ;;
-            2604-desktop) SMOKE='[{"label":"2604-desktop","role":"desktop","glob":"ubuntu-2604-desktop-*","goss_spec":"goss/desktop.yaml"}]' ;;
+            2204-server)  SMOKE='[{"label":"2204-server", "role":"server", "glob":"ubuntu-2204-server-*", "goss_spec":"goss/server-clone.yaml"}]' ;;
+            2204-desktop) SMOKE='[{"label":"2204-desktop","role":"desktop","glob":"ubuntu-2204-desktop-*","goss_spec":"goss/desktop-clone.yaml"}]' ;;
+            2404-server)  SMOKE='[{"label":"2404-server", "role":"server", "glob":"ubuntu-2404-server-*", "goss_spec":"goss/server-clone.yaml"}]' ;;
+            2404-desktop) SMOKE='[{"label":"2404-desktop","role":"desktop","glob":"ubuntu-2404-desktop-*","goss_spec":"goss/desktop-clone.yaml"}]' ;;
+            2604-server)  SMOKE='[{"label":"2604-server", "role":"server", "glob":"ubuntu-2604-server-*", "goss_spec":"goss/server-clone.yaml"}]' ;;
+            2604-desktop) SMOKE='[{"label":"2604-desktop","role":"desktop","glob":"ubuntu-2604-desktop-*","goss_spec":"goss/desktop-clone.yaml"}]' ;;
             all-linux|all)
                           SMOKE='[
-                            {"label":"2204-server", "role":"server", "glob":"ubuntu-2204-server-*", "goss_spec":"goss/server.yaml"},
-                            {"label":"2204-desktop","role":"desktop","glob":"ubuntu-2204-desktop-*","goss_spec":"goss/desktop.yaml"},
-                            {"label":"2404-server", "role":"server", "glob":"ubuntu-2404-server-*", "goss_spec":"goss/server.yaml"},
-                            {"label":"2404-desktop","role":"desktop","glob":"ubuntu-2404-desktop-*","goss_spec":"goss/desktop.yaml"},
-                            {"label":"2604-server", "role":"server", "glob":"ubuntu-2604-server-*", "goss_spec":"goss/server.yaml"},
-                            {"label":"2604-desktop","role":"desktop","glob":"ubuntu-2604-desktop-*","goss_spec":"goss/desktop.yaml"}
+                            {"label":"2204-server", "role":"server", "glob":"ubuntu-2204-server-*", "goss_spec":"goss/server-clone.yaml"},
+                            {"label":"2204-desktop","role":"desktop","glob":"ubuntu-2204-desktop-*","goss_spec":"goss/desktop-clone.yaml"},
+                            {"label":"2404-server", "role":"server", "glob":"ubuntu-2404-server-*", "goss_spec":"goss/server-clone.yaml"},
+                            {"label":"2404-desktop","role":"desktop","glob":"ubuntu-2404-desktop-*","goss_spec":"goss/desktop-clone.yaml"},
+                            {"label":"2604-server", "role":"server", "glob":"ubuntu-2604-server-*", "goss_spec":"goss/server-clone.yaml"},
+                            {"label":"2604-desktop","role":"desktop","glob":"ubuntu-2604-desktop-*","goss_spec":"goss/desktop-clone.yaml"}
                           ]' ;;
             all-servers)  SMOKE='[
-                            {"label":"2204-server","role":"server","glob":"ubuntu-2204-server-*","goss_spec":"goss/server.yaml"},
-                            {"label":"2404-server","role":"server","glob":"ubuntu-2404-server-*","goss_spec":"goss/server.yaml"},
-                            {"label":"2604-server","role":"server","glob":"ubuntu-2604-server-*","goss_spec":"goss/server.yaml"}
+                            {"label":"2204-server","role":"server","glob":"ubuntu-2204-server-*","goss_spec":"goss/server-clone.yaml"},
+                            {"label":"2404-server","role":"server","glob":"ubuntu-2404-server-*","goss_spec":"goss/server-clone.yaml"},
+                            {"label":"2604-server","role":"server","glob":"ubuntu-2604-server-*","goss_spec":"goss/server-clone.yaml"}
                           ]' ;;
             all-desktops) SMOKE='[
-                            {"label":"2204-desktop","role":"desktop","glob":"ubuntu-2204-desktop-*","goss_spec":"goss/desktop.yaml"},
-                            {"label":"2404-desktop","role":"desktop","glob":"ubuntu-2404-desktop-*","goss_spec":"goss/desktop.yaml"},
-                            {"label":"2604-desktop","role":"desktop","glob":"ubuntu-2604-desktop-*","goss_spec":"goss/desktop.yaml"}
+                            {"label":"2204-desktop","role":"desktop","glob":"ubuntu-2204-desktop-*","goss_spec":"goss/desktop-clone.yaml"},
+                            {"label":"2404-desktop","role":"desktop","glob":"ubuntu-2404-desktop-*","goss_spec":"goss/desktop-clone.yaml"},
+                            {"label":"2604-desktop","role":"desktop","glob":"ubuntu-2604-desktop-*","goss_spec":"goss/desktop-clone.yaml"}
                           ]' ;;
-            *)            SMOKE='[{"label":"2404-server","role":"server","glob":"ubuntu-2404-server-*","goss_spec":"goss/server.yaml"}]' ;;
+            *)            SMOKE='[{"label":"2404-server","role":"server","glob":"ubuntu-2404-server-*","goss_spec":"goss/server-clone.yaml"}]' ;;
           esac
           SMOKE_ONELINE=$(echo "${SMOKE}" | tr -d '\n' | tr -s ' ')
           echo "smoke_matrix={\"include\":${SMOKE_ONELINE}}" >> "$GITHUB_OUTPUT"

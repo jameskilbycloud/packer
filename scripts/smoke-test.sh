@@ -212,11 +212,13 @@ echo "==> Copying goss spec + script via SCP..."
 spec_name=$(basename "${GOSS_SPEC_ABS}")
 spec_dir=$(dirname "${GOSS_SPEC_ABS}")
 
-# Desktop spec includes ./server.yaml, so we always copy both.
-scp_files=("${GOSS_VALIDATE_SCRIPT}" "${spec_dir}/server.yaml")
-if [[ "${spec_name}" != "server.yaml" ]]; then
-  scp_files+=("${GOSS_SPEC_ABS}")
-fi
+# Copy every goss spec file alongside the validator. Specs use gossfile
+# includes (e.g. desktop-clone.yaml includes server-clone.yaml), so we send
+# the full set rather than tracking the include graph in shell.
+scp_files=("${GOSS_VALIDATE_SCRIPT}")
+while IFS= read -r f; do
+  [[ -n "${f}" ]] && scp_files+=("${f}")
+done < <(find "${spec_dir}" -maxdepth 1 -type f -name '*.yaml' 2>/dev/null)
 
 scp "${SSH_OPTS[@]}" "${scp_files[@]}" "${BUILD_USERNAME}@${ip}:/tmp/"
 
