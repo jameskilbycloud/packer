@@ -107,7 +107,11 @@ CLONE_NAME="${CLONE_NAME:-smoke-$(basename "${template}")-${GITHUB_RUN_ID:-$(dat
 echo "==> Clone target: ${CLONE_NAME}"
 
 cleanup() {
-  local rc=$?
+  # Accept exit code as $1 if the trap forwarded one (e.g. from a multi-
+  # command trap body where `$?` would otherwise be clobbered by the
+  # previous command in the trap). Fall back to `$?` for the simple
+  # `trap cleanup EXIT` form.
+  local rc=${1:-$?}
   # On any non-zero exit, dump systemd / journal state from the live clone
   # before we destroy it. Uses guest.run rather than SSH because guest.run
   # works even when sshd is broken — which is exactly when we need the
@@ -196,7 +200,10 @@ echo "    IP: ${ip}"
 # authenticate against the guest OS via vmtoolsd, bypassing sshd entirely.
 echo "==> Injecting ephemeral SSH pubkey via VMware Tools guest ops..."
 keydir=$(mktemp -d)
-trap 'rm -rf "${keydir}"; cleanup' EXIT
+# Capture the script's true exit code as the FIRST thing in the trap body —
+# otherwise the preceding `rm` clobbers $? to 0 and cleanup mis-reports
+# success on a failed run, silently skipping the diagnostic dump.
+trap '_exit_rc=$?; rm -rf "${keydir}"; cleanup "${_exit_rc}"' EXIT
 ssh-keygen -t ed25519 -N '' -f "${keydir}/id_ed25519" \
   -C "smoke-test-${GITHUB_RUN_ID:-local}" >/dev/null
 chmod 600 "${keydir}/id_ed25519"
