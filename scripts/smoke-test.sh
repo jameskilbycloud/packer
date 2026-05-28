@@ -150,8 +150,19 @@ cleanup() {
       echo "--- systemctl --failed ---"
       systemctl --failed --no-pager 2>&1 | head -30
     '
-    govc guest.run "${guest_auth[@]}" -- /bin/sh -c "${diag}" 2>&1 \
-      | sed "s/^/   /" || echo "   (guest.run diagnostic itself failed)"
+    # Capture to a variable so we can report exit code + byte count even when
+    # the call returns empty output. Earlier `govc guest.run | sed` swallowed
+    # both — empty stdout produced no visible diagnostic and `|| echo "..."`
+    # never fired because the sed in the pipe always exited 0.
+    local diag_output diag_rc=0
+    diag_output=$(govc guest.run "${guest_auth[@]}" -- /bin/sh -c "${diag}" 2>&1) || diag_rc=$?
+    echo "--- govc guest.run rc=${diag_rc}, output bytes=${#diag_output} ---"
+    if [[ -n "${diag_output}" ]]; then
+      printf '%s\n' "${diag_output}" | sed "s/^/   /"
+    else
+      echo "   (no output from govc guest.run — likely auth/communication failure)"
+    fi
+    echo "--- end diagnostic dump ---"
     echo ""
   fi
   echo "==> EXIT cleanup: destroying ${CLONE_NAME} (rc=${rc})"
