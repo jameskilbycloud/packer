@@ -26,3 +26,6 @@ runner.pkrvars.hcl
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Claude Code transient artifacts
+.claude/
