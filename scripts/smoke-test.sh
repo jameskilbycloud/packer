@@ -162,14 +162,26 @@ chmod 600 "${keydir}/id_ed25519"
 
 guest_auth=(-l "${BUILD_USERNAME}:${BUILD_PASSWORD}" -vm "${CLONE_NAME}")
 
-# .ssh may not exist on first boot
-govc guest.mkdir "${guest_auth[@]}" -p "/home/${BUILD_USERNAME}/.ssh" 2>/dev/null || true
+# Upload the pubkey to /tmp first — /tmp is world-writable so the upload
+# never fails on perms — then a single guest.run shell does the install
+# under the build user's identity, so every created file is owned by them
+# from birth. We deliberately do NOT `chown` anywhere: govc guest.run
+# executes as the authenticated user (no root), and a non-root user on
+# Linux cannot chown even to their own UID without CAP_CHOWN, which made
+# the previous chown step fail with "Operation not permitted" — silently,
+# because govc returns the program's exit code but doesn't surface the
+# stderr message to its own stdout.
+tmp_pubkey="/tmp/smoke-pubkey-${GITHUB_RUN_ID:-$$}"
 govc guest.upload -f "${guest_auth[@]}" \
   "${keydir}/id_ed25519.pub" \
-  "/home/${BUILD_USERNAME}/.ssh/authorized_keys"
-# Permissions: sshd ignores authorized_keys with loose perms. chmod via run.
+  "${tmp_pubkey}"
+
 govc guest.run "${guest_auth[@]}" -- \
-  /bin/sh -c "chmod 700 /home/${BUILD_USERNAME}/.ssh && chmod 600 /home/${BUILD_USERNAME}/.ssh/authorized_keys && chown -R ${BUILD_USERNAME}:${BUILD_USERNAME} /home/${BUILD_USERNAME}/.ssh"
+  /bin/sh -c "set -e; \
+    mkdir -p /home/${BUILD_USERNAME}/.ssh; \
+    chmod 700 /home/${BUILD_USERNAME}/.ssh; \
+    mv ${tmp_pubkey} /home/${BUILD_USERNAME}/.ssh/authorized_keys; \
+    chmod 600 /home/${BUILD_USERNAME}/.ssh/authorized_keys"
 
 # ── Wait for SSH port ────────────────────────────────────────────────────────
 echo "==> Waiting up to ${SSH_TIMEOUT_SECONDS}s for SSH on ${ip}:22..."
