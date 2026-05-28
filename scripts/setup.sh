@@ -141,7 +141,7 @@ if [[ ! -r "${uuid_file}" ]]; then
   exit 0
 fi
 
-uuid=$(tr -d '-\n' < "${uuid_file}" | tr 'A-Z' 'a-z')
+uuid=$(tr -d -- '-\n' < "${uuid_file}" | tr 'A-Z' 'a-z')
 suffix="${uuid: -6}"
 
 if [[ -z "${suffix}" || ${#suffix} -lt 6 ]]; then
