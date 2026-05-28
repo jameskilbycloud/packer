@@ -108,7 +108,48 @@ echo "==> Clone target: ${CLONE_NAME}"
 
 cleanup() {
   local rc=$?
-  echo ""
+  # On any non-zero exit, dump systemd / journal state from the live clone
+  # before we destroy it. Uses guest.run rather than SSH because guest.run
+  # works even when sshd is broken — which is exactly when we need the
+  # diagnostic most. If guest.run itself fails (e.g. the clone never
+  # booted far enough for VMware Tools), the dump is a no-op.
+  if [[ ${rc} -ne 0 && -n "${guest_auth:-}" ]]; then
+    echo ""
+    echo "==> Smoke failed (rc=${rc}). Diagnostic dump from the clone via VMware Tools:"
+    local diag='
+      set +e
+      echo "--- hostname (live + /etc/hostname) ---"
+      hostname
+      cat /etc/hostname 2>&1
+      echo
+      echo "--- systemctl is-system-running ---"
+      systemctl is-system-running --wait=false 2>&1 | head -3
+      echo
+      echo "--- first-boot service states ---"
+      for u in ssh.service ssh.socket sshd.service ssh-host-keygen.service firstboot-hostname.service; do
+        printf "%-40s  " "$u"
+        echo "is-active=$(systemctl is-active "$u" 2>&1) is-enabled=$(systemctl is-enabled "$u" 2>&1)"
+      done
+      echo
+      echo "--- /var/lib/packer-firstboot/ ---"
+      ls -la /var/lib/packer-firstboot/ 2>&1 | head -10
+      echo
+      echo "--- /usr/local/sbin/firstboot-hostname.sh (first 30 lines) ---"
+      head -30 /usr/local/sbin/firstboot-hostname.sh 2>&1
+      echo
+      echo "--- journalctl: firstboot-hostname (full) ---"
+      journalctl -u firstboot-hostname --no-pager 2>&1 | tail -50
+      echo
+      echo "--- journalctl: ssh-host-keygen (full) ---"
+      journalctl -u ssh-host-keygen --no-pager 2>&1 | tail -30
+      echo
+      echo "--- systemctl --failed ---"
+      systemctl --failed --no-pager 2>&1 | head -30
+    '
+    govc guest.run "${guest_auth[@]}" -- /bin/sh -c "${diag}" 2>&1 \
+      | sed "s/^/   /" || echo "   (guest.run diagnostic itself failed)"
+    echo ""
+  fi
   echo "==> EXIT cleanup: destroying ${CLONE_NAME} (rc=${rc})"
   govc vm.power -off=true -force=true "${CLONE_NAME}" 2>/dev/null || true
   govc vm.destroy "${CLONE_NAME}" 2>/dev/null || true
@@ -196,55 +237,7 @@ while [[ $(date +%s) -lt ${ssh_deadline} ]]; do
 done
 if [[ "${ssh_up}" != "true" ]]; then
   echo "❌ SSH on ${ip}:22 not reachable within ${SSH_TIMEOUT_SECONDS}s"
-  echo ""
-  echo "==> Diagnostic dump via VMware Tools guest.run (no SSH needed):"
-  # Use guest.run to query systemd state directly on the clone. If this
-  # works, we can tell whether ssh.* units are running, whether the
-  # first-boot oneshots fired, and what failed. Wraps everything in
-  # `|| true` so a guest.run failure here doesn't mask the original
-  # SSH-timeout exit.
-  diag_script='
-    set +e
-    echo "--- uname ---"
-    uname -a
-    echo
-    echo "--- hostname ---"
-    hostname
-    cat /etc/hostname
-    echo
-    echo "--- systemctl is-system-running ---"
-    systemctl is-system-running --wait=false 2>&1 | head -3
-    echo
-    echo "--- ssh / ssh-host-keygen / firstboot-hostname service state ---"
-    for u in ssh.service ssh.socket sshd.service ssh-host-keygen.service firstboot-hostname.service; do
-      printf "%-40s  " "$u"
-      systemctl is-active "$u" 2>&1
-    done
-    echo
-    echo "--- listening tcp sockets ---"
-    ss -lntp 2>&1 | head -20 || netstat -lntp 2>&1 | head -20
-    echo
-    echo "--- /etc/ssh/ssh_host_*_key ---"
-    ls -l /etc/ssh/ssh_host_*_key 2>&1 | head -10
-    echo
-    echo "--- /var/lib/packer-firstboot ---"
-    ls -la /var/lib/packer-firstboot/ 2>&1 | head -10
-    echo
-    echo "--- journalctl: firstboot-hostname ---"
-    journalctl -u firstboot-hostname --no-pager 2>&1 | tail -30
-    echo
-    echo "--- journalctl: ssh-host-keygen ---"
-    journalctl -u ssh-host-keygen --no-pager 2>&1 | tail -30
-    echo
-    echo "--- journalctl: ssh.service ---"
-    journalctl -u ssh.service --no-pager 2>&1 | tail -30
-    echo
-    echo "--- failed units ---"
-    systemctl --failed --no-pager 2>&1 | head -30
-  '
-  govc guest.run "${guest_auth[@]}" -- /bin/sh -c "${diag_script}" 2>&1 \
-    | sed 's/^/   /' || echo "   (guest.run diagnostic itself failed)"
-  echo ""
+  # EXIT trap will run the diagnostic dump via guest.run before destroying.
   exit 1
 fi
 
