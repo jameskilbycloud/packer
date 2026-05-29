@@ -314,7 +314,10 @@ DIAG
     local shot_path="${shot_dir}/${CLONE_NAME}.png"
     echo "==> Capturing console screenshot to ${shot_path}..."
     if govc vm.console -capture "${shot_path}" "${CLONE_NAME}" 2>/dev/null; then
-      local sz=$(stat -c%s "${shot_path}" 2>/dev/null || stat -f%z "${shot_path}" 2>/dev/null)
+      # Split declaration from assignment per SC2155 — `local x=$(cmd)` masks
+      # the subshell's exit code so set -e / `|| fallback` wouldn't trigger.
+      local sz
+      sz=$(stat -c%s "${shot_path}" 2>/dev/null || stat -f%z "${shot_path}" 2>/dev/null)
       if [[ "${sz}" -lt 1000 ]]; then
         echo "    ⚠ saved ${sz} bytes — likely a 1x1 stub (framebuffer not initialised; VM is stuck pre-video)"
       else
