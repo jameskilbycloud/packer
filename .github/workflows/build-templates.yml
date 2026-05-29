@@ -182,7 +182,7 @@ jobs:
   # Fast (sub-minute) health check that runs BEFORE the build matrix fans out.
   # Catches a sick vCenter, missing datastore, full datastore, or empty
   # content library at sign-in time instead of letting each matrix leg burn
-  # the full 90m ssh_timeout discovering the same fault independently.
+  # the full 30m ssh_timeout discovering the same fault independently.
   # Skipped on dry-run because dry-run does not touch vSphere.
   preflight:
     name: vSphere pre-flight
@@ -238,7 +238,7 @@ jobs:
       needs.resolve-targets.result == 'success' &&
       (needs.preflight.result == 'success' || needs.preflight.result == 'skipped')
     runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
-    timeout-minutes: 240              # combined builds: server (~90m) and desktop (~140m) run in parallel — wall-clock ~140m + buffer
+    timeout-minutes: 240              # per-leg kill-switch; clean leg ~25 min, worst-case with MAX_ATTEMPTS=2 × 30m caps ~70 min — generous buffer absorbs cold-start + retries
 
     strategy:
       matrix: ${{ fromJson(needs.resolve-targets.outputs.matrix) }}
@@ -654,7 +654,7 @@ jobs:
             log_size_after=$(stat -c%s "${PACKER_LOG_PATH}" 2>/dev/null || echo 0)
             attempt_bytes=$((log_size_after - log_size_before))
 
-            # SSH-timeout retry IS allowed now (with the 90m fail-fast cap,
+            # SSH-timeout retry IS allowed now (with the 30m fail-fast cap,
             # one retry is affordable and we know the 26.04 subiquity Network
             # observer loop is probabilistic — a fresh attempt has a ~50%
             # chance of succeeding cleanly). The old anti-pattern guard that
