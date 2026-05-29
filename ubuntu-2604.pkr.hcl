@@ -114,7 +114,7 @@ source "vsphere-iso" "ubuntu-2604-server" {
     "boot<enter><wait30>"
   ]
 
-  # IP settle — same as 22.04 / 24.04. ssh_timeout capped at 90m by locals.
+  # IP settle — same as 22.04 / 24.04. ssh_timeout capped at 30m by locals.
   ip_settle_timeout = "20m"
 
   # SSH communicator
@@ -208,7 +208,7 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
     "boot<enter><wait30>"
   ]
 
-  # IP settle — same as 22.04 / 24.04 desktop. ssh_timeout capped at 90m.
+  # IP settle — same as 22.04 / 24.04 desktop. ssh_timeout capped at 30m.
   ip_settle_timeout = "10m"
 
   # SSH communicator
