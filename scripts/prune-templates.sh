@@ -24,6 +24,9 @@
 #                        repo produces.
 #   RETAIN             — how many templates to keep per group (default: 2)
 #   DRY_RUN            — "true" prints intent without destroying (default: false)
+#   QUARANTINE_FOLDER  — folder name to skip when iterating matches (default:
+#                        "quarantine"). Smoke-failed templates are moved here
+#                        by quarantine-template.sh and must never be auto-pruned.
 #
 # Grouping: templates are named `ubuntu-<version>-<type>-<YYYYMMDD>`. The
 # group key is `${name%-*}` — everything before the trailing date suffix.
@@ -43,6 +46,7 @@ export GOVC_INSECURE="${GOVC_INSECURE:-false}"
 NAME_PATTERN="${NAME_PATTERN:-ubuntu-*}"
 RETAIN="${RETAIN:-2}"
 DRY_RUN="${DRY_RUN:-false}"
+QUARANTINE_FOLDER="${QUARANTINE_FOLDER:-quarantine}"
 
 echo "Retention policy: keep ${RETAIN} templates per (version, type) group"
 echo "Pattern: ${NAME_PATTERN}"
@@ -69,6 +73,14 @@ non_template_count=0
 
 while IFS= read -r vm_path; do
   [[ -z "${vm_path}" ]] && continue
+  # Skip anything in the quarantine subfolder — those are smoke-failed
+  # templates parked by quarantine-template.sh and must NEVER be auto-pruned.
+  # Operators clean them up by hand once they have inspected the failure.
+  case "${vm_path}" in
+    */${QUARANTINE_FOLDER}/*)
+      echo "  skip (quarantined): ${vm_path}"
+      continue ;;
+  esac
   is_template=$(govc object.collect -s "${vm_path}" config.template 2>/dev/null || echo "")
   if [[ "${is_template}" != "true" ]]; then
     # Could be in-flight build or orphan from a failed convert step — leave

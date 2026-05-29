@@ -178,6 +178,50 @@ jobs:
           echo "smoke_matrix={\"include\":${SMOKE_ONELINE}}" >> "$GITHUB_OUTPUT"
           echo "Smoke targets: ${SMOKE_ONELINE}"
 
+  # ── vSphere pre-flight ──────────────────────────────────────────────────────
+  # Fast (sub-minute) health check that runs BEFORE the build matrix fans out.
+  # Catches a sick vCenter, missing datastore, full datastore, or empty
+  # content library at sign-in time instead of letting each matrix leg burn
+  # the full 90m ssh_timeout discovering the same fault independently.
+  # Skipped on dry-run because dry-run does not touch vSphere.
+  preflight:
+    name: vSphere pre-flight
+    needs: resolve-targets
+    if: needs.resolve-targets.outputs.dry_run == 'false'
+    runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install govc
+        run: |
+          if command -v govc &>/dev/null; then
+            echo "govc already installed: $(govc version)"
+            exit 0
+          fi
+          GOVC_VERSION=$(curl -fsSL https://api.github.com/repos/vmware/govmomi/releases/latest \
+            | grep '"tag_name"' | cut -d'"' -f4)
+          curl -fsSL \
+            "https://github.com/vmware/govmomi/releases/download/${GOVC_VERSION}/govc_Linux_x86_64.tar.gz" \
+            | sudo tar -xzf - -C /usr/local/bin govc
+          sudo chmod +x /usr/local/bin/govc
+          echo "govc installed: $(govc version)"
+
+      - name: vSphere health checks
+        env:
+          GOVC_URL:               ${{ secrets.VSPHERE_SERVER }}
+          GOVC_USERNAME:          ${{ secrets.VSPHERE_USER }}
+          GOVC_PASSWORD:          ${{ secrets.VSPHERE_PASSWORD }}
+          GOVC_INSECURE:          ${{ secrets.VSPHERE_INSECURE || 'false' }}
+          GOVC_DATACENTER:        ${{ secrets.VSPHERE_DATACENTER }}
+          VSPHERE_DATASTORE:      ${{ secrets.VSPHERE_DATASTORE }}
+          VSPHERE_CLUSTER:        ${{ secrets.VSPHERE_CLUSTER }}
+          VSPHERE_HOST:           ${{ secrets.VSPHERE_HOST }}
+          CONTENT_LIBRARY:        ${{ vars.CONTENT_LIBRARY || 'Packer-ISOs' }}
+          PREFLIGHT_MIN_FREE_GB:  ${{ vars.PREFLIGHT_MIN_FREE_GB || '60' }}
+        run: bash scripts/vsphere-preflight.sh
+
   # ── Packer build (one job per matrix entry) ─────────────────────────────────
   # For "all" builds, each matrix entry covers a whole Ubuntu version (server +
   # desktop) and Packer runs both sources in parallel inside that one job. For
@@ -185,7 +229,14 @@ jobs:
   # and `only` names just one source.
   build:
     name: Build ubuntu-${{ matrix.label }}
-    needs: resolve-targets
+    needs: [resolve-targets, preflight]
+    # preflight is skipped on dry-run (it requires a live vCenter); allow
+    # build to proceed either when preflight succeeded OR when it was skipped.
+    # A failed preflight short-circuits the whole matrix.
+    if: |
+      always() &&
+      needs.resolve-targets.result == 'success' &&
+      (needs.preflight.result == 'success' || needs.preflight.result == 'skipped')
     runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
     timeout-minutes: 240              # combined builds: server (~90m) and desktop (~140m) run in parallel — wall-clock ~140m + buffer
 
@@ -1127,3 +1178,27 @@ jobs:
           path: smoke-screenshots-${{ matrix.label }}/
           retention-days: 7
           if-no-files-found: ignore
+
+      # ── Auto-quarantine the just-built template on smoke failure ─────────────
+      # Without this step, a smoke-failed template stays live in the build
+      # folder and any clone consumer (jenkins job, dev workstation, IaC tool)
+      # can pick it up and inherit the regression. quarantine-template.sh
+      # renames the template with a -quarantined-r<RUN> suffix, moves it into
+      # <VSPHERE_FOLDER>/quarantine/, and stamps the failing run's URL into the
+      # VM annotation so an operator inspecting the entry in vSphere can jump
+      # back to the build logs. prune-templates.sh ignores the quarantine
+      # subfolder so these never get auto-destroyed — they sit until an
+      # operator decides what to do with them.
+      - name: Quarantine failed template
+        if: failure() && needs.resolve-targets.outputs.dry_run == 'false'
+        env:
+          GOVC_URL:         ${{ secrets.VSPHERE_SERVER }}
+          GOVC_USERNAME:    ${{ secrets.VSPHERE_USER }}
+          GOVC_PASSWORD:    ${{ secrets.VSPHERE_PASSWORD }}
+          GOVC_INSECURE:    ${{ secrets.VSPHERE_INSECURE || 'false' }}
+          GOVC_DATACENTER:  ${{ secrets.VSPHERE_DATACENTER }}
+          VSPHERE_FOLDER:   ${{ secrets.VSPHERE_FOLDER || 'packer' }}
+          TEMPLATE_PATTERN: ${{ matrix.glob }}
+          RUN_NUMBER:       ${{ github.run_number }}
+          RUN_URL:          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash scripts/quarantine-template.sh
