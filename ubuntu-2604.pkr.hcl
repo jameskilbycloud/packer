@@ -86,24 +86,30 @@ source "vsphere-iso" "ubuntu-2604-server" {
   #    re-triggers another, looping until ssh_timeout. See
   #    https://answers.launchpad.net/ubuntu/+source/ubiquity/+question/698383
   #
-  # 2. overlay.metacopy=off overlay.redirect_dir=off — workaround for an
-  #    OverlayFS kernel oops in `ovl_iterate_merged` that fires during
-  #    curtin's `cp://` rootfs-extract step on 26.04. Symptom is rsync
-  #    "exited with irqs disabled" + a full RIP/stack trace on the console,
-  #    followed by subiquity hanging until ssh_timeout. Originally
-  #    documented in the 2026-05-10 known-good notes. PR #37 ("strip back
-  #    to first principles") removed both these and ipv6.disable=1 on the
-  #    hypothesis that the subiquity loop was the only real bug — but the
-  #    OverlayFS oops is independent and the only reliable mitigation we
-  #    have found. Confirmed alive in screenshot-of-failure on run
-  #    26602320872 (2026-05-28). Restoring just the two strictly-required
-  #    overlay disables; the older `overlay.index=off overlay.nfs_export=off`
-  #    pair was defensive overkill and stays gone.
+  # 2. overlay.metacopy=off overlay.redirect_dir=off overlay.index=off
+  #    overlay.nfs_export=off — workaround for an OverlayFS kernel oops in
+  #    `ovl_iterate_merged` that fires during curtin's `cp://` rootfs-
+  #    extract step on 26.04. Symptom is rsync "exited with irqs disabled"
+  #    + a full RIP/stack trace on the console, followed by subiquity
+  #    hanging until ssh_timeout. Originally documented in the 2026-05-10
+  #    known-good notes.
+  #
+  #    PR #37 ("strip back to first principles") removed all four on the
+  #    hypothesis that the subiquity loop was the only real bug. Run
+  #    26602320872 (2026-05-28) screenshot-confirmed the oops was alive
+  #    and independent; aa78c346 restored just the first two
+  #    (metacopy/redirect_dir) on the assumption that overlay.index +
+  #    overlay.nfs_export were defensive overkill per the 2026-05-10
+  #    notes. Run 26636327327 (2026-05-29) screenshot-confirmed the oops
+  #    fires AGAIN with just the first two — the 26.04 kernel needs all
+  #    four. Restoring overlay.index=off + overlay.nfs_export=off; do NOT
+  #    strip these again without a screenshot proving the kernel no
+  #    longer oopses with them removed.
   boot_order = "disk,cdrom"
   boot_wait  = "5s"
   boot_command = [
     "c<wait2>",
-    "linux /casper/vmlinuz ipv6.disable=1 overlay.metacopy=off overlay.redirect_dir=off --- autoinstall ds=nocloud<enter><wait5>",
+    "linux /casper/vmlinuz ipv6.disable=1 overlay.metacopy=off overlay.redirect_dir=off overlay.index=off overlay.nfs_export=off --- autoinstall ds=nocloud<enter><wait5>",
     "initrd /casper/initrd<enter><wait5>",
     "boot<enter><wait30>"
   ]
@@ -197,7 +203,7 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
   boot_wait  = "5s"
   boot_command = [
     "c<wait2>",
-    "linux /casper/vmlinuz ipv6.disable=1 overlay.metacopy=off overlay.redirect_dir=off --- autoinstall ds=nocloud<enter><wait5>",
+    "linux /casper/vmlinuz ipv6.disable=1 overlay.metacopy=off overlay.redirect_dir=off overlay.index=off overlay.nfs_export=off --- autoinstall ds=nocloud<enter><wait5>",
     "initrd /casper/initrd<enter><wait5>",
     "boot<enter><wait30>"
   ]
