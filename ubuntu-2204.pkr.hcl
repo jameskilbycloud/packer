@@ -192,10 +192,11 @@ source "vsphere-iso" "ubuntu-2204-desktop" {
   # installed OS). ip_settle_timeout is therefore kept short — Packer starts
   # SSH retries early, hits connection refused while the installer runs
   # (early-commands stopped SSH), then connects once the installed OS boots
-  # on the same IP (~65-76 min into the build).
-  # desktop_ssh_timeout = "120m" covers the full install + reboot window.
+  # on the same IP. ip_wait_timeout cut from 120m to 30m for fail-fast (same
+  # rationale as ssh_timeout in locals.pkr.hcl — when install hangs, neither
+  # IP nor SSH come up; no point waiting 2h).
   # ip_wait_timeout must remain > ip_settle_timeout.
-  ip_wait_timeout   = "120m"
+  ip_wait_timeout   = "30m"
   ip_settle_timeout = "10m"
 
   # SSH communicator
