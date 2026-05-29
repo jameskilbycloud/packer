@@ -168,6 +168,63 @@ ensure_content_library() {
   fi
 }
 
+# ── Hardened HTTP fetch ────────────────────────────────────────────────────────
+# Wraps curl so a transient stall on the runner's egress (or a flaky mirror)
+# doesn't kill the whole job. The earlier failure mode was:
+#   "curl: (28) Connection timed out after 300286 milliseconds"
+# i.e. a half-open connection that printed a few progress dashes then sat
+# for 5 minutes with no data. Without retry/--speed-time the script just
+# burned the default connect-timeout and quit.
+#
+# Watchdog:
+#   --connect-timeout 30      fail fast at the TCP/TLS handshake
+#   --speed-limit 102400      "below 100 KB/s..."
+#   --speed-time 60           "...for 60s = abort this attempt"
+#   --retry 5 --retry-delay 15
+#   --retry-all-errors        treat ANY failure (not just 5xx) as retryable
+#   --retry-max-time 1800     give up after 30 min wall-clock
+#   -C -                      resume from byte offset between retries
+#
+# Args: $1=output path, $2=URL, $3="progress"|"quiet" (default quiet)
+download_with_retries() {
+  local out="$1" url="$2" mode="${3:-quiet}"
+  local progress_opts=(-sS)
+  [[ "${mode}" == "progress" ]] && progress_opts=(--progress-bar)
+
+  curl -fL "${progress_opts[@]}" \
+    --retry 5 --retry-delay 15 --retry-all-errors --retry-max-time 1800 \
+    --connect-timeout 30 \
+    --speed-limit 102400 --speed-time 60 \
+    -C - \
+    -o "${out}" "${url}"
+}
+
+# Best-effort dump of why the runner can't reach a host. Surfaces whether
+# the failure is DNS, TCP, TLS, or HTTP-layer — much faster to act on than
+# a bare "exit 28".
+diagnose_connectivity() {
+  local url="$1"
+  local host
+  host=$(printf '%s' "${url}" | awk -F/ '{print $3}')
+  warn "Connectivity diagnostic for https://${host}"
+  printf '    DNS:           '
+  if command -v getent &>/dev/null; then
+    getent hosts "${host}" | head -1 || echo "FAIL"
+  else
+    host "${host}" 2>/dev/null | head -1 || echo "FAIL"
+  fi
+  printf '    TCP/443 probe: '
+  if timeout 5 bash -c ">/dev/tcp/${host}/443" 2>/dev/null; then
+    echo "OK"
+  else
+    echo "FAIL (no TCP path to ${host}:443 within 5s)"
+  fi
+  printf '    HTTP HEAD:     '
+  curl -sS -o /dev/null -w "code=%{http_code} time=%{time_total}s\n" \
+    --connect-timeout 5 --max-time 10 -I "https://${host}/" \
+    || echo "FAIL"
+}
+
 # ── Checksum ───────────────────────────────────────────────────────────────────
 verify_checksum() {
   local iso_file="$1" base_url="$2"
@@ -180,7 +237,11 @@ verify_checksum() {
 
   info "Downloading SHA256SUMS..."
   local sums_file="${DOWNLOAD_DIR}/SHA256SUMS.${filename}"
-  curl -fsSL "${base_url}/SHA256SUMS" -o "${sums_file}"
+  if ! download_with_retries "${sums_file}" "${base_url}/SHA256SUMS"; then
+    error "Could not fetch SHA256SUMS from ${base_url}"
+    diagnose_connectivity "${base_url}/SHA256SUMS"
+    return 1
+  fi
 
   local expected_hash
   expected_hash=$(grep " \*${filename}$\| ${filename}$" "${sums_file}" | awk '{print $1}')
@@ -215,9 +276,10 @@ download_iso() {
 
   info "Downloading ${filename}..."
   local curl_rc=0
-  curl -fL --progress-bar -o "${iso_path}" "${base_url}/${filename}" || curl_rc=$?
+  download_with_retries "${iso_path}" "${base_url}/${filename}" progress || curl_rc=$?
   if [[ ${curl_rc} -ne 0 ]]; then
-    error "Download failed (curl exit ${curl_rc})"
+    error "Download failed (curl exit ${curl_rc}) after retries"
+    diagnose_connectivity "${base_url}/${filename}"
     rm -f "${iso_path}"
     return 1
   fi
