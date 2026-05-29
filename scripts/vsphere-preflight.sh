@@ -85,7 +85,13 @@ fi
 # plain-text output.
 echo "==> Datastore '${VSPHERE_DATASTORE}'"
 ds_json=$(govc datastore.info -json "${VSPHERE_DATASTORE}" 2>&1) || ds_json=""
-if [[ -z "${ds_json}" ]] || ! printf '%s' "${ds_json}" | grep -q '"FreeSpace"'; then
+# `grep -qiE` matches both the old PascalCase ("FreeSpace") and the newer
+# lowercase-first ("freeSpace") govc JSON output schemas — the python
+# parser below already handles both, so the gate has to too. Without this,
+# a successful govc datastore.info call gets reported as "not reachable"
+# whenever the installed govc emits the lowercase form (run 26645337688
+# regression — preflight failed despite a healthy datastore).
+if [[ -z "${ds_json}" ]] || ! printf '%s' "${ds_json}" | grep -qiE '"freespace"'; then
   bad "Datastore '${VSPHERE_DATASTORE}' not reachable:"
   printf '%s\n' "${ds_json}" | sed 's/^/        /'
 else
@@ -126,8 +132,12 @@ if lib_listing=$(govc library.ls "/${CONTENT_LIBRARY}/" 2>&1); then
     bad "Library '${CONTENT_LIBRARY}' exists but is empty — upload ISOs first"
   else
     item_count=$(printf '%s\n' "${trimmed}" | grep -c .)
-    iso_count=$(printf '%s\n'  "${trimmed}" | grep -ic '\.iso$' || true)
-    ok "Library reachable: ${item_count} item(s), ${iso_count} .iso"
+    # Content Library items are named after the source file but WITHOUT the
+    # extension by default (e.g. ubuntu-22.04.5-live-server-amd64 not
+    # ubuntu-22.04.5-live-server-amd64.iso). Match items whose name carries
+    # the ubuntu-XX.XX(.X)? prefix as the "ISO-shaped item" heuristic.
+    iso_count=$(printf '%s\n' "${trimmed}" | grep -icE '(^|/)ubuntu-[0-9]+\.[0-9]+' || true)
+    ok "Library reachable: ${item_count} item(s), ${iso_count} ubuntu ISO(s)"
   fi
 else
   bad "Library '${CONTENT_LIBRARY}' not reachable:"
