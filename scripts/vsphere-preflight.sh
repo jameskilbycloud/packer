@@ -4,7 +4,7 @@
 # Fast vCenter / datastore / content library health check.
 #
 # Runs at the start of a Packer build so a sick vCenter does not burn the full
-# 90m ssh_timeout per matrix leg before the failure surfaces. Designed to
+# 30m ssh_timeout per matrix leg before the failure surfaces. Designed to
 # complete in well under a minute against a healthy environment; any failure
 # returns a non-zero exit code with a clear "✗" line pointing at the
 # offending check.
@@ -151,6 +151,6 @@ if [[ ${fail} -eq 0 ]]; then
   exit 0
 else
   echo "❌ Pre-flight failed — fix the items above before retriggering the build."
-  echo "   (This saves the 90m ssh_timeout you would otherwise burn per matrix leg.)"
+  echo "   (This saves the 30m ssh_timeout you would otherwise burn per matrix leg.)"
   exit 1
 fi
