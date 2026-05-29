@@ -137,6 +137,9 @@ echo "--- hostname (live + /etc/hostname) ---"
 hostname
 cat /etc/hostname 2>&1
 echo
+echo "--- systemctl get-default ---"
+systemctl get-default 2>&1
+echo
 echo "--- systemctl is-system-running ---"
 systemctl is-system-running --wait=false 2>&1 | head -3
 echo
@@ -145,6 +148,19 @@ for u in ssh.service ssh.socket sshd.service ssh-host-keygen.service firstboot-h
   printf "%-40s  " "$u"
   echo "is-active=$(systemctl is-active "$u" 2>&1) is-enabled=$(systemctl is-enabled "$u" 2>&1)"
 done
+echo
+echo "--- systemctl list-unit-files (first-boot units) ---"
+systemctl list-unit-files firstboot-hostname.service ssh-host-keygen.service --no-pager 2>&1 | head -10
+echo
+echo "--- multi-user.target wants symlinks (first-boot) ---"
+ls -la /etc/systemd/system/multi-user.target.wants/ 2>&1 | grep -E "firstboot|ssh-host-keygen" | head -10
+echo "(full multi-user.target.wants listing:)"
+ls /etc/systemd/system/multi-user.target.wants/ 2>&1 | head -50
+echo
+echo "--- systemctl show firstboot-hostname.service (key props) ---"
+systemctl show firstboot-hostname.service \
+  --property=Id,LoadState,ActiveState,SubState,UnitFileState,WantedBy,RequiredBy,ConditionResult,AssertResult,Before,After,DefaultDependencies,LoadError \
+  2>&1 | head -20
 echo
 echo "--- /var/lib/packer-firstboot/ ---"
 ls -la /var/lib/packer-firstboot/ 2>&1 | head -10
@@ -157,6 +173,9 @@ journalctl -u firstboot-hostname --no-pager 2>&1 | tail -50
 echo
 echo "--- journalctl: ssh-host-keygen (full) ---"
 journalctl -u ssh-host-keygen --no-pager 2>&1 | tail -30
+echo
+echo "--- journalctl: this boot, ordering-cycle / dependency-related ---"
+journalctl -b --no-pager 2>&1 | grep -iE "ordering cycle|deleted to break|firstboot-hostname|dependency failed" | head -30
 echo
 echo "--- systemctl --failed ---"
 systemctl --failed --no-pager 2>&1 | head -30
@@ -174,6 +193,24 @@ DIAG
     echo "--- end diagnostic dump ---"
     echo ""
   fi
+
+  # Console screenshot — works even when VMware Tools / guest.run can't
+  # respond (e.g. clone hung at GRUB, kernel panic, never reached userspace).
+  # Writes a PNG into ${SMOKE_SCREENSHOT_DIR:-./smoke-screenshots/}, which
+  # the workflow's upload-artifact step picks up. Only on failure; success
+  # paths skip the screenshot to avoid burning runner I/O.
+  if [[ ${rc} -ne 0 ]]; then
+    local shot_dir="${SMOKE_SCREENSHOT_DIR:-./smoke-screenshots}"
+    mkdir -p "${shot_dir}" 2>/dev/null || true
+    local shot_path="${shot_dir}/${CLONE_NAME}.png"
+    echo "==> Capturing console screenshot to ${shot_path}..."
+    if govc vm.console -capture "${shot_path}" "${CLONE_NAME}" 2>/dev/null; then
+      echo "    ✔ saved $(stat -c%s "${shot_path}" 2>/dev/null || stat -f%z "${shot_path}" 2>/dev/null) bytes"
+    else
+      echo "    ✘ screenshot failed (VM may have crashed too early, or vSphere refused the WebMKS connection)"
+    fi
+  fi
+
   echo "==> EXIT cleanup: destroying ${CLONE_NAME} (rc=${rc})"
   govc vm.power -off=true -force=true "${CLONE_NAME}" 2>/dev/null || true
   govc vm.destroy "${CLONE_NAME}" 2>/dev/null || true

@@ -85,8 +85,28 @@ echo "==> Installing SSH host key regeneration service for cloned VMs..."
 cat > /etc/systemd/system/ssh-host-keygen.service << 'UNIT'
 [Unit]
 Description=Regenerate SSH host keys on first boot after cloning
+# DefaultDependencies=no breaks a systemd ordering cycle that surfaces on
+# 24.04+ where ssh is socket-activated by default. With the default deps,
+# systemd adds implicit After=basic.target / sysinit.target. The cycle is:
+#   basic.target -> sockets.target -> ssh.socket -> ssh-host-keygen.service
+#   ssh-host-keygen.service -> basic.target (the implicit After we want gone)
+# systemd "fixes" the cycle by deleting sockets.target/start, which leaves
+# ssh.socket half-started and ssh.service never gets enabled — port 22 stays
+# closed forever. Confirmed by run 26621101768's 2604-server smoke
+# diagnostic dump:
+#   ssh.service:  is-active=inactive is-enabled=disabled
+#   ssh.socket:   is-active=active   is-enabled=enabled
+#   journal: "basic.target: Found ordering cycle: ... after sockets.target"
+#   journal: "basic.target: Job sockets.target/start deleted to break ..."
+# 22.04 doesn't hit this because it uses ssh.service directly (not socket-
+# activated by default), so the cycle path through sockets.target doesn't
+# form. With DefaultDependencies=no we explicitly state every After/Before/
+# Conflicts we want — local-fs.target gives us a writable /etc, shutdown
+# ordering handled below.
+DefaultDependencies=no
 After=systemd-remount-fs.service local-fs.target
-Before=ssh.socket ssh.service sshd.service
+Before=ssh.socket ssh.service sshd.service shutdown.target
+Conflicts=shutdown.target
 ConditionPathExists=!/etc/ssh/ssh_host_rsa_key
 
 [Service]

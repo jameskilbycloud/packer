@@ -1109,4 +1109,21 @@ jobs:
           BUILD_PASSWORD:    ${{ secrets.BUILD_PASSWORD }}
           TEMPLATE_PATTERN:  ${{ matrix.glob }}
           GOSS_SPEC:         ${{ matrix.goss_spec }}
+          # smoke-test.sh writes PNGs here on failure (govc vm.console -capture
+          # works even when guest.run / VMware Tools can't respond — covers the
+          # "clone never reached userspace" failure mode where the diagnostic
+          # dump can't surface anything).
+          SMOKE_SCREENSHOT_DIR: ./smoke-screenshots-${{ matrix.label }}
         run: bash scripts/smoke-test.sh
+
+      # ── Upload smoke console screenshots ─────────────────────────────────────
+      # Only fires on smoke failure; captures whatever the clone's video output
+      # was when smoke gave up — kernel panic, blank screen, login prompt, etc.
+      - name: Upload smoke console screenshot
+        if: failure() && needs.resolve-targets.outputs.dry_run == 'false'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: smoke-screenshots-${{ matrix.label }}-${{ github.run_number }}
+          path: smoke-screenshots-${{ matrix.label }}/
+          retention-days: 7
+          if-no-files-found: ignore
