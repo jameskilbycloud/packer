@@ -203,7 +203,17 @@ systemctl --failed --no-pager 2>&1 | head -30
 DIAG
     govc guest.upload -f "${guest_auth[@]}" "${diag_local}" "${diag_guest}" 2>&1 \
       | sed "s/^/   [upload] /" || echo "   (diag upload failed)"
-    diag_output=$(govc guest.run "${guest_auth[@]}" -- /bin/sh "${diag_guest}" 2>&1) || diag_rc=$?
+    # Run the diag script under sudo on the guest. govc guest.run authenticates
+    # as the BUILD_USERNAME user (not root) — and without root, `ss -lntp`
+    # truncates, `journalctl -u <unit>` returns empty for system units, and
+    # `nft list ruleset` / `iptables -L` fail with "Permission denied". finalize.sh
+    # removes the NOPASSWD sudoers drop-in, so we have to provide the password
+    # via stdin. -e BUILD_PASS=... passes the password through guest.run's env;
+    # `echo "$BUILD_PASS" | sudo -S /bin/sh diag.sh` then runs the entire diag
+    # under root in a single guest.run call.
+    diag_output=$(govc guest.run "${guest_auth[@]}" \
+      -e "BUILD_PASS=${BUILD_PASSWORD}" -- \
+      /bin/sh -c "echo \"\$BUILD_PASS\" | sudo -S /bin/sh ${diag_guest} 2>&1" 2>&1) || diag_rc=$?
     rm -f "${diag_local}"
     echo "--- govc guest.run rc=${diag_rc}, output bytes=${#diag_output} ---"
     if [[ -n "${diag_output}" ]]; then
@@ -224,6 +234,17 @@ DIAG
     echo "==> vCenter-side VM state (govc vm.info):"
     govc vm.info -r "${CLONE_NAME}" 2>&1 | sed 's/^/   /' | head -40 \
       || echo "   (vm.info failed)"
+    echo ""
+    echo "==> VMware Tools state (govc object.collect):"
+    # Direct property fetch — covers the "Tools claims running but no IP
+    # reported" case (e.g. 2404-desktop clones that sit at the GDM login
+    # screen with no DHCP lease). Tells us whether vmtoolsd is even
+    # communicating with the host, separate from whether the guest has a
+    # working IP.
+    for prop in guest.toolsStatus guest.toolsRunningStatus guest.toolsVersionStatus2 guest.hostName guest.ipAddress guest.guestState; do
+      val=$(govc object.collect -s "${CLONE_NAME}" "${prop}" 2>/dev/null)
+      printf "   %-32s  %s\n" "${prop}" "${val:-(empty)}"
+    done
     echo ""
     echo "==> Recent vCenter events for the clone (last 20):"
     govc events -n 20 "vm/${CLONE_NAME}" 2>&1 | sed 's/^/   /' | head -25 \
