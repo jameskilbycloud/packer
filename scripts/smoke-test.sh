@@ -168,14 +168,35 @@ echo
 echo "--- /usr/local/sbin/firstboot-hostname.sh (first 30 lines) ---"
 head -30 /usr/local/sbin/firstboot-hostname.sh 2>&1
 echo
+echo "--- ip addr show ---"
+ip -brief addr show 2>&1 | head -10
+echo
+echo "--- ip route ---"
+ip -brief route show 2>&1 | head -10
+echo
+echo "--- listening TCP sockets (ss -lntp) ---"
+ss -lntp 2>&1 | head -20
+echo
+echo "--- nftables ruleset ---"
+nft list ruleset 2>&1 | head -30 || echo "(nft not available or rules empty)"
+echo
+echo "--- iptables-legacy (fallback) ---"
+iptables -L -n 2>&1 | head -10 || echo "(iptables-legacy not available)"
+echo
 echo "--- journalctl: firstboot-hostname (full) ---"
 journalctl -u firstboot-hostname --no-pager 2>&1 | tail -50
 echo
 echo "--- journalctl: ssh-host-keygen (full) ---"
 journalctl -u ssh-host-keygen --no-pager 2>&1 | tail -30
 echo
+echo "--- journalctl: ssh.service (full) ---"
+journalctl -u ssh.service --no-pager 2>&1 | tail -30
+echo
+echo "--- journalctl: ssh.socket (full) ---"
+journalctl -u ssh.socket --no-pager 2>&1 | tail -30
+echo
 echo "--- journalctl: this boot, ordering-cycle / dependency-related ---"
-journalctl -b --no-pager 2>&1 | grep -iE "ordering cycle|deleted to break|firstboot-hostname|dependency failed" | head -30
+journalctl -b --no-pager 2>&1 | grep -iE "ordering cycle|deleted to break|firstboot-hostname|dependency failed|cannot bind|Address already in use" | head -30
 echo
 echo "--- systemctl --failed ---"
 systemctl --failed --no-pager 2>&1 | head -30
@@ -194,6 +215,22 @@ DIAG
     echo ""
   fi
 
+  # vCenter-side state via govc — works even when both VMware Tools (no
+  # guest.run) AND the framebuffer (no screenshot) are unavailable, because
+  # vm.info + events go through the vSphere SDK directly. Always-available
+  # diagnostic of last resort.
+  if [[ ${rc} -ne 0 ]]; then
+    echo ""
+    echo "==> vCenter-side VM state (govc vm.info):"
+    govc vm.info -r "${CLONE_NAME}" 2>&1 | sed 's/^/   /' | head -40 \
+      || echo "   (vm.info failed)"
+    echo ""
+    echo "==> Recent vCenter events for the clone (last 20):"
+    govc events -n 20 "vm/${CLONE_NAME}" 2>&1 | sed 's/^/   /' | head -25 \
+      || echo "   (events failed)"
+    echo ""
+  fi
+
   # Console screenshot — works even when VMware Tools / guest.run can't
   # respond (e.g. clone hung at GRUB, kernel panic, never reached userspace).
   # Writes a PNG into ${SMOKE_SCREENSHOT_DIR:-./smoke-screenshots/}, which
@@ -205,7 +242,12 @@ DIAG
     local shot_path="${shot_dir}/${CLONE_NAME}.png"
     echo "==> Capturing console screenshot to ${shot_path}..."
     if govc vm.console -capture "${shot_path}" "${CLONE_NAME}" 2>/dev/null; then
-      echo "    ✔ saved $(stat -c%s "${shot_path}" 2>/dev/null || stat -f%z "${shot_path}" 2>/dev/null) bytes"
+      local sz=$(stat -c%s "${shot_path}" 2>/dev/null || stat -f%z "${shot_path}" 2>/dev/null)
+      if [[ "${sz}" -lt 1000 ]]; then
+        echo "    ⚠ saved ${sz} bytes — likely a 1x1 stub (framebuffer not initialised; VM is stuck pre-video)"
+      else
+        echo "    ✔ saved ${sz} bytes"
+      fi
     else
       echo "    ✘ screenshot failed (VM may have crashed too early, or vSphere refused the WebMKS connection)"
     fi
@@ -238,10 +280,29 @@ govc vm.power -on=true "${CLONE_NAME}"
 echo "==> Waiting up to ${SMOKE_TIMEOUT_SECONDS}s for VMware Tools to report an IP..."
 ip=""
 deadline=$(( $(date +%s) + SMOKE_TIMEOUT_SECONDS ))
+start_epoch=$(date +%s)
+midwait_shot_taken=false
 while [[ $(date +%s) -lt ${deadline} ]]; do
   ip=$(govc vm.ip -wait=30s "${CLONE_NAME}" 2>/dev/null || true)
   if [[ -n "${ip}" ]]; then
     break
+  fi
+  # Mid-wait screenshot at the ~50% mark — captures whatever the clone is
+  # doing during boot rather than only at the final timeout, where the VM
+  # may have entered an uncapturable state (powered-off framebuffer, etc.).
+  # Useful for "no IP" failures where Tools never come up but the clone
+  # might be sitting at a recoverable boot prompt (cloud-init failure,
+  # netplan retry, etc.).
+  elapsed=$(( $(date +%s) - start_epoch ))
+  if [[ "${midwait_shot_taken}" == "false" && ${elapsed} -gt $(( SMOKE_TIMEOUT_SECONDS / 2 )) ]]; then
+    shot_dir="${SMOKE_SCREENSHOT_DIR:-./smoke-screenshots}"
+    mkdir -p "${shot_dir}" 2>/dev/null || true
+    shot_path="${shot_dir}/${CLONE_NAME}-midwait.png"
+    echo "==> Mid-wait screenshot (${elapsed}s in, no IP yet) → ${shot_path}"
+    govc vm.console -capture "${shot_path}" "${CLONE_NAME}" 2>/dev/null \
+      && echo "    ✔ mid-wait shot saved" \
+      || echo "    ✘ mid-wait shot failed"
+    midwait_shot_taken=true
   fi
   sleep 5
 done
