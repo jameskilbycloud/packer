@@ -8,6 +8,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **26.04 OverlayFS kernel oops in curtin's rootfs-extract step — restored
+  the workaround that PR #37 ("strip back to first principles") removed.**
+  Build run 26602320872 (2026-05-28) hit a kernel oops in
+  `ovl_iterate_merged` during subiquity's
+  `Install/curtin_install/run_curtin_step/cmd-install/stage-extract` step,
+  with `note: rsync[NNNN] exited with irqs disabled` on the console.
+  This is the SAME bug the 2026-05-10 known-good notes documented and
+  worked around with `overlay.metacopy=off overlay.redirect_dir=off` on
+  the live-installer boot command — PR #37 removed those kernel params
+  on the hypothesis that the subiquity `_send_update` loop was the only
+  real bug, but the OverlayFS oops is independent and fires on its own
+  cadence. Confirmed by console-screenshot in run 26602320872: the trace
+  has nothing to do with subiquity's network module, it's deep in
+  OverlayFS's iterate-merged codepath inside curtin's image-extract.
+  Re-added the two strictly-required `overlay.metacopy=off
+  overlay.redirect_dir=off` params on both 26.04 source blocks, sitting
+  before the `---` separator alongside the existing `ipv6.disable=1` so
+  both apply only to the live installer (not the installed OS). The
+  older `overlay.index=off overlay.nfs_export=off` pair was defensive
+  overkill in the original workaround and stays gone.
 - **26.04 subiquity `_send_update: CHANGE ens33` loop — root cause and
   upstream-documented fix found.** Added `ipv6.disable=1` to the boot
   command (positioned before the `---` separator so it applies only to

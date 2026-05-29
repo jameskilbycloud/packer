@@ -75,25 +75,35 @@ source "vsphere-iso" "ubuntu-2604-server" {
   }
   cd_label = "cidata"
 
-  # Boot — same as 22.04 / 24.04. The defensive workarounds we tried (double
-  # spacebar, overlay.metacopy/redirect_dir/index/nfs_export disables) did
-  # not address the actual recurring failure mode (subiquity Network module
-  # _send_update loop, screenshot-confirmed). They added complexity without
-  # adding reliability, so they're gone.
+  # Boot — two independent live-installer kernel workarounds live before
+  # the `---` separator, so both apply only to the live installer (not the
+  # installed OS / clones).
   #
-  # ipv6.disable=1 (before `---`): documented upstream fix for the
-  # subiquity Network/_send_update CHANGE loop. Each IPv6 address-change
-  # event (link-local on boot, SLAAC from router advertisements) fires a
-  # netlink CHANGE event; subiquity's network observer processes each
-  # one and somehow re-triggers another, looping until ssh_timeout. The
-  # `---` separator scopes ipv6.disable=1 to the LIVE INSTALLER kernel
-  # only — clones boot with normal IPv6 behaviour. See
-  # https://answers.launchpad.net/ubuntu/+source/ubiquity/+question/698383
+  # 1. ipv6.disable=1 — documented upstream fix for the subiquity Network/
+  #    _send_update CHANGE loop. Each IPv6 address-change event (link-local
+  #    on boot, SLAAC from router advertisements) fires a netlink CHANGE
+  #    event; subiquity's network observer processes each one and somehow
+  #    re-triggers another, looping until ssh_timeout. See
+  #    https://answers.launchpad.net/ubuntu/+source/ubiquity/+question/698383
+  #
+  # 2. overlay.metacopy=off overlay.redirect_dir=off — workaround for an
+  #    OverlayFS kernel oops in `ovl_iterate_merged` that fires during
+  #    curtin's `cp://` rootfs-extract step on 26.04. Symptom is rsync
+  #    "exited with irqs disabled" + a full RIP/stack trace on the console,
+  #    followed by subiquity hanging until ssh_timeout. Originally
+  #    documented in the 2026-05-10 known-good notes. PR #37 ("strip back
+  #    to first principles") removed both these and ipv6.disable=1 on the
+  #    hypothesis that the subiquity loop was the only real bug — but the
+  #    OverlayFS oops is independent and the only reliable mitigation we
+  #    have found. Confirmed alive in screenshot-of-failure on run
+  #    26602320872 (2026-05-28). Restoring just the two strictly-required
+  #    overlay disables; the older `overlay.index=off overlay.nfs_export=off`
+  #    pair was defensive overkill and stays gone.
   boot_order = "disk,cdrom"
   boot_wait  = "5s"
   boot_command = [
     "c<wait2>",
-    "linux /casper/vmlinuz ipv6.disable=1 --- autoinstall ds=nocloud<enter><wait5>",
+    "linux /casper/vmlinuz ipv6.disable=1 overlay.metacopy=off overlay.redirect_dir=off --- autoinstall ds=nocloud<enter><wait5>",
     "initrd /casper/initrd<enter><wait5>",
     "boot<enter><wait30>"
   ]
@@ -182,12 +192,12 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
   }
   cd_label = "cidata"
 
-  # Boot — same as 22.04 / 24.04. See server source comment above.
+  # Boot — see server source comment above for ipv6.disable + overlay rationale.
   boot_order = "disk,cdrom"
   boot_wait  = "5s"
   boot_command = [
     "c<wait2>",
-    "linux /casper/vmlinuz ipv6.disable=1 --- autoinstall ds=nocloud<enter><wait5>",
+    "linux /casper/vmlinuz ipv6.disable=1 overlay.metacopy=off overlay.redirect_dir=off --- autoinstall ds=nocloud<enter><wait5>",
     "initrd /casper/initrd<enter><wait5>",
     "boot<enter><wait30>"
   ]
