@@ -106,6 +106,18 @@ echo "    template: ${template}"
 CLONE_NAME="${CLONE_NAME:-smoke-$(basename "${template}")-${GITHUB_RUN_ID:-$(date +%s)}}"
 echo "==> Clone target: ${CLONE_NAME}"
 
+# Define guest_auth up-front so the EXIT-trap cleanup can attempt guest.run-
+# based diagnostics on ANY non-zero exit — including "Clone did not report
+# an IP within Ns" failures (where the script bails before reaching the
+# pubkey injection that originally set guest_auth). VMware Tools' Guest
+# Operations API rides on the hypervisor RPC channel, not the guest's
+# network, so guest.run still works on a clone that has no IP — as long as
+# vmtoolsd is alive inside the guest. For 2404-desktop clones that boot to
+# GDM but never get a DHCP lease, this gives us the only diagnostic path
+# we have for what NetworkManager / netplan / systemd-networkd actually
+# did at boot.
+guest_auth=(-l "${BUILD_USERNAME}:${BUILD_PASSWORD}" -vm "${CLONE_NAME}")
+
 cleanup() {
   # Accept exit code as $1 if the trap forwarded one (e.g. from a multi-
   # command trap body where `$?` would otherwise be clobbered by the
@@ -168,6 +180,9 @@ echo
 echo "--- /usr/local/sbin/firstboot-hostname.sh (first 30 lines) ---"
 head -30 /usr/local/sbin/firstboot-hostname.sh 2>&1
 echo
+echo "--- ip link show ---"
+ip -brief link show 2>&1 | head -10
+echo
 echo "--- ip addr show ---"
 ip -brief addr show 2>&1 | head -10
 echo
@@ -182,6 +197,42 @@ nft list ruleset 2>&1 | head -30 || echo "(nft not available or rules empty)"
 echo
 echo "--- iptables-legacy (fallback) ---"
 iptables -L -n 2>&1 | head -10 || echo "(iptables-legacy not available)"
+echo
+echo "--- /etc/netplan/ ---"
+ls -la /etc/netplan/ 2>&1
+for f in /etc/netplan/*.yaml; do
+  [ -f "$f" ] || continue
+  echo "=== $f ==="
+  cat "$f" 2>&1
+done
+echo
+echo "--- NetworkManager state (if installed) ---"
+if command -v nmcli >/dev/null 2>&1; then
+  echo "[nmcli general]"
+  nmcli general 2>&1
+  echo "[nmcli connection show]"
+  nmcli connection show 2>&1
+  echo "[nmcli device status]"
+  nmcli device status 2>&1
+else
+  echo "(nmcli not installed)"
+fi
+echo
+echo "--- systemd-networkd state (if active) ---"
+if systemctl is-active systemd-networkd >/dev/null 2>&1; then
+  networkctl status --no-pager 2>&1 | head -40
+else
+  echo "(systemd-networkd not active)"
+fi
+echo
+echo "--- journalctl: NetworkManager (full) ---"
+journalctl -u NetworkManager --no-pager 2>&1 | tail -40
+echo
+echo "--- journalctl: systemd-networkd (full) ---"
+journalctl -u systemd-networkd --no-pager 2>&1 | tail -30
+echo
+echo "--- journalctl: cloud-init (full) ---"
+journalctl -u 'cloud-init*' --no-pager 2>&1 | tail -30
 echo
 echo "--- journalctl: firstboot-hostname (full) ---"
 journalctl -u firstboot-hostname --no-pager 2>&1 | tail -50
@@ -352,7 +403,8 @@ ssh-keygen -t ed25519 -N '' -f "${keydir}/id_ed25519" \
   -C "smoke-test-${GITHUB_RUN_ID:-local}" >/dev/null
 chmod 600 "${keydir}/id_ed25519"
 
-guest_auth=(-l "${BUILD_USERNAME}:${BUILD_PASSWORD}" -vm "${CLONE_NAME}")
+# guest_auth is already defined above (right after CLONE_NAME), so the EXIT
+# trap can use it on early failures. Don't redefine.
 
 # Upload the pubkey to /tmp first — /tmp is world-writable so the upload
 # never fails on perms — then a single guest.run shell does the install
