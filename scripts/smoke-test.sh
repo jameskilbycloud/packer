@@ -139,7 +139,9 @@ cleanup() {
     # parameter — only the first line of a multi-line `-c` script survives.
     # That bug is what produced run 26570996931's "rc=0, bytes=0" empty
     # diagnostic.
-    local diag_local diag_guest diag_output diag_rc=0
+    local diag_local diag_guest
+    local diag_output_user diag_rc_user=0
+    local diag_output_sudo diag_rc_sudo=0
     diag_local=$(mktemp)
     diag_guest="/tmp/smoke-diag-${GITHUB_RUN_ID:-$$}.sh"
     cat > "${diag_local}" <<'DIAG'
@@ -254,23 +256,48 @@ systemctl --failed --no-pager 2>&1 | head -30
 DIAG
     govc guest.upload -f "${guest_auth[@]}" "${diag_local}" "${diag_guest}" 2>&1 \
       | sed "s/^/   [upload] /" || echo "   (diag upload failed)"
-    # Run the diag script under sudo on the guest. govc guest.run authenticates
-    # as the BUILD_USERNAME user (not root) — and without root, `ss -lntp`
-    # truncates, `journalctl -u <unit>` returns empty for system units, and
-    # `nft list ruleset` / `iptables -L` fail with "Permission denied". finalize.sh
-    # removes the NOPASSWD sudoers drop-in, so we have to provide the password
-    # via stdin. -e BUILD_PASS=... passes the password through guest.run's env;
-    # `echo "$BUILD_PASS" | sudo -S /bin/sh diag.sh` then runs the entire diag
-    # under root in a single guest.run call.
-    diag_output=$(govc guest.run "${guest_auth[@]}" \
+    # Two-pass diag invocation.
+    #
+    # Pass 1: USER MODE. Run the diag script as ${BUILD_USERNAME} with no
+    # sudo. Most commands in the diag (systemctl is-active, ip addr, ls
+    # /etc/netplan, nmcli show, cat /etc/hostname, …) work without root,
+    # and this pass succeeds even when sudo is broken — which has been the
+    # exact failure mode that hid actionable diag output in runs #202 and
+    # #203 ("sudo: Authentication failed" / "no password was provided"
+    # swallowed every dump). The commands that DO need root (`journalctl
+    # -u <system-unit>`, `nft list ruleset`, full `ss -lntp` with PIDs)
+    # degrade individually inside the diag script — they print their own
+    # "Permission denied" rather than blocking the rest.
+    #
+    # Pass 2: SUDO MODE, best-effort. Same script, this time piped through
+    # sudo -S so we get the root-only views when sudo works. `printf '%s\n'`
+    # instead of `echo` because some /bin/sh echos process backslashes by
+    # default, mangling passwords that contain `\` characters and reaching
+    # sudo as a wrong string.
+    diag_rc_user=0
+    diag_output_user=$(govc guest.run "${guest_auth[@]}" -- \
+      /bin/sh "${diag_guest}" 2>&1) || diag_rc_user=$?
+
+    diag_rc_sudo=0
+    diag_output_sudo=$(govc guest.run "${guest_auth[@]}" \
       -e "BUILD_PASS=${BUILD_PASSWORD}" -- \
-      /bin/sh -c "echo \"\$BUILD_PASS\" | sudo -S /bin/sh ${diag_guest} 2>&1" 2>&1) || diag_rc=$?
+      /bin/sh -c "printf '%s\n' \"\$BUILD_PASS\" | sudo -S /bin/sh ${diag_guest} 2>&1" 2>&1) || diag_rc_sudo=$?
+
     rm -f "${diag_local}"
-    echo "--- govc guest.run rc=${diag_rc}, output bytes=${#diag_output} ---"
-    if [[ -n "${diag_output}" ]]; then
-      printf '%s\n' "${diag_output}" | sed "s/^/   /"
+
+    # Surface the user-mode dump first since it's the one that survives when
+    # sudo is broken; then surface the sudo dump for the root-only views.
+    echo "--- pass 1: USER MODE — rc=${diag_rc_user}, output bytes=${#diag_output_user} ---"
+    if [[ -n "${diag_output_user}" ]]; then
+      printf '%s\n' "${diag_output_user}" | sed "s/^/   /"
     else
-      echo "   (no output — auth/comms failure, or the diag script itself returned nothing)"
+      echo "   (no output from user-mode pass — guest.run / VMware Tools comms failure)"
+    fi
+    echo "--- pass 2: SUDO MODE — rc=${diag_rc_sudo}, output bytes=${#diag_output_sudo} ---"
+    if [[ -n "${diag_output_sudo}" ]]; then
+      printf '%s\n' "${diag_output_sudo}" | sed "s/^/   /"
+    else
+      echo "   (no output from sudo-mode pass — sudo auth failed or script returned nothing)"
     fi
     echo "--- end diagnostic dump ---"
     echo ""
@@ -434,10 +461,30 @@ govc guest.run "${guest_auth[@]}" -- \
 echo "==> Waiting up to ${SSH_TIMEOUT_SECONDS}s for SSH on ${ip}:22..."
 ssh_deadline=$(( $(date +%s) + SSH_TIMEOUT_SECONDS ))
 ssh_up=false
+last_ip_check=$(date +%s)
+ip_recheck_interval=30   # seconds — cheap call, but no point hammering vmtoolsd
 while [[ $(date +%s) -lt ${ssh_deadline} ]]; do
   if (echo > "/dev/tcp/${ip}/22") 2>/dev/null; then
     ssh_up=true
     break
+  fi
+  # Periodically re-poll VMware Tools for the clone's current IP. DHCP renewal
+  # mid-boot (especially on 26.04 server where setup.sh truncates
+  # /etc/machine-id, which changes the systemd-networkd DUID and triggers a
+  # new lease shortly after first boot) can move the clone to a different
+  # address after we captured it. Without re-checking, smoke polls a stale
+  # IP and times out on a clone that is actually up and reachable on its
+  # new address — exactly what happened in run 26678549023 on the
+  # 2604-server leg: captured 192.168.4.151, clone later moved to
+  # 192.168.4.165, smoke timed out on the dead .151.
+  now=$(date +%s)
+  if (( now - last_ip_check >= ip_recheck_interval )); then
+    last_ip_check=${now}
+    new_ip=$(govc vm.ip -wait=2s "${CLONE_NAME}" 2>/dev/null || true)
+    if [[ -n "${new_ip}" && "${new_ip}" != "${ip}" ]]; then
+      echo "    → VMware Tools reports clone IP changed: ${ip} → ${new_ip} (DHCP renew); retargeting"
+      ip="${new_ip}"
+    fi
   fi
   sleep 3
 done

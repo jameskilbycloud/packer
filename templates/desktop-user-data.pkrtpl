@@ -131,6 +131,11 @@ autoinstall:
     # environment (handles both normal and transient/uninitialized cases on
     # Ubuntu 26.04 / systemd 256 where /run/machine-id may not be a plain file).
     - "systemd-id128 machine-id | tr -d '-' > /target/etc/machine-id"
+    # Add the build user to adm + systemd-journal so the smoke-test diag dump
+    # can read `journalctl -u <system-unit>` without sudo. See server-user-data.pkrtpl
+    # for the full rationale (runs #202 / #203 had silent sudo failures
+    # swallowing all diag output).
+    - curtin in-target --target=/target -- usermod -aG adm,systemd-journal ${build_username}
 
   # 'updates' key intentionally omitted — valid values are 'security' and 'all'.
   # Omitting skips the in-install update pass; setup.sh runs apt-get upgrade -y
