@@ -123,6 +123,22 @@ variable "server_ram_mb" {
   default     = 4096
 }
 
+variable "server_2604_ram_mb" {
+  type        = number
+  description = <<-EOT
+    RAM in MB for the 26.04 server image specifically. Overrides
+    server_ram_mb for that one source. Bumped from 4096 to 6144 because
+    the 2604 server boot_command appends `toram` (casper boot-to-RAM) as
+    a mitigation for the OverlayFS oops in ovl_iterate_merged tracked in
+    LP #2150586 / #2150640. casper copies the entire live-server ISO
+    (~2.8 GB) into RAM at boot; at 4 GB the install hits OOM or casper
+    silently falls back to non-toram (mitigation lost). 6 GB leaves
+    ~3 GB headroom for the kernel, initrd, subiquity/curtin working set,
+    and file caches during the install.
+  EOT
+  default     = 6144
+}
+
 variable "server_disk_gb" {
   type        = number
   description = "OS disk size in GB for server images"
