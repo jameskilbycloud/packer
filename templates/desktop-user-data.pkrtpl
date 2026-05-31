@@ -27,18 +27,19 @@ autoinstall:
     # to redirect cp:/// → squashfs:///<casper squashfs> bypasses the
     # overlay code path entirely. 22.04 / 24.04 short-circuit by VERSION_ID
     # check so this is a no-op for them.
+    # See server-user-data.pkrtpl for the $$ escaping rationale.
     - |
       set +e
-      if . /etc/os-release 2>/dev/null && [ "${VERSION_ID:-}" = "26.04" ] \
+      if . /etc/os-release 2>/dev/null && [ "$${VERSION_ID:-}" = "26.04" ] \
           && [ -f /cdrom/casper/install-sources.yaml ] \
           && grep -q 'cp:///' /cdrom/casper/install-sources.yaml; then
         squashfs=$(ls /cdrom/casper/*.squashfs 2>/dev/null \
           | grep -v installer | head -1)
-        if [ -n "${squashfs}" ]; then
+        if [ -n "$${squashfs}" ]; then
           cp /cdrom/casper/install-sources.yaml /tmp/install-sources.yaml.patched
-          sed -i "s|cp:///|squashfs://${squashfs}|g" /tmp/install-sources.yaml.patched
+          sed -i "s|cp:///|squashfs://$${squashfs}|g" /tmp/install-sources.yaml.patched
           if mount --bind /tmp/install-sources.yaml.patched /cdrom/casper/install-sources.yaml; then
-            echo "==> install-sources.yaml patched: cp:/// -> squashfs://${squashfs}"
+            echo "==> install-sources.yaml patched: cp:/// -> squashfs://$${squashfs}"
             echo "==> Patched content:"
             cat /cdrom/casper/install-sources.yaml | sed 's/^/    /'
           else

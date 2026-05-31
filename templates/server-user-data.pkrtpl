@@ -51,9 +51,15 @@ autoinstall:
     # at controller init, before early-commands run. If so, the bind mount
     # is a no-op. The log line below ("install-sources.yaml patched" vs
     # "bind mount failed") will tell us empirically on the next dispatch.
+    # NOTE on $$ escaping below: this file is rendered by Packer's
+    # templatefile() function which treats $${...} as shell-variable
+    # escapes. Bare $${VAR} preserves the shell-level $${VAR} expansion
+    # for subiquity's early-command runner. The ${build_username} etc.
+    # references elsewhere in this file use single-$ because they ARE
+    # Packer template variables.
     - |
       set +e
-      if . /etc/os-release 2>/dev/null && [ "${VERSION_ID:-}" = "26.04" ] \
+      if . /etc/os-release 2>/dev/null && [ "$${VERSION_ID:-}" = "26.04" ] \
           && [ -f /cdrom/casper/install-sources.yaml ] \
           && grep -q 'cp:///' /cdrom/casper/install-sources.yaml; then
         # Find the live-system squashfs. Naming varies by ISO flavour
@@ -63,11 +69,11 @@ autoinstall:
         # separate layer used by the live env, not the install payload).
         squashfs=$(ls /cdrom/casper/*.squashfs 2>/dev/null \
           | grep -v installer | head -1)
-        if [ -n "${squashfs}" ]; then
+        if [ -n "$${squashfs}" ]; then
           cp /cdrom/casper/install-sources.yaml /tmp/install-sources.yaml.patched
-          sed -i "s|cp:///|squashfs://${squashfs}|g" /tmp/install-sources.yaml.patched
+          sed -i "s|cp:///|squashfs://$${squashfs}|g" /tmp/install-sources.yaml.patched
           if mount --bind /tmp/install-sources.yaml.patched /cdrom/casper/install-sources.yaml; then
-            echo "==> install-sources.yaml patched: cp:/// -> squashfs://${squashfs}"
+            echo "==> install-sources.yaml patched: cp:/// -> squashfs://$${squashfs}"
             echo "==> Patched content:"
             cat /cdrom/casper/install-sources.yaml | sed 's/^/    /'
           else
