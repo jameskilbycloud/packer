@@ -17,6 +17,67 @@ autoinstall:
   # ssh.service, otherwise ssh.socket keeps port 22 open and Packer may
   # connect to the live installer's SSH (which rejects password auth).
   early-commands:
+    # ── ROOT-CAUSE bypass for 26.04 OverlayFS oops ─────────────────────────
+    # Curtin's default install source is `cp:///` which runs
+    #   rsync -aXHAS --one-file-system /  /target/
+    # against the OverlayFS-merged live root. On the 26.04 live kernel,
+    # that rsync directory walk trips a probabilistic oops in
+    # ovl_iterate_merged+0x1d8 (LP #2150586, #2150640, #2150636, #2150197 —
+    # all open, no upstream fix). Every prior mitigation
+    # (overlay.metacopy/redirect_dir/index/nfs_export=off + xino_auto=on,
+    # toram, MAX_ATTEMPTS=4) lowers probability but the trigger keeps
+    # firing.
+    #
+    # This early-command stops the trigger by redirecting subiquity's
+    # source map to use `squashfs:///` instead of `cp:///`. The squashfs
+    # handler in curtin does mount(squashfs)+copy from a single-layer
+    # read-only mount — no OverlayFS, no iteration of a merged dir, no
+    # oops surface. Same install content; different read path.
+    #
+    # Mechanism: /cdrom is read-only (ISO mount), but we can bind-mount a
+    # writable file over individual paths. Copy install-sources.yaml to
+    # /tmp, sed the cp:/// URL to squashfs:///<detected-squashfs>, then
+    # bind-mount the patched file back over the original path.
+    #
+    # Guards:
+    #   • Only runs when VERSION_ID == 26.04 (no-op on 22.04 / 24.04 which
+    #     are clean every run; touching their install path would risk a
+    #     regression with no upside).
+    #   • Only runs if install-sources.yaml exists and contains `cp:///`.
+    #   • Falls through silently on any failure — install reverts to the
+    #     unpatched cp:/// path. Worst case: same OverlayFS oops as before.
+    #
+    # Uncertainty: subiquity may have already loaded install-sources.yaml
+    # at controller init, before early-commands run. If so, the bind mount
+    # is a no-op. The log line below ("install-sources.yaml patched" vs
+    # "bind mount failed") will tell us empirically on the next dispatch.
+    - |
+      set +e
+      if . /etc/os-release 2>/dev/null && [ "${VERSION_ID:-}" = "26.04" ] \
+          && [ -f /cdrom/casper/install-sources.yaml ] \
+          && grep -q 'cp:///' /cdrom/casper/install-sources.yaml; then
+        # Find the live-system squashfs. Naming varies by ISO flavour
+        # (ubuntu-server-minimal.squashfs, ubuntu-server.squashfs, etc.)
+        # so we glob for any *.squashfs in casper/ and prefer one whose
+        # name doesn't include "installer" (the installer squashfs is a
+        # separate layer used by the live env, not the install payload).
+        squashfs=$(ls /cdrom/casper/*.squashfs 2>/dev/null \
+          | grep -v installer | head -1)
+        if [ -n "${squashfs}" ]; then
+          cp /cdrom/casper/install-sources.yaml /tmp/install-sources.yaml.patched
+          sed -i "s|cp:///|squashfs://${squashfs}|g" /tmp/install-sources.yaml.patched
+          if mount --bind /tmp/install-sources.yaml.patched /cdrom/casper/install-sources.yaml; then
+            echo "==> install-sources.yaml patched: cp:/// -> squashfs://${squashfs}"
+            echo "==> Patched content:"
+            cat /cdrom/casper/install-sources.yaml | sed 's/^/    /'
+          else
+            echo "==> bind-mount of patched install-sources.yaml FAILED; install will use unpatched cp:///"
+          fi
+        else
+          echo "==> No suitable squashfs in /cdrom/casper/; cannot patch install-sources.yaml"
+        fi
+      fi
+      true
     - sudo systemctl stop ssh.socket ssh 2>/dev/null || true
 
   # ── Network ───────────────────────────────────────────────────────────────

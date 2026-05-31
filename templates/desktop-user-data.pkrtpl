@@ -19,6 +19,36 @@ autoinstall:
   # Stopping ssh.socket closes port 22 completely, so Packer gets ECONNREFUSED
   # during the install and only connects once the installed OS boots.
   early-commands:
+    # ── ROOT-CAUSE bypass for 26.04 OverlayFS oops ─────────────────────────
+    # See server-user-data.pkrtpl for the full rationale. Summary: curtin's
+    # default cp:/// source runs rsync against the OverlayFS-merged live
+    # root, which trips ovl_iterate_merged on the 26.04 live kernel
+    # (LP #2150586 et al.). Patching install-sources.yaml via bind mount
+    # to redirect cp:/// → squashfs:///<casper squashfs> bypasses the
+    # overlay code path entirely. 22.04 / 24.04 short-circuit by VERSION_ID
+    # check so this is a no-op for them.
+    - |
+      set +e
+      if . /etc/os-release 2>/dev/null && [ "${VERSION_ID:-}" = "26.04" ] \
+          && [ -f /cdrom/casper/install-sources.yaml ] \
+          && grep -q 'cp:///' /cdrom/casper/install-sources.yaml; then
+        squashfs=$(ls /cdrom/casper/*.squashfs 2>/dev/null \
+          | grep -v installer | head -1)
+        if [ -n "${squashfs}" ]; then
+          cp /cdrom/casper/install-sources.yaml /tmp/install-sources.yaml.patched
+          sed -i "s|cp:///|squashfs://${squashfs}|g" /tmp/install-sources.yaml.patched
+          if mount --bind /tmp/install-sources.yaml.patched /cdrom/casper/install-sources.yaml; then
+            echo "==> install-sources.yaml patched: cp:/// -> squashfs://${squashfs}"
+            echo "==> Patched content:"
+            cat /cdrom/casper/install-sources.yaml | sed 's/^/    /'
+          else
+            echo "==> bind-mount of patched install-sources.yaml FAILED; install will use unpatched cp:///"
+          fi
+        else
+          echo "==> No suitable squashfs in /cdrom/casper/; cannot patch install-sources.yaml"
+        fi
+      fi
+      true
     - sudo systemctl stop ssh.socket ssh 2>/dev/null || true
 
   # ── Network ───────────────────────────────────────────────────────────────
