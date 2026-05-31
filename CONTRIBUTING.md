@@ -1,8 +1,9 @@
 # Contributing
 
-Thanks for the interest. This is a personal homelab project — contributions
-are welcome but the bar is "fits the existing patterns and doesn't break the
-six Linux builds."
+Thanks for the interest. This is one of the personal projects under the
+[`jameskilbycloud`](https://github.com/jameskilbycloud) org — homelab work,
+not commercial software. Contributions are welcome but the bar is "fits the
+existing patterns and doesn't break the six Linux builds."
 
 ## Quick start
 

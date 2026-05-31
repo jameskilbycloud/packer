@@ -21,9 +21,10 @@ When reporting, please include:
 - Any suggested mitigation, if you've thought about it.
 
 You will get an initial acknowledgement within seven days on a best-effort
-basis. There is no bug bounty — this is a personal homelab project — but
-fixes will be prioritised over feature work and you will be credited in the
-release notes if you'd like.
+basis. There is no bug bounty — this repo is one of the personal projects
+under the [`jameskilbycloud`](https://github.com/jameskilbycloud) org, not
+commercial software — but fixes will be prioritised over feature work and
+you will be credited in the release notes if you'd like.
 
 ## Scope
 
