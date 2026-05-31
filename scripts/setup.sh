@@ -348,6 +348,39 @@ echo "==> PACKER_BUILD_INFO_BEGIN"
 cat /var/log/packer-build-info.json
 echo "==> PACKER_BUILD_INFO_END"
 
+# ── Build user ↔ diag-friendly group membership ───────────────────────────────
+# Add the build user to adm + systemd-journal so post-clone smoke diag can
+# read `journalctl -u <system-unit>` without sudo. finalize.sh strips the
+# NOPASSWD sudoers entry before template conversion, so when sudo auth fails
+# on a clone (observed in runs #202 / #203 where every diag dump was empty)
+# the user-mode diag pass still gets system-service logs via group access.
+#
+# Why here, not in autoinstall late-commands:
+#   An earlier attempt added this as `curtin in-target -- usermod ...` in
+#   user-data late-commands (commits c4645bb + 3be3b8d). That broke 2204 and
+#   2604 builds — late-commands run in subiquity-defined order and a failure
+#   on one cuts off every command after it, including the SSH-pwauth drop-in.
+#   Run 26690712106 SSH-timed-out on every 2204 + 2604-desktop attempt
+#   exactly because of this. Reverted in 0a69b50.
+#
+# Running it here, after Packer is already connected over SSH on the booted
+# system, makes the failure mode bounded: if `getent group` returns nothing
+# for either group on this OS version we just log and skip — the build never
+# loses SSH.
+if [[ -n "${BUILD_USERNAME:-}" ]] && id "${BUILD_USERNAME}" &>/dev/null; then
+  echo "==> Adding ${BUILD_USERNAME} to diagnostic groups..."
+  for grp in adm systemd-journal; do
+    if getent group "${grp}" >/dev/null 2>&1; then
+      usermod -aG "${grp}" "${BUILD_USERNAME}"
+      echo "    ✔ ${BUILD_USERNAME} → ${grp}"
+    else
+      echo "    ⚠ group '${grp}' does not exist on this OS — skipping"
+    fi
+  done
+else
+  echo "==> BUILD_USERNAME not set or user missing — skipping diag-group add."
+fi
+
 echo "==> Zeroing free space for better template compression..."
 # Write to /var/tmp, NOT /tmp. On Ubuntu /tmp is mounted as tmpfs by systemd
 # (tmp.mount), so writing zeros there fills RAM and never touches the disk —

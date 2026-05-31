@@ -287,6 +287,7 @@ build {
     environment_vars = [
       "ADMIN_USERNAME=${var.admin_username}",
       "ADMIN_GITHUB_USER=${var.admin_github_user}",
+      "BUILD_USERNAME=${var.build_username}",
     ]
     scripts = ["${path.root}/scripts/setup.sh"]
   }
@@ -309,6 +310,7 @@ build {
     environment_vars = [
       "ADMIN_USERNAME=${var.admin_username}",
       "ADMIN_GITHUB_USER=${var.admin_github_user}",
+      "BUILD_USERNAME=${var.build_username}",
     ]
     scripts = ["${path.root}/scripts/setup.sh"]
   }
