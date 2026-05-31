@@ -194,12 +194,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      # Best-effort auto-install. Fallback needs sudo — if it fails, the next
+      # step that calls `govc` surfaces a clear "command not found". Pre-install
+      # per docs/operations.md to avoid relying on this fallback.
       - name: Install govc
+        continue-on-error: true
         run: |
           if command -v govc &>/dev/null; then
             echo "govc already installed: $(govc version)"
             exit 0
           fi
+          echo "govc not installed — attempting best-effort auto-install (requires sudo)."
+          echo "If this fails, pre-install per docs/operations.md → Setting up the runner."
           GOVC_VERSION=$(curl -fsSL https://api.github.com/repos/vmware/govmomi/releases/latest \
             | grep '"tag_name"' | cut -d'"' -f4)
           curl -fsSL \
@@ -302,13 +308,21 @@ jobs:
 
           echo "✅ All required secrets are present."
 
-      # ── Install Packer ───────────────────────────────────────────────────────
+      # ── Install Packer (idempotent, best-effort) ─────────────────────────────
+      # Each Install* step below is continue-on-error: the auto-install needs
+      # sudo and may fail (no sudo, network, broken APT). If it does, the
+      # downstream step that calls the tool surfaces a clear "command not
+      # found". Pre-install per docs/operations.md to avoid relying on the
+      # fallback.
       - name: Install Packer
+        continue-on-error: true
         run: |
           if command -v packer &>/dev/null; then
             echo "Packer already installed: $(packer version)"
             exit 0
           fi
+          echo "Packer not installed — attempting best-effort auto-install (requires sudo)."
+          echo "If this fails, pre-install per docs/operations.md → Setting up the runner."
           # Install via direct binary download — avoids APT codename mismatches
           # (e.g. pre-release Ubuntu codenames not yet in HashiCorp's repo)
           PACKER_VERSION=$(curl -fsSL https://api.releases.hashicorp.com/v1/releases/packer/latest \
@@ -324,22 +338,30 @@ jobs:
 
       # ── Install xorriso (required for cloud-init CD image creation) ─────────
       - name: Install xorriso
+        continue-on-error: true
         run: |
-          if ! command -v xorriso &>/dev/null; then
-            # Ignore update errors — broken third-party repos (e.g. HashiCorp for
-            # pre-release Ubuntu codenames) must not block the standard repo install.
-            sudo apt-get update -qq 2>/dev/null || true
-            sudo apt-get install -y xorriso
+          if command -v xorriso &>/dev/null; then
+            echo "xorriso already installed: $(xorriso --version 2>&1 | head -1)"
+            exit 0
           fi
+          echo "xorriso not installed — attempting best-effort auto-install (requires sudo)."
+          echo "If this fails, pre-install per docs/operations.md → Setting up the runner."
+          # Ignore update errors — broken third-party repos (e.g. HashiCorp for
+          # pre-release Ubuntu codenames) must not block the standard repo install.
+          sudo apt-get update -qq 2>/dev/null || true
+          sudo apt-get install -y xorriso
           echo "xorriso: $(xorriso --version 2>&1 | head -1)"
 
       # ── Install govc (required to resolve Content Library ISO paths) ──────────
       - name: Install govc
+        continue-on-error: true
         run: |
           if command -v govc &>/dev/null; then
             echo "govc already installed: $(govc version)"
             exit 0
           fi
+          echo "govc not installed — attempting best-effort auto-install (requires sudo)."
+          echo "If this fails, pre-install per docs/operations.md → Setting up the runner."
           GOVC_VERSION=$(curl -fsSL https://api.github.com/repos/vmware/govmomi/releases/latest \
             | grep '"tag_name"' | cut -d'"' -f4)
           curl -fsSL \
@@ -612,13 +634,15 @@ jobs:
           set +e
           attempt=1
           while [[ ${attempt} -le ${MAX_ATTEMPTS} ]]; do
-            # Capture log size before this attempt so the transient-pattern
-            # check below can scope to ONLY the bytes this attempt produced.
-            # Without this, the log accumulates across attempts and a benign
-            # earlier "Temporary failure" from a momentary apt mirror hiccup
-            # makes every failure look transient — exactly what happened on
-            # run #142 where a goss assertion error retried unnecessarily.
-            log_size_before=$(stat -c%s "${PACKER_LOG_PATH}" 2>/dev/null || echo 0)
+            # Note on log scoping: Packer opens PACKER_LOG_PATH with O_TRUNC
+            # on every invocation (verified empirically — run 26709408894
+            # ended after 2 of 4 attempts because the previous byte-diff
+            # gate computed attempt_bytes=0 when attempt 2's log size
+            # happened to match attempt 1's, making both transient grep
+            # passes skip and triggering the non-transient exit). The file
+            # at end-of-attempt always contains ONLY this attempt's output,
+            # so `tail -n 200 <file>` already scopes correctly without a
+            # before/after byte diff.
 
             echo ""
             echo "═══════════════════════════════════════════════════════════════"
@@ -664,31 +688,32 @@ jobs:
             #      recovered — apt-get retries, momentary DNS blips, etc.)
             # The intent is "look at the actual failure region, not the
             # whole 25-minute build log".
-            log_size_after=$(stat -c%s "${PACKER_LOG_PATH}" 2>/dev/null || echo 0)
-            attempt_bytes=$((log_size_after - log_size_before))
-
             # SSH-timeout retry IS allowed now (with the 30m fail-fast cap,
             # one retry is affordable and we know the 26.04 subiquity Network
             # observer loop is probabilistic — a fresh attempt has a ~50%
             # chance of succeeding cleanly). The old anti-pattern guard that
             # blocked retry on "Timeout waiting for SSH" was added when
             # ssh_timeout was 180m, before we understood the bug was random.
+            #
+            # `tail -n 200 "${PACKER_LOG_PATH}"` (no byte slicing) reads the
+            # last 200 lines of the current log content. Because Packer
+            # truncates PACKER_LOG_PATH on each invocation (see "Note on log
+            # scoping" at the top of the loop), those 200 lines are entirely
+            # from THIS attempt — no risk of grepping leftover bytes from
+            # a previous attempt's tail. The earlier byte-diff approach
+            # silently broke retries when consecutive attempts produced
+            # similar-sized logs (attempt_bytes ≈ 0 → gate failed → no retry,
+            # even on bona fide transient failures).
             ssh_timeout_match=false
-            if [[ ${attempt_bytes} -gt 0 ]]; then
-              if tail -c "${attempt_bytes}" "${PACKER_LOG_PATH}" 2>/dev/null \
-                | tail -200 \
-                | grep -qE 'Timeout waiting for SSH|Timeout waiting for IP'; then
-                ssh_timeout_match=true
-              fi
+            if tail -n 200 "${PACKER_LOG_PATH}" 2>/dev/null \
+              | grep -qE 'Timeout waiting for SSH|Timeout waiting for IP'; then
+              ssh_timeout_match=true
             fi
 
             transient_match=false
-            if [[ ${attempt_bytes} -gt 0 ]]; then
-              if tail -c "${attempt_bytes}" "${PACKER_LOG_PATH}" 2>/dev/null \
-                | tail -200 \
-                | grep -qiE 'connection refused|i/o timeout|tls handshake|no route to host|temporary failure|service unavailable|context deadline exceeded|cannot connect|dial tcp|server closed|unexpected EOF|connection reset'; then
-                transient_match=true
-              fi
+            if tail -n 200 "${PACKER_LOG_PATH}" 2>/dev/null \
+              | grep -qiE 'connection refused|i/o timeout|tls handshake|no route to host|temporary failure|service unavailable|context deadline exceeded|cannot connect|dial tcp|server closed|unexpected EOF|connection reset'; then
+              transient_match=true
             fi
 
             if [[ "${ssh_timeout_match}" == "true" || "${transient_match}" == "true" ]]; then
@@ -1144,12 +1169,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      # Best-effort auto-install — see comment on the earlier Install govc step.
       - name: Install govc
+        continue-on-error: true
         run: |
           if command -v govc &>/dev/null; then
             echo "govc already installed: $(govc version)"
             exit 0
           fi
+          echo "govc not installed — attempting best-effort auto-install (requires sudo)."
+          echo "If this fails, pre-install per docs/operations.md → Setting up the runner."
           GOVC_VERSION=$(curl -fsSL https://api.github.com/repos/vmware/govmomi/releases/latest \
             | grep '"tag_name"' | cut -d'"' -f4)
           curl -fsSL \
