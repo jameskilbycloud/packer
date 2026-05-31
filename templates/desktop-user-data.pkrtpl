@@ -131,48 +131,6 @@ autoinstall:
     # environment (handles both normal and transient/uninitialized cases on
     # Ubuntu 26.04 / systemd 256 where /run/machine-id may not be a plain file).
     - "systemd-id128 machine-id | tr -d '-' > /target/etc/machine-id"
-    # Add the build user to adm + systemd-journal so the smoke-test diag dump
-    # can read `journalctl -u <system-unit>` without sudo. See server-user-data.pkrtpl
-    # for the full rationale (runs #202 / #203 had silent sudo failures
-    # swallowing all diag output).
-    - curtin in-target --target=/target -- usermod -aG adm,systemd-journal ${build_username}
-    # Clone-friendly netplan rewrite (desktop only).
-    #
-    # On 24.04 desktop, netplan + NetworkManager translate `match: driver: vmxnet3`
-    # (from the autoinstall `network` block above) into an NM keyfile with the
-    # install-time MAC baked in by NM's `connection.mac-address` field. When the
-    # template is cloned, ens33 gets a fresh MAC, NM can't find a matching
-    # keyfile, and reports the device as "unmanaged" — link stays DOWN, no DHCP,
-    # smoke fails on "Clone did not report an IP within 600s". Confirmed by the
-    # user-mode diag from run 26686255321:
-    #   ens33  ethernet  unmanaged  --
-    #   [nmcli connection show]            (empty — no profiles)
-    #
-    # subiquity's `network` block can't easily express "explicit renderer +
-    # name-based match" — the `match: driver` form there is what the install
-    # network needs to come up before the renderer is decided. So we rewrite
-    # /etc/netplan/50-cloud-init.yaml in late-commands AFTER install completes,
-    # with two clone-friendly properties:
-    #   • renderer: NetworkManager — explicit; desktop default, removed
-    #     ambiguity with systemd-networkd which was also wanted on multi-user.
-    #   • match: name: en*         — matches by predictable kernel name. Name
-    #     is hardware-version-stable on VMware (still ens33 / ens160 after
-    #     clone), so the resulting NM keyfile survives the MAC change.
-    #
-    # Server variants don't need this — they use systemd-networkd which honors
-    # match.driver without baking MAC into the rendered config.
-    - |
-      cat > /target/etc/netplan/50-cloud-init.yaml <<'NETPLAN'
-      network:
-        version: 2
-        renderer: NetworkManager
-        ethernets:
-          primary:
-            match:
-              name: "en*"
-            dhcp4: true
-      NETPLAN
-    - chmod 600 /target/etc/netplan/50-cloud-init.yaml
 
   # 'updates' key intentionally omitted — valid values are 'security' and 'all'.
   # Omitting skips the in-install update pass; setup.sh runs apt-get upgrade -y
