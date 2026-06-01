@@ -108,6 +108,18 @@ autoinstall:
             driver: vmxnet3
           dhcp4: true
 
+  # ── Install source ────────────────────────────────────────────────────────
+  # Same rationale as server-user-data.pkrtpl: select the fsimage source
+  # over fsimage-layered to avoid curtin's LayeredSourceHandler overlay
+  # mount that trips ovl_iterate_merged on 26.04. The desktop ISO's source
+  # ID is ubuntu-desktop-minimal (matches the server-side naming
+  # convention; the install-sources.yaml on the desktop ISO will be probed
+  # in this same run's diagnostic block — if the guess is wrong, subiquity
+  # will fail validation and the probe output will tell us the right ID).
+  source:
+    id: ubuntu-desktop-minimal
+    search_drivers: false
+
   # ── Storage ───────────────────────────────────────────────────────────────
   storage:
     layout:
