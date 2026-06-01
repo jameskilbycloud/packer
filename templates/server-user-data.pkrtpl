@@ -73,6 +73,14 @@ autoinstall:
     # narrows that down deterministically on the next build.
     - |
       set +e
+      # Route output to /var/log/installer/resolute-probe.txt — subiquity's
+      # copylogs controller copies that directory to /target/var/log/installer/
+      # at install end, so it lands on the installed system. (Earlier attempts
+      # routed to journalctl, which doesn't persist on Ubuntu's default
+      # ephemeral-journal config; and to /var/log/installer/subiquity-*.log,
+      # which captures command TEXT not OUTPUT.)
+      mkdir -p /var/log/installer
+      exec >/var/log/installer/resolute-probe.txt 2>&1
       echo "===== resolute-probe BEGIN ====="
       date -u +%Y-%m-%dT%H:%M:%SZ
       echo "----- /etc/os-release -----"

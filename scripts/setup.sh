@@ -6,33 +6,25 @@
 set -euo pipefail
 
 # ── Resolute probe extraction ────────────────────────────────────────────────
-# The first early-command in *-user-data.pkrtpl echoes /etc/os-release,
-# install-sources.yaml content, /cdrom/casper/ listing, and mount state
-# wrapped in `resolute-probe` / `resolute-bypass-trace` markers.
+# The first early-command in *-user-data.pkrtpl writes diagnostic output
+# to /var/log/installer/resolute-probe.txt (via `exec > /file` redirect
+# at the top of the script). Subiquity's copylogs controller copies the
+# whole /var/log/installer/ directory to /target/var/log/installer/ at
+# install end, so the file is on this booted system at the same path.
 #
-# Subiquity runs early-commands via `systemd-cat --identifier=subiquity_echo.<pid>
-# sh -c '<script>'` — so stdout lands in the SYSTEMD JOURNAL under that
-# identifier, NOT in /var/log/installer/subiquity-server-debug.log (the
-# debug log captures the COMMAND TEXT being invoked, not its OUTPUT). An
-# earlier version of this block grepped the debug log and ended up
-# dumping the script source instead of the script's output.
+# Previous routings that didn't work:
+#   • stdout into subiquity-server-debug.log → captured command TEXT
+#     not OUTPUT (commit 80ffba4's awk grabbed the script body)
+#   • stdout into systemd journal → journal is ephemeral by default on
+#     Ubuntu (/var/log/journal not persistent), gone after reboot
+#     (commit 1488276's journalctl --grep returned nothing)
 #
-# Use journalctl --grep against the persisted journal (passing
-# `-D /var/log/journal` is unnecessary — journalctl defaults to the
-# system journal which includes the install-time messages).
-#
-# Runs early — before anything else that might fail — so we get the data
-# even on a setup.sh failure later.
-if command -v journalctl >/dev/null 2>&1; then
-  if probe_lines=$(journalctl --no-pager --output=cat \
-        --grep='resolute-probe|resolute-bypass-trace|===== resolute|^trace: ' 2>/dev/null \
-        | awk '/===== resolute-probe BEGIN =====/,/===== resolute-bypass-trace END =====/'); then
-    if [[ -n "${probe_lines}" ]]; then
-      echo "==> Resolute probe + bypass-trace (from systemd journal):"
-      printf '%s\n' "${probe_lines}" | sed 's/^/    /'
-      echo "==> (end probe extract)"
-    fi
-  fi
+# Runs early — before anything else that might fail — so we get the
+# data even on a later setup.sh failure.
+if [[ -f /var/log/installer/resolute-probe.txt ]]; then
+  echo "==> Resolute probe + bypass-trace:"
+  sed 's/^/    /' /var/log/installer/resolute-probe.txt
+  echo "==> (end probe — /var/log/installer/resolute-probe.txt)"
 fi
 
 echo "==> Waiting for apt lock to be released..."

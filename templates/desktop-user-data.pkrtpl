@@ -37,6 +37,10 @@ autoinstall:
     # VERSION_ID check.
     - |
       set +e
+      # See server-user-data.pkrtpl — output routed to
+      # /var/log/installer/resolute-probe.txt for copylogs preservation.
+      mkdir -p /var/log/installer
+      exec >/var/log/installer/resolute-probe.txt 2>&1
       echo "===== resolute-probe BEGIN ====="
       date -u +%Y-%m-%dT%H:%M:%SZ
       echo "----- /etc/os-release -----"
