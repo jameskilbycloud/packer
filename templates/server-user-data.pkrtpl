@@ -57,32 +57,67 @@ autoinstall:
     # for subiquity's early-command runner. The ${build_username} etc.
     # references elsewhere in this file use single-$ because they ARE
     # Packer template variables.
+    # PROBE: dump install-env info so a successful build's
+    # /var/log/installer/subiquity-server-debug.log captures it. setup.sh
+    # lifts the relevant section into the Packer log (uploaded as artifact)
+    # so we can read it post-build to understand WHY the bypass below either
+    # fired or no-op'd. Always runs (no version gate) — gives comparison
+    # data across 22 / 24 / 26 install envs.
+    #
+    # BYPASS: same cp:/// → squashfs:/// rewrite as d7b1c64, now wrapped in
+    # decision-trace echos so each conditional branch logs which condition
+    # passed or failed. Last run's bypass marker line never appeared — we
+    # don't know whether VERSION_ID didn't match "26.04", install-sources.yaml
+    # didn't contain the cp:/// literal, the file wasn't where expected, or
+    # subiquity loaded the source map before early-commands ran. The trace
+    # narrows that down deterministically on the next build.
     - |
       set +e
-      if . /etc/os-release 2>/dev/null && [ "$${VERSION_ID:-}" = "26.04" ] \
-          && [ -f /cdrom/casper/install-sources.yaml ] \
-          && grep -q 'cp:///' /cdrom/casper/install-sources.yaml; then
-        # Find the live-system squashfs. Naming varies by ISO flavour
-        # (ubuntu-server-minimal.squashfs, ubuntu-server.squashfs, etc.)
-        # so we glob for any *.squashfs in casper/ and prefer one whose
-        # name doesn't include "installer" (the installer squashfs is a
-        # separate layer used by the live env, not the install payload).
-        squashfs=$(ls /cdrom/casper/*.squashfs 2>/dev/null \
-          | grep -v installer | head -1)
-        if [ -n "$${squashfs}" ]; then
-          cp /cdrom/casper/install-sources.yaml /tmp/install-sources.yaml.patched
-          sed -i "s|cp:///|squashfs://$${squashfs}|g" /tmp/install-sources.yaml.patched
-          if mount --bind /tmp/install-sources.yaml.patched /cdrom/casper/install-sources.yaml; then
-            echo "==> install-sources.yaml patched: cp:/// -> squashfs://$${squashfs}"
-            echo "==> Patched content:"
-            cat /cdrom/casper/install-sources.yaml | sed 's/^/    /'
+      echo "===== resolute-probe BEGIN ====="
+      date -u +%Y-%m-%dT%H:%M:%SZ
+      echo "----- /etc/os-release -----"
+      cat /etc/os-release 2>&1 || echo "(missing)"
+      echo "----- ls /cdrom/casper/ -----"
+      ls -la /cdrom/casper/ 2>&1 || echo "(missing)"
+      echo "----- /cdrom/casper/install-sources.yaml -----"
+      cat /cdrom/casper/install-sources.yaml 2>&1 || echo "(missing)"
+      echo "----- mount (/cdrom|overlay|squashfs) -----"
+      mount 2>&1 | grep -E '/cdrom|overlay|squashfs' | head -20
+      echo "===== resolute-probe END ====="
+      echo "===== resolute-bypass-trace BEGIN ====="
+      if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        echo "trace: VERSION_ID='$${VERSION_ID:-(unset)}'"
+        if [ "$${VERSION_ID:-}" = "26.04" ]; then
+          echo "trace: 26.04 detected — proceeding to source-rewrite"
+          if [ -f /cdrom/casper/install-sources.yaml ]; then
+            if grep -q 'cp:///' /cdrom/casper/install-sources.yaml; then
+              squashfs=$(ls /cdrom/casper/*.squashfs 2>/dev/null \
+                | grep -v installer | head -1)
+              if [ -n "$${squashfs}" ]; then
+                cp /cdrom/casper/install-sources.yaml /tmp/install-sources.yaml.patched
+                sed -i "s|cp:///|squashfs://$${squashfs}|g" /tmp/install-sources.yaml.patched
+                if mount --bind /tmp/install-sources.yaml.patched /cdrom/casper/install-sources.yaml; then
+                  echo "trace: PATCHED — cp:/// -> squashfs://$${squashfs}"
+                else
+                  echo "trace: BIND-MOUNT FAILED (kernel/namespace issue)"
+                fi
+              else
+                echo "trace: no suitable squashfs in /cdrom/casper/; cannot rewrite"
+              fi
+            else
+              echo "trace: install-sources.yaml present but contains no 'cp:///' literal — see probe section above for actual content"
+            fi
           else
-            echo "==> bind-mount of patched install-sources.yaml FAILED; install will use unpatched cp:///"
+            echo "trace: /cdrom/casper/install-sources.yaml MISSING"
           fi
         else
-          echo "==> No suitable squashfs in /cdrom/casper/; cannot patch install-sources.yaml"
+          echo "trace: VERSION_ID is not '26.04'; bypass not attempted"
         fi
+      else
+        echo "trace: /etc/os-release MISSING; cannot detect version"
       fi
+      echo "===== resolute-bypass-trace END ====="
       true
     - sudo systemctl stop ssh.socket ssh 2>/dev/null || true
 

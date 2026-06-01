@@ -5,6 +5,30 @@
 # =============================================================================
 set -euo pipefail
 
+# ── Resolute probe extraction ────────────────────────────────────────────────
+# The first early-command in *-user-data.pkrtpl echoes /etc/os-release,
+# install-sources.yaml content, /cdrom/casper/ listing, and mount state
+# wrapped in `resolute-probe` / `resolute-bypass-trace` markers. Subiquity
+# captures all early-command stdout into its installer log, preserved on
+# the installed system at /var/log/installer/subiquity-server-debug.log
+# (server) or subiquity-curtin-install.log. Lift the relevant sections
+# here so they land in the Packer log → build artifact, where we can read
+# them post-build to deterministically diagnose why the cp:/// → squashfs:///
+# bypass either fired or no-op'd. Runs early — before anything else that
+# might fail — so we get the data even on a setup.sh failure later.
+if [[ -d /var/log/installer ]]; then
+  for f in /var/log/installer/*.log; do
+    [[ -f "${f}" ]] || continue
+    if grep -q 'resolute-probe BEGIN' "${f}" 2>/dev/null; then
+      echo "==> Resolute probe + bypass-trace extracted from ${f}:"
+      awk '/===== resolute-probe BEGIN =====/,/===== resolute-bypass-trace END =====/' "${f}" \
+        | sed 's/^/    /'
+      echo "==> (end probe extract from ${f})"
+      break
+    fi
+  done
+fi
+
 echo "==> Waiting for apt lock to be released..."
 while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
   sleep 2
