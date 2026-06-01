@@ -144,6 +144,34 @@ autoinstall:
             driver: vmxnet3
           dhcp4: true
 
+  # ── Install source ────────────────────────────────────────────────────────
+  # ROOT-CAUSE bypass for 26.04 OverlayFS oops in ovl_iterate_merged.
+  # The 26.04 ISO's /cdrom/casper/install-sources.yaml defines two sources:
+  #
+  #   id: ubuntu-server-minimal  type: fsimage          (mount + copy, no overlay)
+  #   id: ubuntu-server          type: fsimage-layered  (mount + overlay + copy)   ← default
+  #
+  # The default (ubuntu-server) goes through curtin's LayeredSourceHandler
+  # which calls mount('overlay', ...) — the exact code path that trips the
+  # ovl_iterate_merged kernel bug in LP #2150586 / #2150640 / #2150636 /
+  # #2150197. The ubuntu-server-minimal source uses curtin's TrivialSource
+  # handler with type fsimage = plain mount(squashfs) + tar/cp copy.
+  # No overlay, no merged iteration, no oops surface.
+  #
+  # Trade-off: ubuntu-server-minimal is the leaner package set (~1.2 GB
+  # squashfs vs 2.9 GB for ubuntu-server's layered delta). The packages
+  # ubuntu-server adds on top (lshw, fwupd, nano, screen, etc.) aren't
+  # load-bearing for our template — setup.sh's apt-get install + upgrade
+  # picks up everything we actually depend on.
+  #
+  # This single line is what the probe-driven d7b1c64..59cf9fe iteration
+  # taught us to write. The cp:/// → squashfs:/// rewrite attempt those
+  # commits tried was based on a faulty premise — this ISO never used
+  # cp:// in the first place.
+  source:
+    id: ubuntu-server-minimal
+    search_drivers: false
+
   # ── Storage ───────────────────────────────────────────────────────────────
   storage:
     layout:
