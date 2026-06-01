@@ -59,8 +59,22 @@ snap set system refresh.hold="$(date -u -d '+60 days' '+%Y-%m-%dT%H:%M:%S+00:00'
 #   backend config files in /run/* (tmpfs) without re-activating links.
 #   On the clone's first boot, netplan generate runs again from scratch and
 #   the new YAML takes effect cleanly.
-NETPLAN_FILE="/etc/netplan/50-cloud-init.yaml"
-if [[ -f "${NETPLAN_FILE}" ]]; then
+# Subiquity uses one of two filenames for the persisted netplan config
+# depending on installer version + source.id selection:
+#   • /etc/netplan/50-cloud-init.yaml      (default ubuntu-server source)
+#   • /etc/netplan/00-installer-config.yaml (ubuntu-server-minimal source)
+# Pick whichever exists. Without this detection the rewrite silently no-ops
+# when the file is named differently — observed in run 26785361887 where
+# 2604-desktop's smoke failed with NM dhcp4 activation timeout because the
+# install-time-MAC-bound netplan from subiquity was never replaced.
+NETPLAN_FILE=""
+for candidate in /etc/netplan/50-cloud-init.yaml /etc/netplan/00-installer-config.yaml; do
+  if [[ -f "${candidate}" ]]; then
+    NETPLAN_FILE="${candidate}"
+    break
+  fi
+done
+if [[ -n "${NETPLAN_FILE}" ]]; then
   echo "==> Rewriting ${NETPLAN_FILE} for clone-safe NM + name-based match..."
   # Back up the subiquity-written original for forensics — the goss
   # validator can assert presence of the new file but the original is
