@@ -47,6 +47,16 @@ on:
 # with multiple sources + `-parallel-builds=N`), not via the matrix. Using a
 # workflow-level concurrency group means a second `workflow_dispatch` queues
 # instead of stomping on an in-flight build.
+
+# ── Token scope ───────────────────────────────────────────────────────────────
+# Workflow-wide default: read-only access to the repository. Every step
+# checks out the repo via actions/checkout (read), uploads workflow-scoped
+# artifacts (uses workflow scope, not GITHUB_TOKEN), and talks to vSphere
+# via the GOVC_*/VSPHERE_* secrets (no GitHub API surface). No step needs
+# write access on the GitHub side. Override per-job if that ever changes.
+permissions:
+  contents: read
+
 concurrency:
   group: packer-build
   cancel-in-progress: false   # queue rather than cancel — don't orphan VMs
