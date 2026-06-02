@@ -13,11 +13,12 @@ set -euo pipefail
 # install end, so the file is on this booted system at the same path.
 #
 # Previous routings that didn't work:
-#   • stdout into subiquity-server-debug.log → captured command TEXT
-#     not OUTPUT (commit 80ffba4's awk grabbed the script body)
+#   • stdout into subiquity-server-debug.log → that log captures the
+#     COMMAND TEXT subiquity invokes (via systemd-cat), not the command's
+#     OUTPUT, so an awk over BEGIN/END markers dumped the script source.
 #   • stdout into systemd journal → journal is ephemeral by default on
-#     Ubuntu (/var/log/journal not persistent), gone after reboot
-#     (commit 1488276's journalctl --grep returned nothing)
+#     Ubuntu (/var/log/journal not persistent), gone after reboot, so
+#     journalctl --grep on the booted system found nothing.
 #
 # Runs early — before anything else that might fail — so we get the
 # data even on a later setup.sh failure.
@@ -114,8 +115,8 @@ Description=Regenerate SSH host keys on first boot after cloning
 #   ssh-host-keygen.service -> basic.target (the implicit After we want gone)
 # systemd "fixes" the cycle by deleting sockets.target/start, which leaves
 # ssh.socket half-started and ssh.service never gets enabled — port 22 stays
-# closed forever. Confirmed by run 26621101768's 2604-server smoke
-# diagnostic dump:
+# closed forever. Smoke diagnostic dump on an affected 2604-server clone
+# showed:
 #   ssh.service:  is-active=inactive is-enabled=disabled
 #   ssh.socket:   is-active=active   is-enabled=enabled
 #   journal: "basic.target: Found ordering cycle: ... after sockets.target"
@@ -373,17 +374,18 @@ echo "==> PACKER_BUILD_INFO_END"
 # ── Build user ↔ diag-friendly group membership ───────────────────────────────
 # Add the build user to adm + systemd-journal so post-clone smoke diag can
 # read `journalctl -u <system-unit>` without sudo. finalize.sh strips the
-# NOPASSWD sudoers entry before template conversion, so when sudo auth fails
-# on a clone (observed in runs #202 / #203 where every diag dump was empty)
-# the user-mode diag pass still gets system-service logs via group access.
+# NOPASSWD sudoers entry before template conversion, so on clones where
+# sudo auth itself fails (observed in earlier runs where every diag dump
+# was empty) the user-mode diag pass still gets system-service logs via
+# group access.
 #
 # Why here, not in autoinstall late-commands:
 #   An earlier attempt added this as `curtin in-target -- usermod ...` in
-#   user-data late-commands (commits c4645bb + 3be3b8d). That broke 2204 and
-#   2604 builds — late-commands run in subiquity-defined order and a failure
-#   on one cuts off every command after it, including the SSH-pwauth drop-in.
-#   Run 26690712106 SSH-timed-out on every 2204 + 2604-desktop attempt
-#   exactly because of this. Reverted in 0a69b50.
+#   user-data late-commands. That broke 22.04 and 26.04 builds —
+#   late-commands run in subiquity-defined order and a failure on one
+#   cuts off every command after it, including the SSH-pwauth drop-in we
+#   depend on. All affected builds SSH-timed-out on every attempt because
+#   of this; the late-command approach was reverted.
 #
 # Running it here, after Packer is already connected over SSH on the booted
 # system, makes the failure mode bounded: if `getent group` returns nothing

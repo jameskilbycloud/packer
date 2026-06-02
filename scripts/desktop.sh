@@ -35,8 +35,8 @@ snap set system refresh.hold="$(date -u -d '+60 days' '+%Y-%m-%dT%H:%M:%S+00:00'
 # (from the autoinstall network block) into an NM keyfile with the install-time
 # MAC baked in by NM's `connection.mac-address` field. When the template is
 # cloned, ens33 gets a fresh MAC, NM can't find a matching keyfile, reports
-# the device as "unmanaged", and the link stays DOWN forever. Confirmed by
-# the user-mode diag from run 26686255321:
+# the device as "unmanaged", and the link stays DOWN forever. Symptoms
+# observed on cloned templates:
 #   ens33  ethernet  unmanaged  --
 #   [nmcli connection show]            (empty — no profiles)
 #
@@ -48,10 +48,13 @@ snap set system refresh.hold="$(date -u -d '+60 days' '+%Y-%m-%dT%H:%M:%S+00:00'
 #     so the resulting NM keyfile survives the MAC change.
 #
 # Why here, not in autoinstall late-commands:
-#   The same regression pattern as the diag-group add — late-commands running
-#   in subiquity have a kill-the-rest failure mode that broke 2204 + 2604 in
-#   commit 3be3b8d. desktop.sh runs over an established SSH connection where
-#   failure is bounded and visible.
+#   late-commands running in subiquity have a kill-the-rest failure mode —
+#   if any command fails, every subsequent late-command (including the SSH
+#   password-auth + sudoers drop-ins we depend on) is skipped, and the
+#   install reboots into a state where Packer can never connect. An earlier
+#   attempt to do this rewrite via late-commands lost SSH on 22.04 + 26.04
+#   server builds for exactly that reason. desktop.sh runs over an
+#   established SSH connection where failure is bounded and visible.
 #
 # Why not run `netplan apply`:
 #   The build VM is currently networked. Re-applying could disconnect Packer.
@@ -64,9 +67,10 @@ snap set system refresh.hold="$(date -u -d '+60 days' '+%Y-%m-%dT%H:%M:%S+00:00'
 #   • /etc/netplan/50-cloud-init.yaml      (default ubuntu-server source)
 #   • /etc/netplan/00-installer-config.yaml (ubuntu-server-minimal source)
 # Pick whichever exists. Without this detection the rewrite silently no-ops
-# when the file is named differently — observed in run 26785361887 where
-# 2604-desktop's smoke failed with NM dhcp4 activation timeout because the
-# install-time-MAC-bound netplan from subiquity was never replaced.
+# when subiquity writes the file under the other name — a 2604-desktop
+# smoke regression where the install-time-MAC-bound netplan from subiquity
+# was never replaced and the clone failed with NM dhcp4 activation timeout
+# was traced to exactly this filename mismatch.
 NETPLAN_FILE=""
 for candidate in /etc/netplan/50-cloud-init.yaml /etc/netplan/00-installer-config.yaml; do
   if [[ -f "${candidate}" ]]; then

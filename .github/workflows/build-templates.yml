@@ -640,14 +640,16 @@ jobs:
           attempt=1
           while [[ ${attempt} -le ${MAX_ATTEMPTS} ]]; do
             # Note on log scoping: Packer opens PACKER_LOG_PATH with O_TRUNC
-            # on every invocation (verified empirically — run 26709408894
-            # ended after 2 of 4 attempts because the previous byte-diff
-            # gate computed attempt_bytes=0 when attempt 2's log size
-            # happened to match attempt 1's, making both transient grep
-            # passes skip and triggering the non-transient exit). The file
-            # at end-of-attempt always contains ONLY this attempt's output,
-            # so `tail -n 200 <file>` already scopes correctly without a
-            # before/after byte diff.
+            # on every invocation. A previous version of this loop scoped
+            # the transient-pattern grep using `tail -c $((after - before))`
+            # to look at "just this attempt's bytes" — but that diff went
+            # to zero whenever attempt N's log size happened to match
+            # attempt N-1's. Both transient grep passes then skipped and
+            # the script took the non-transient exit, masking a real
+            # retryable failure. Since Packer truncates per-invocation,
+            # the file at end-of-attempt always contains ONLY this
+            # attempt's output, so `tail -n 200 <file>` already scopes
+            # correctly without a before/after byte diff.
 
             echo ""
             echo "═══════════════════════════════════════════════════════════════"

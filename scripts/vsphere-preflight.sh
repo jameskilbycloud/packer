@@ -89,8 +89,9 @@ ds_json=$(govc datastore.info -json "${VSPHERE_DATASTORE}" 2>&1) || ds_json=""
 # lowercase-first ("freeSpace") govc JSON output schemas — the python
 # parser below already handles both, so the gate has to too. Without this,
 # a successful govc datastore.info call gets reported as "not reachable"
-# whenever the installed govc emits the lowercase form (run 26645337688
-# regression — preflight failed despite a healthy datastore).
+# whenever the installed govc emits the lowercase form — preflight had
+# a regression where it reported a healthy datastore as unreachable until
+# the case-insensitive match was added.
 if [[ -z "${ds_json}" ]] || ! printf '%s' "${ds_json}" | grep -qiE '"freespace"'; then
   bad "Datastore '${VSPHERE_DATASTORE}' not reachable:"
   printf '%s\n' "${ds_json}" | sed 's/^/        /'

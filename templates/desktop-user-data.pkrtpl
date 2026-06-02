@@ -115,8 +115,8 @@ autoinstall:
   # always the live-server amd64 image). The desktop "build" is just a
   # standard server install followed by desktop.sh installing
   # ubuntu-desktop-minimal as an apt provisioner over SSH on the booted
-  # system. Probe data from the 2604-desktop leg of run 26778416899
-  # confirmed the install-sources.yaml is identical to what server sees:
+  # system. The probe captures install-sources.yaml on every build, and
+  # the 26.04 desktop install-sources.yaml is identical to server's:
   #   id: ubuntu-server-minimal  type: fsimage
   #   id: ubuntu-server          type: fsimage-layered (default)
   # So selecting source.id: ubuntu-server-minimal here applies the same
@@ -169,8 +169,9 @@ autoinstall:
   # guest agent over vmware-vmci (kernel transport), not D-Bus, and
   # curtin wraps systemctl calls in chroot so the postinst's
   # `systemctl enable open-vm-tools` doesn't try to talk to the live
-  # env's PID 1. The pattern works as confirmed by ynlamy's repo and
-  # by the validated 0a71b1f server-side fix in run 26778416899.
+  # env's PID 1. The pattern is corroborated by other public Packer-on-
+  # vSphere repos (e.g. ynlamy/packer-ubuntuserver26_04) and was
+  # validated end-to-end by the server-side variant of this fix.
   packages:
     - open-vm-tools
 

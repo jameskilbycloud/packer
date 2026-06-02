@@ -92,24 +92,22 @@ source "vsphere-iso" "ubuntu-2604-server" {
   #    https://answers.launchpad.net/ubuntu/+source/ubiquity/+question/698383
   #
   # 2. overlay.metacopy=off overlay.redirect_dir=off overlay.index=off
-  #    overlay.nfs_export=off — workaround for an OverlayFS kernel oops in
-  #    `ovl_iterate_merged` that fires during curtin's `cp://` rootfs-
-  #    extract step on 26.04. Symptom is rsync "exited with irqs disabled"
-  #    + a full RIP/stack trace on the console, followed by subiquity
-  #    hanging until ssh_timeout. Originally documented in the 2026-05-10
-  #    known-good notes.
+  #    overlay.nfs_export=off — probability-lowering mitigations for an
+  #    OverlayFS kernel oops in `ovl_iterate_merged` that fires during
+  #    curtin's rootfs-extract step on 26.04 (LP #2150586 / #2150640 /
+  #    #2150636 / #2150197 — all open, no upstream fix). Symptom on
+  #    affected boots: rsync "exited with irqs disabled" plus a full
+  #    RIP/stack trace on the console, then subiquity hangs until
+  #    ssh_timeout.
   #
-  #    PR #37 ("strip back to first principles") removed all four on the
-  #    hypothesis that the subiquity loop was the only real bug. Run
-  #    26602320872 (2026-05-28) screenshot-confirmed the oops was alive
-  #    and independent; aa78c346 restored just the first two
-  #    (metacopy/redirect_dir) on the assumption that overlay.index +
-  #    overlay.nfs_export were defensive overkill per the 2026-05-10
-  #    notes. Run 26636327327 (2026-05-29) screenshot-confirmed the oops
-  #    fires AGAIN with just the first two — the 26.04 kernel needs all
-  #    four. Restoring overlay.index=off + overlay.nfs_export=off; do NOT
-  #    strip these again without a screenshot proving the kernel no
-  #    longer oopses with them removed.
+  #    These knobs are now belt-and-braces. The actual root-cause bypass
+  #    is `source.id: ubuntu-server-minimal` in the autoinstall templates
+  #    (selects curtin's fsimage handler, which never mounts an overlay
+  #    so ovl_iterate_merged is never reached). Past experiments
+  #    confirmed: stripping all four knobs reproduced the oops; keeping
+  #    only the first two also reproduced it. Do NOT strip these again
+  #    without a screenshot proving the kernel no longer oopses with
+  #    them removed.
   #
   # 3. toram — casper boot-to-RAM. Copies the entire live ISO into a
   #    tmpfs at boot, then mounts root from there instead of from a

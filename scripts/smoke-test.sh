@@ -137,8 +137,8 @@ cleanup() {
     # the script body inline via `sh -c "<multi-line>"` because vmtoolsd's
     # Guest Operations API does not preserve newlines in the arguments
     # parameter — only the first line of a multi-line `-c` script survives.
-    # That bug is what produced run 26570996931's "rc=0, bytes=0" empty
-    # diagnostic.
+    # That bug is what produced silent "rc=0, bytes=0" empty diagnostic
+    # dumps on an earlier inline-`sh -c` form.
     local diag_local diag_guest
     local diag_output_user diag_rc_user=0
     local diag_output_sudo diag_rc_sudo=0
@@ -467,7 +467,7 @@ ip_recheck_interval=30   # seconds — cheap call, but no point hammering vmtool
 # SSH is socket-activated: ssh.socket accepts TCP and forks sshd@<instance>
 # per connection. /dev/tcp/<ip>/22 succeeds the moment ssh.socket binds —
 # which can be 5-20s before sshd@instance is actually ready to send the SSH
-# banner. The result was run 26789341615's 2604-desktop smoke failure:
+# banner. A 2604-desktop smoke regression failed with the symptom:
 #   "Connection timed out during banner exchange"
 # i.e. TCP got through, scp ran with ConnectTimeout=10, sshd@instance wasn't
 # ready yet, banner exchange timed out. ssh+BatchMode here completes the
@@ -499,9 +499,10 @@ while [[ $(date +%s) -lt ${ssh_deadline} ]]; do
   # new lease shortly after first boot) can move the clone to a different
   # address after we captured it. Without re-checking, smoke polls a stale
   # IP and times out on a clone that is actually up and reachable on its
-  # new address — exactly what happened in run 26678549023 on the
-  # 2604-server leg: captured 192.168.4.151, clone later moved to
-  # 192.168.4.165, smoke timed out on the dead .151.
+  # new address. An earlier 2604-server smoke failure showed exactly this:
+  # the initial DHCP lease was captured, the clone subsequently obtained a
+  # different lease as the new DUID propagated, and smoke kept polling the
+  # original (now-dead) address until the SSH timeout fired.
   now=$(date +%s)
   if (( now - last_ip_check >= ip_recheck_interval )); then
     last_ip_check=${now}

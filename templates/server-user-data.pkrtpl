@@ -57,20 +57,22 @@ autoinstall:
     # for subiquity's early-command runner. The ${build_username} etc.
     # references elsewhere in this file use single-$ because they ARE
     # Packer template variables.
-    # PROBE: dump install-env info so a successful build's
-    # /var/log/installer/subiquity-server-debug.log captures it. setup.sh
+    # PROBE: dump install-env info to /var/log/installer/resolute-probe.txt
+    # so a successful build preserves it via subiquity's copylogs. setup.sh
     # lifts the relevant section into the Packer log (uploaded as artifact)
-    # so we can read it post-build to understand WHY the bypass below either
-    # fired or no-op'd. Always runs (no version gate) — gives comparison
-    # data across 22 / 24 / 26 install envs.
+    # so we can read it post-build for forensics. Always runs (no version
+    # gate) — gives comparison data across 22 / 24 / 26 install envs.
     #
-    # BYPASS: same cp:/// → squashfs:/// rewrite as d7b1c64, now wrapped in
-    # decision-trace echos so each conditional branch logs which condition
-    # passed or failed. Last run's bypass marker line never appeared — we
-    # don't know whether VERSION_ID didn't match "26.04", install-sources.yaml
-    # didn't contain the cp:/// literal, the file wasn't where expected, or
-    # subiquity loaded the source map before early-commands ran. The trace
-    # narrows that down deterministically on the next build.
+    # BYPASS: legacy code path that probed for the curtin `cp:///` source
+    # URL in install-sources.yaml and rewrote it to `squashfs:///`. The
+    # probe later confirmed this ISO never used cp:// at all (it lists
+    # `type: fsimage` + `type: fsimage-layered` sources by id, not URLs),
+    # so the rewrite branch is dead and only the trace echos still emit.
+    # The actual root-cause bypass is `source.id: ubuntu-server-minimal`
+    # in the `source:` block below — selects curtin's fsimage handler,
+    # no overlay, no LP #2150586 oops surface. The dead trace is kept as
+    # forensic infrastructure should the install-sources.yaml schema
+    # change in a future ISO.
     - |
       set +e
       # Route output to /var/log/installer/resolute-probe.txt — subiquity's
@@ -156,10 +158,11 @@ autoinstall:
   # Switching to ubuntu-server-minimal selects the fsimage handler — single-
   # layer mount, no overlay, no oops surface.
   #
-  # Previous attempt (commits 890f34c+fcb4152, reverted in 1eb32b5) broke
-  # because the minimal squashfs omits open-vm-tools, so the installed VM
-  # never reported an IP to vSphere. The `packages:` directive below
-  # resolves that by adding open-vm-tools to the install at curtin's
+  # An earlier attempt to flip source.id without the matching `packages:`
+  # block broke the build: the minimal squashfs omits open-vm-tools, so
+  # the installed VM never reported an IP to vSphere. The `packages:`
+  # directive below resolves that by adding open-vm-tools to the install
+  # at curtin's
   # in-target apt stage — the package goes into the rootfs from the network
   # repo, not from the install source squashfs. Pattern lifted from
   # ynlamy/packer-ubuntuserver26_04 which uses packages: [open-vm-tools]
