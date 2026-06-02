@@ -240,10 +240,10 @@ All variables are declared in `variables.pkr.hcl`. Connection details and creden
 |---|---|---|
 | `server_cpu_count` | `2` | vCPU cores |
 | `server_ram_mb` | `4096` | RAM in MB (22.04 / 24.04 server) |
-| `server_2604_ram_mb` | `8192` | RAM in MB (26.04 server only — see note) |
+| `server_2604_ram_mb` | `6144` | RAM in MB (26.04 server only — see note) |
 | `server_disk_gb` | `40` | OS disk size in GB |
 
-> **26.04 server RAM**: subiquity's snap-seeding step hangs intermittently on 26.04 at 4 GB — the install never reaches the post-seed reboot and the build burns the full `ssh_timeout` budget at "Waiting for SSH". 8 GB has reproduced clean builds. 22.04 / 24.04 don't exhibit this and stay at 4 GB.
+> **26.04 server RAM**: the 26.04 boot_command appends `toram` — casper copies the entire ~2.8 GB live ISO into RAM at boot, then mounts root from there. At 4 GB the install hits OOM or casper silently falls back to non-toram (mitigation lost); 6 GB leaves ~3 GB headroom for kernel + subiquity + curtin working set + file caches. 22.04 / 24.04 don't use `toram` and stay at 4 GB.
 
 ### VM hardware — desktop
 
@@ -318,13 +318,15 @@ All sizes are configurable via variables.
 The autoinstall seed is written to a small ISO (labelled `cidata`) at build time via Packer's `cd_content` mechanism. No HTTP server is required — vSphere mounts the seed disc directly. The installer runs fully unattended and powers off the VM when complete.
 
 Key autoinstall steps:
+- `source.id: ubuntu-server-minimal` — selects curtin's `fsimage` install source (single-layer mount + tar/cp copy) rather than the default `fsimage-layered` (mount + overlay + copy). On Ubuntu 26.04 the layered handler trips a kernel oops in `ovl_iterate_merged` during the curtin cmd-extract stage ([LP #2150586](https://bugs.launchpad.net/subiquity/+bug/2150586) and friends). The minimal source avoids the overlay code path entirely. 22.04 / 24.04 don't hit the bug but use the same source for consistency.
+- `packages: [open-vm-tools]` — installed by subiquity from the network repo into the target rootfs at the in-target apt stage. The minimal squashfs doesn't include open-vm-tools by default, so without this the cloned VM would never report an IP to vSphere.
 - LVM storage layout on the first available disk
 - SSH server enabled (`allow-pw: true`) so Packer can connect
 - Passwordless sudo granted to the build user for provisioner scripts
 - `datasource_list: [None]` written to `/etc/cloud/cloud.cfg.d/99-packer.cfg` — neutralises cloud-init on cloned VMs without disabling its systemd units (the older `cloud-init.disabled` approach broke 24.04 networking because cloud-init's boot units are in the dependency chain)
 - UFW disabled and the unit masked to `/dev/null` so the firewall does not block SSH on first boot of clones
 
-`packages: []` and `snaps: []` are explicitly empty — every package or snap that needs `systemctl` or D-Bus during install would deadlock inside subiquity's headless chroot on 26.04, so all post-install work is moved to the shell provisioners below.
+`snaps: []` is explicitly empty — every snap that needs `systemctl` or D-Bus during install would deadlock inside subiquity's headless chroot on 26.04, so any post-install snap work happens via shell provisioners below.
 
 ### Shell provisioners (`scripts/`)
 
@@ -342,9 +344,10 @@ Key autoinstall steps:
 **`desktop.sh`** — runs only for the desktop variants, after `setup.sh`:
 - Installs `ubuntu-desktop-minimal` and `open-vm-tools-desktop`
 - Holds snap auto-refresh for 60 days so it does not race with the remaining provisioners
+- Rewrites `/etc/netplan/{50-cloud-init,00-installer-config}.yaml` to use `renderer: NetworkManager` + `match: name: "en*"`. Without this, netplan + NM bake the install-time MAC into the rendered NM keyfile, and cloned VMs with a fresh MAC find no matching profile (device stays "unmanaged", no DHCP, no SSH). Matching by interface name pattern is hardware-version-stable on VMware so the keyfile survives the MAC regeneration on clone.
 
 **`vmtools.sh`** — runs last (every variant):
-- Installs `open-vm-tools` if not already present
+- Verifies `open-vm-tools` is running (the package itself is installed by autoinstall's `packages: [open-vm-tools]` directive)
 - Installs `open-vm-tools-desktop` if a display manager is detected
 - Enables and starts the service
 - Reports the running version
