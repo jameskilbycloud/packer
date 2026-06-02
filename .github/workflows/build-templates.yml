@@ -244,7 +244,7 @@ jobs:
       needs.resolve-targets.result == 'success' &&
       (needs.preflight.result == 'success' || needs.preflight.result == 'skipped')
     runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
-    timeout-minutes: 240              # per-leg kill-switch; clean leg ~25 min, worst-case 2604 (MAX_ATTEMPTS=4 × 30m caps) ~125 min — buffer covers cold-start + retries
+    timeout-minutes: 180              # per-leg kill-switch; clean leg ~25 min, worst-case (MAX_ATTEMPTS=2 × 30m ssh_timeout + 60s backoff + provisioner/smoke time) ~75 min — buffer covers cold-start + the rare 2-attempt retry
 
     strategy:
       matrix: ${{ fromJson(needs.resolve-targets.outputs.matrix) }}
@@ -616,20 +616,25 @@ jobs:
           PACKER_LOG: 1
           PACKER_LOG_PATH: packer-${{ matrix.label }}.log
           TMPDIR: /var/tmp   # /tmp is a small tmpfs; Packer writes CD images here
-          # Per-template retry budget.
-          #   2204 / 2404: 2 attempts. Clean every run; a 2nd attempt covers
-          #     genuinely transient infra blips (vCenter API hiccup, mirror
-          #     flake) without burning runner-minutes.
-          #   2604:        4 attempts. Subiquity's curtin cmd-extract hits a
-          #     probabilistic OverlayFS oops in ovl_iterate_merged that the
-          #     four boot-time disables (metacopy/redirect_dir/index/nfs_export)
-          #     lower the probability of but do NOT eliminate — confirmed by
-          #     the failure screenshot from run 26666748846 which captured the
-          #     RIP at ovl_iterate_merged+0x1d8 right under the cmd-extract
-          #     banner. Per-attempt success ≈ 50%; 4 attempts → ~94% leg
-          #     success. Worst-case wall-clock per 2604 leg: 4×30m + 3×60s ≈
-          #     123m, still well inside the 240m timeout-minutes cap.
-          MAX_ATTEMPTS: ${{ matrix.version == '2604' && '4' || '2' }}
+          # Retry budget — 2 attempts uniform across all versions.
+          #
+          # History: 2604 used to need MAX_ATTEMPTS=4 because curtin's
+          # default install source on the Resolute ISO (fsimage-layered)
+          # tripped a probabilistic OverlayFS oops in ovl_iterate_merged
+          # (LP #2150586 et al). 4 attempts gave ~94% leg success against
+          # ~50% per-attempt.
+          #
+          # That probabilistic failure mode is gone as of v1.0.0 — the
+          # autoinstall now sets source.id: ubuntu-server-minimal which
+          # selects curtin's fsimage handler (no overlay, no oops surface).
+          # Attempt 1 succeeds deterministically; attempts 3-4 became dead
+          # weight that masked any future regressions under unnecessary
+          # padding. Dropping to 2 gives faster regression signal (failures
+          # surface in ~70 min instead of ~140 min) and consistency across
+          # versions. The 2nd attempt still absorbs real infra transients —
+          # vCenter API blips, ISO datastore hiccups, momentary DRS
+          # migrations.
+          MAX_ATTEMPTS: '2'
         run: |
           set +e
           attempt=1
