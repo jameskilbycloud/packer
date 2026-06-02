@@ -463,8 +463,33 @@ ssh_deadline=$(( $(date +%s) + SSH_TIMEOUT_SECONDS ))
 ssh_up=false
 last_ip_check=$(date +%s)
 ip_recheck_interval=30   # seconds — cheap call, but no point hammering vmtoolsd
+# Probe at the SSH-protocol level rather than just TCP-open. On 24.04+ Ubuntu,
+# SSH is socket-activated: ssh.socket accepts TCP and forks sshd@<instance>
+# per connection. /dev/tcp/<ip>/22 succeeds the moment ssh.socket binds —
+# which can be 5-20s before sshd@instance is actually ready to send the SSH
+# banner. The result was run 26789341615's 2604-desktop smoke failure:
+#   "Connection timed out during banner exchange"
+# i.e. TCP got through, scp ran with ConnectTimeout=10, sshd@instance wasn't
+# ready yet, banner exchange timed out. ssh+BatchMode here completes the
+# actual SSH handshake (returns 0 on success, 1 on auth failure, 255 on
+# anything wrong with the protocol exchange) so we only break out when the
+# clone is genuinely ready to be SSH'd into.
+ssh_probe() {
+  ssh -i "${keydir}/id_ed25519" \
+      -o BatchMode=yes \
+      -o StrictHostKeyChecking=no \
+      -o UserKnownHostsFile=/dev/null \
+      -o LogLevel=ERROR \
+      -o ConnectTimeout=5 \
+      "${BUILD_USERNAME}@${ip}" true 2>/dev/null
+  local rc=$?
+  # rc 0 = handshake + auth OK; rc 1 = handshake OK, auth declined (means SSH
+  # is up but key not yet authorized — still "SSH alive" for our purposes).
+  # Anything else (255 banner timeout, network err) = retry.
+  [[ ${rc} -eq 0 || ${rc} -eq 1 ]]
+}
 while [[ $(date +%s) -lt ${ssh_deadline} ]]; do
-  if (echo > "/dev/tcp/${ip}/22") 2>/dev/null; then
+  if ssh_probe; then
     ssh_up=true
     break
   fi
@@ -500,7 +525,13 @@ SSH_OPTS=(
   -o StrictHostKeyChecking=no
   -o UserKnownHostsFile=/dev/null
   -o LogLevel=ERROR
-  -o ConnectTimeout=10
+  # ConnectTimeout 30 (was 10): the wait loop above proved SSH is up via a
+  # successful handshake, but socket-activated sshd@instance still respawns
+  # per connection. Each scp / ssh invocation here triggers another spawn —
+  # which can take 5-15s on a freshly-booted clone with NM still settling
+  # network. 30s gives consistent headroom without inviting genuine network
+  # outages to drag.
+  -o ConnectTimeout=30
 )
 
 echo "==> Copying goss spec + script via SCP..."
