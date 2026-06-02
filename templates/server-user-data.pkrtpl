@@ -17,117 +17,43 @@ autoinstall:
   # ssh.service, otherwise ssh.socket keeps port 22 open and Packer may
   # connect to the live installer's SSH (which rejects password auth).
   early-commands:
-    # ── ROOT-CAUSE bypass for 26.04 OverlayFS oops ─────────────────────────
-    # Curtin's default install source is `cp:///` which runs
-    #   rsync -aXHAS --one-file-system /  /target/
-    # against the OverlayFS-merged live root. On the 26.04 live kernel,
-    # that rsync directory walk trips a probabilistic oops in
-    # ovl_iterate_merged+0x1d8 (LP #2150586, #2150640, #2150636, #2150197 —
-    # all open, no upstream fix). Every prior mitigation
-    # (overlay.metacopy/redirect_dir/index/nfs_export=off + xino_auto=on,
-    # toram, MAX_ATTEMPTS=4) lowers probability but the trigger keeps
-    # firing.
+    # ── Install-environment probe (forensic) ────────────────────────────────
+    # Dumps /etc/os-release, /cdrom/casper/ listing, install-sources.yaml
+    # content, and overlay/squashfs/cdrom mount state to a file in
+    # subiquity's own log directory. Subiquity's copylogs controller copies
+    # /var/log/installer/ to /target/var/log/installer/ at install end, so
+    # the file survives onto the booted system; setup.sh extracts the
+    # relevant section into the provisioner log (uploaded as a workflow
+    # artifact) for post-build inspection. Read-only, no side effects.
     #
-    # This early-command stops the trigger by redirecting subiquity's
-    # source map to use `squashfs:///` instead of `cp:///`. The squashfs
-    # handler in curtin does mount(squashfs)+copy from a single-layer
-    # read-only mount — no OverlayFS, no iteration of a merged dir, no
-    # oops surface. Same install content; different read path.
+    # Always runs (no version gate) — produces ~25 lines of forensic data
+    # per build that has proven its keep several times when diagnosing
+    # subiquity / curtin behaviour changes between ISO revisions.
     #
-    # Mechanism: /cdrom is read-only (ISO mount), but we can bind-mount a
-    # writable file over individual paths. Copy install-sources.yaml to
-    # /tmp, sed the cp:/// URL to squashfs:///<detected-squashfs>, then
-    # bind-mount the patched file back over the original path.
-    #
-    # Guards:
-    #   • Only runs when VERSION_ID == 26.04 (no-op on 22.04 / 24.04 which
-    #     are clean every run; touching their install path would risk a
-    #     regression with no upside).
-    #   • Only runs if install-sources.yaml exists and contains `cp:///`.
-    #   • Falls through silently on any failure — install reverts to the
-    #     unpatched cp:/// path. Worst case: same OverlayFS oops as before.
-    #
-    # Uncertainty: subiquity may have already loaded install-sources.yaml
-    # at controller init, before early-commands run. If so, the bind mount
-    # is a no-op. The log line below ("install-sources.yaml patched" vs
-    # "bind mount failed") will tell us empirically on the next dispatch.
-    # NOTE on $$ escaping below: this file is rendered by Packer's
-    # templatefile() function which treats $${...} as shell-variable
-    # escapes. Bare $${VAR} preserves the shell-level $${VAR} expansion
-    # for subiquity's early-command runner. The ${build_username} etc.
-    # references elsewhere in this file use single-$ because they ARE
-    # Packer template variables.
-    # PROBE: dump install-env info to /var/log/installer/resolute-probe.txt
-    # so a successful build preserves it via subiquity's copylogs. setup.sh
-    # lifts the relevant section into the Packer log (uploaded as artifact)
-    # so we can read it post-build for forensics. Always runs (no version
-    # gate) — gives comparison data across 22 / 24 / 26 install envs.
-    #
-    # BYPASS: legacy code path that probed for the curtin `cp:///` source
-    # URL in install-sources.yaml and rewrote it to `squashfs:///`. The
-    # probe later confirmed this ISO never used cp:// at all (it lists
-    # `type: fsimage` + `type: fsimage-layered` sources by id, not URLs),
-    # so the rewrite branch is dead and only the trace echos still emit.
-    # The actual root-cause bypass is `source.id: ubuntu-server-minimal`
-    # in the `source:` block below — selects curtin's fsimage handler,
-    # no overlay, no LP #2150586 oops surface. The dead trace is kept as
-    # forensic infrastructure should the install-sources.yaml schema
-    # change in a future ISO.
+    # Note on dollar-brace escaping in this file: templatefile() consumes
+    # dollar-brace references at render time (they map to the variables
+    # passed by the ubuntu-*.pkr.hcl source block, e.g. the build_username
+    # Packer variable). To pass a literal dollar-brace through to the
+    # guest shell — for shell parameter expansion — write it with a
+    # doubled dollar sign so templatefile() emits one dollar at render
+    # time. The probe doesn't currently need any shell variables, but if
+    # you add them, double the dollar sign.
     - |
       set +e
-      # Route output to /var/log/installer/resolute-probe.txt — subiquity's
-      # copylogs controller copies that directory to /target/var/log/installer/
-      # at install end, so it lands on the installed system. (Earlier attempts
-      # routed to journalctl, which doesn't persist on Ubuntu's default
-      # ephemeral-journal config; and to /var/log/installer/subiquity-*.log,
-      # which captures command TEXT not OUTPUT.)
       mkdir -p /var/log/installer
-      exec >/var/log/installer/resolute-probe.txt 2>&1
-      echo "===== resolute-probe BEGIN ====="
-      date -u +%Y-%m-%dT%H:%M:%SZ
-      echo "----- /etc/os-release -----"
-      cat /etc/os-release 2>&1 || echo "(missing)"
-      echo "----- ls /cdrom/casper/ -----"
-      ls -la /cdrom/casper/ 2>&1 || echo "(missing)"
-      echo "----- /cdrom/casper/install-sources.yaml -----"
-      cat /cdrom/casper/install-sources.yaml 2>&1 || echo "(missing)"
-      echo "----- mount (/cdrom|overlay|squashfs) -----"
-      mount 2>&1 | grep -E '/cdrom|overlay|squashfs' | head -20
-      echo "===== resolute-probe END ====="
-      echo "===== resolute-bypass-trace BEGIN ====="
-      if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        echo "trace: VERSION_ID='$${VERSION_ID:-(unset)}'"
-        if [ "$${VERSION_ID:-}" = "26.04" ]; then
-          echo "trace: 26.04 detected — proceeding to source-rewrite"
-          if [ -f /cdrom/casper/install-sources.yaml ]; then
-            if grep -q 'cp:///' /cdrom/casper/install-sources.yaml; then
-              squashfs=$(ls /cdrom/casper/*.squashfs 2>/dev/null \
-                | grep -v installer | head -1)
-              if [ -n "$${squashfs}" ]; then
-                cp /cdrom/casper/install-sources.yaml /tmp/install-sources.yaml.patched
-                sed -i "s|cp:///|squashfs://$${squashfs}|g" /tmp/install-sources.yaml.patched
-                if mount --bind /tmp/install-sources.yaml.patched /cdrom/casper/install-sources.yaml; then
-                  echo "trace: PATCHED — cp:/// -> squashfs://$${squashfs}"
-                else
-                  echo "trace: BIND-MOUNT FAILED (kernel/namespace issue)"
-                fi
-              else
-                echo "trace: no suitable squashfs in /cdrom/casper/; cannot rewrite"
-              fi
-            else
-              echo "trace: install-sources.yaml present but contains no 'cp:///' literal — see probe section above for actual content"
-            fi
-          else
-            echo "trace: /cdrom/casper/install-sources.yaml MISSING"
-          fi
-        else
-          echo "trace: VERSION_ID is not '26.04'; bypass not attempted"
-        fi
-      else
-        echo "trace: /etc/os-release MISSING; cannot detect version"
-      fi
-      echo "===== resolute-bypass-trace END ====="
+      {
+        echo "===== resolute-probe BEGIN ====="
+        date -u +%Y-%m-%dT%H:%M:%SZ
+        echo "----- /etc/os-release -----"
+        cat /etc/os-release 2>&1 || echo "(missing)"
+        echo "----- ls /cdrom/casper/ -----"
+        ls -la /cdrom/casper/ 2>&1 || echo "(missing)"
+        echo "----- /cdrom/casper/install-sources.yaml -----"
+        cat /cdrom/casper/install-sources.yaml 2>&1 || echo "(missing)"
+        echo "----- mount (/cdrom|overlay|squashfs) -----"
+        mount 2>&1 | grep -E '/cdrom|overlay|squashfs' | head -20
+        echo "===== resolute-probe END ====="
+      } > /var/log/installer/resolute-probe.txt 2>&1
       true
     - sudo systemctl stop ssh.socket ssh 2>/dev/null || true
 

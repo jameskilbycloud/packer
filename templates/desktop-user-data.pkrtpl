@@ -19,73 +19,26 @@ autoinstall:
   # Stopping ssh.socket closes port 22 completely, so Packer gets ECONNREFUSED
   # during the install and only connects once the installed OS boots.
   early-commands:
-    # ── ROOT-CAUSE bypass for 26.04 OverlayFS oops ─────────────────────────
-    # See server-user-data.pkrtpl for the full rationale. Summary: curtin's
-    # default cp:/// source runs rsync against the OverlayFS-merged live
-    # root, which trips ovl_iterate_merged on the 26.04 live kernel
-    # (LP #2150586 et al.). Patching install-sources.yaml via bind mount
-    # to redirect cp:/// → squashfs:///<casper squashfs> bypasses the
-    # overlay code path entirely. 22.04 / 24.04 short-circuit by VERSION_ID
-    # check so this is a no-op for them.
-    # See server-user-data.pkrtpl for the $$ escaping rationale.
-    # PROBE + BYPASS — see server-user-data.pkrtpl for the full rationale.
-    # Same block, dual-purpose: always emits diagnostic info to subiquity's
-    # log (so setup.sh can lift it post-install for forensics), and on 26.04
-    # attempts the cp:/// → squashfs:/// install-source rewrite with each
-    # conditional branch logged so we know exactly why the bypass fired or
-    # no-op'd. 22.04 / 24.04 trace through but skip the rewrite on the
-    # VERSION_ID check.
+    # ── Install-environment probe (forensic) ────────────────────────────────
+    # See server-user-data.pkrtpl for the full rationale. Same probe, same
+    # output path (subiquity's copylogs controller carries it to
+    # /target/var/log/installer/ at install end; setup.sh extracts it).
     - |
       set +e
-      # See server-user-data.pkrtpl — output routed to
-      # /var/log/installer/resolute-probe.txt for copylogs preservation.
       mkdir -p /var/log/installer
-      exec >/var/log/installer/resolute-probe.txt 2>&1
-      echo "===== resolute-probe BEGIN ====="
-      date -u +%Y-%m-%dT%H:%M:%SZ
-      echo "----- /etc/os-release -----"
-      cat /etc/os-release 2>&1 || echo "(missing)"
-      echo "----- ls /cdrom/casper/ -----"
-      ls -la /cdrom/casper/ 2>&1 || echo "(missing)"
-      echo "----- /cdrom/casper/install-sources.yaml -----"
-      cat /cdrom/casper/install-sources.yaml 2>&1 || echo "(missing)"
-      echo "----- mount (/cdrom|overlay|squashfs) -----"
-      mount 2>&1 | grep -E '/cdrom|overlay|squashfs' | head -20
-      echo "===== resolute-probe END ====="
-      echo "===== resolute-bypass-trace BEGIN ====="
-      if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        echo "trace: VERSION_ID='$${VERSION_ID:-(unset)}'"
-        if [ "$${VERSION_ID:-}" = "26.04" ]; then
-          echo "trace: 26.04 detected — proceeding to source-rewrite"
-          if [ -f /cdrom/casper/install-sources.yaml ]; then
-            if grep -q 'cp:///' /cdrom/casper/install-sources.yaml; then
-              squashfs=$(ls /cdrom/casper/*.squashfs 2>/dev/null \
-                | grep -v installer | head -1)
-              if [ -n "$${squashfs}" ]; then
-                cp /cdrom/casper/install-sources.yaml /tmp/install-sources.yaml.patched
-                sed -i "s|cp:///|squashfs://$${squashfs}|g" /tmp/install-sources.yaml.patched
-                if mount --bind /tmp/install-sources.yaml.patched /cdrom/casper/install-sources.yaml; then
-                  echo "trace: PATCHED — cp:/// -> squashfs://$${squashfs}"
-                else
-                  echo "trace: BIND-MOUNT FAILED (kernel/namespace issue)"
-                fi
-              else
-                echo "trace: no suitable squashfs in /cdrom/casper/; cannot rewrite"
-              fi
-            else
-              echo "trace: install-sources.yaml present but contains no 'cp:///' literal — see probe section above for actual content"
-            fi
-          else
-            echo "trace: /cdrom/casper/install-sources.yaml MISSING"
-          fi
-        else
-          echo "trace: VERSION_ID is not '26.04'; bypass not attempted"
-        fi
-      else
-        echo "trace: /etc/os-release MISSING; cannot detect version"
-      fi
-      echo "===== resolute-bypass-trace END ====="
+      {
+        echo "===== resolute-probe BEGIN ====="
+        date -u +%Y-%m-%dT%H:%M:%SZ
+        echo "----- /etc/os-release -----"
+        cat /etc/os-release 2>&1 || echo "(missing)"
+        echo "----- ls /cdrom/casper/ -----"
+        ls -la /cdrom/casper/ 2>&1 || echo "(missing)"
+        echo "----- /cdrom/casper/install-sources.yaml -----"
+        cat /cdrom/casper/install-sources.yaml 2>&1 || echo "(missing)"
+        echo "----- mount (/cdrom|overlay|squashfs) -----"
+        mount 2>&1 | grep -E '/cdrom|overlay|squashfs' | head -20
+        echo "===== resolute-probe END ====="
+      } > /var/log/installer/resolute-probe.txt 2>&1
       true
     - sudo systemctl stop ssh.socket ssh 2>/dev/null || true
 

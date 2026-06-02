@@ -23,7 +23,7 @@ set -euo pipefail
 # Runs early — before anything else that might fail — so we get the
 # data even on a later setup.sh failure.
 if [[ -f /var/log/installer/resolute-probe.txt ]]; then
-  echo "==> Resolute probe + bypass-trace:"
+  echo "==> Install-environment probe:"
   sed 's/^/    /' /var/log/installer/resolute-probe.txt
   echo "==> (end probe — /var/log/installer/resolute-probe.txt)"
 fi
