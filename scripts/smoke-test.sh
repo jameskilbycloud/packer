@@ -21,7 +21,7 @@
 # Required env:
 #   GOVC_URL, GOVC_USERNAME, GOVC_PASSWORD, GOVC_DATACENTER
 #   TEMPLATE_PATTERN  — glob to find the newest template (e.g. "ubuntu-2404-server-*")
-#   GOSS_SPEC         — local path to goss spec (goss/server.yaml or goss/desktop.yaml)
+#   GOSS_SPEC         — local path to goss spec (goss/server-clone.yaml or goss/desktop-clone.yaml — the post-publish clone specs, NOT the in-build server.yaml/desktop.yaml)
 #   BUILD_USERNAME    — guest OS user (must match the autoinstall user)
 #   BUILD_PASSWORD    — guest OS password (used for VMware Tools guest auth + sudo)
 #

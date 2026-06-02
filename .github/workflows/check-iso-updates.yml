@@ -42,6 +42,28 @@ jobs:
         with:
           fetch-depth: 0
 
+      # ── Install gh CLI (idempotent, best-effort) ────────────────────────────
+      # Used below for `gh pr list` / `gh pr create`. Fallback needs sudo — if
+      # it fails, the downstream gh-invoking step will surface a clear
+      # "gh: command not found". Pre-install per docs/operations.md to avoid
+      # relying on this fallback.
+      - name: Install gh
+        continue-on-error: true
+        run: |
+          if command -v gh &>/dev/null; then
+            echo "gh already installed: $(gh --version | head -1)"
+            exit 0
+          fi
+          echo "gh not installed — attempting best-effort auto-install (requires sudo)."
+          echo "If this fails, pre-install per docs/operations.md → Setting up the runner."
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+            | sudo gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+            | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+          sudo apt-get update -qq 2>/dev/null || true
+          sudo apt-get install -y gh
+          gh --version | head -1
+
       # ── Detect drift (read-only) ────────────────────────────────────────────
       - name: Detect drift
         id: detect
@@ -157,6 +179,25 @@ jobs:
     runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
     timeout-minutes: 5
     steps:
+      # ── Install gh CLI (idempotent, best-effort) ────────────────────────────
+      # See comment on the same step in the `check` job above.
+      - name: Install gh
+        continue-on-error: true
+        run: |
+          if command -v gh &>/dev/null; then
+            echo "gh already installed: $(gh --version | head -1)"
+            exit 0
+          fi
+          echo "gh not installed — attempting best-effort auto-install (requires sudo)."
+          echo "If this fails, pre-install per docs/operations.md → Setting up the runner."
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+            | sudo gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+            | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+          sudo apt-get update -qq 2>/dev/null || true
+          sudo apt-get install -y gh
+          gh --version | head -1
+
       - name: Dispatch upload-isos workflow
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

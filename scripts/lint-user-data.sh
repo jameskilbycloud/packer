@@ -65,6 +65,10 @@ with open(src_path) as f:
 vals = {
     "vm_hostname": "lint-host",
     "build_username": "lintuser",
+    # Synthetic SHA-512-shaped placeholder — only fed to templatefile()
+    # so the rendered YAML is well-formed for cloud-init's schema check.
+    # Never reaches a real install, never deployed; the actual hash comes
+    # from the BUILD_PASSWORD_ENCRYPTED secret at workflow run time.
     "build_password_encrypted": "$6$rounds=4096$lintsalt$lintHashLintHashLintHashLintHashLintHashLintHashLintHashLintH",
     "locale": "en_GB.UTF-8",
     "keyboard_layout": "gb",

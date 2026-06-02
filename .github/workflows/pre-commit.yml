@@ -17,6 +17,13 @@ on:
   # Manual runs are useful for debugging hook configuration changes.
   workflow_dispatch:
 
+# ── Token scope ───────────────────────────────────────────────────────────────
+# Read-only — pre-commit hooks read the diff and either pass or fail. No
+# writes to the repo, no writes to PRs (the check status is reported via
+# workflow scope, not GITHUB_TOKEN).
+permissions:
+  contents: read
+
 # ── Concurrency ───────────────────────────────────────────────────────────────
 # Cancel any in-progress run for the same PR/branch so stale checks don't
 # block merges.
@@ -40,17 +47,22 @@ jobs:
           # diff range unresolvable.
           fetch-depth: 0
 
-      # ── Install Packer (idempotent) ──────────────────────────────────────────
+      # ── Install Packer (idempotent, best-effort) ─────────────────────────────
       # The packer-fmt hook is a local hook that shells out to `packer`, so it
       # needs to be on PATH. On a runner pre-provisioned per
       # docs/operations.md the binary is already there and this step is a
-      # no-op. The fallback install needs sudo.
+      # no-op. The fallback install needs sudo; continue-on-error means a
+      # failed auto-install does not block the job — the downstream
+      # `pre-commit run` step will surface the missing tool clearly.
       - name: Install Packer
+        continue-on-error: true
         run: |
           if command -v packer &>/dev/null; then
             echo "Packer already installed: $(packer version)"
             exit 0
           fi
+          echo "Packer not installed — attempting best-effort auto-install (requires sudo)."
+          echo "If this fails, pre-install per docs/operations.md → Setting up the runner."
           PACKER_VERSION=$(curl -fsSL https://api.releases.hashicorp.com/v1/releases/packer/latest \
             | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
           ARCH=$(dpkg --print-architecture)
@@ -62,10 +74,12 @@ jobs:
           rm /tmp/packer.zip
           packer version
 
-      # ── Install pre-commit (idempotent) ──────────────────────────────────────
+      # ── Install pre-commit (idempotent, best-effort) ─────────────────────────
       # Prefer the runner's system pre-commit (apt-installed per
       # docs/operations.md). Fall back to a per-user pip install so the
-      # workflow still passes on a stock runner.
+      # workflow still passes on a stock runner. continue-on-error covers the
+      # case where even the per-user pip install fails (no network, missing
+      # python3, etc.) — the downstream `pre-commit run` will fail clearly.
       #
       # We deliberately do NOT use actions/setup-python here: as of Ubuntu
       # 26.04 the upstream actions/python-versions catalogue does not yet
@@ -73,12 +87,14 @@ jobs:
       # "version 3.x ... was not found for Ubuntu 26.04". The runner's
       # system python3 is what we actually want anyway.
       - name: Install pre-commit
+        continue-on-error: true
         run: |
           if command -v pre-commit &>/dev/null; then
             echo "pre-commit already installed: $(pre-commit --version)"
             exit 0
           fi
-          echo "pre-commit not pre-installed; doing a per-user pip install."
+          echo "pre-commit not pre-installed — attempting best-effort per-user pip install."
+          echo "If this fails, pre-install per docs/operations.md → Setting up the runner."
           # --break-system-packages is required on PEP 668 distros (Ubuntu
           # 23.04+). It only affects the runner user's site-packages, not
           # the system Python.

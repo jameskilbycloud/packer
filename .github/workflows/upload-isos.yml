@@ -38,6 +38,14 @@ on:
           - "false"
           - "true"
 
+# ── Token scope ───────────────────────────────────────────────────────────────
+# Read-only — upload-isos calls vSphere via govc only (using the GOVC_*
+# secrets) and never touches the GitHub API beyond actions/checkout. The
+# auto-dispatch flow that fires this workflow (from check-iso-updates.yml)
+# uses that workflow's own write-scoped token, not this one.
+permissions:
+  contents: read
+
 # ── Jobs ──────────────────────────────────────────────────────────────────────
 jobs:
   upload-isos:
@@ -81,18 +89,26 @@ jobs:
 
           echo "✅ All required secrets are present."
 
-      # ── Verify govc is available ─────────────────────────────────────────────
+      # ── Verify govc is available (idempotent, best-effort) ──────────────────
+      # Best-effort auto-install. Fallback needs sudo — if it fails, the
+      # downstream "Upload ISOs" step will fail with a clear "govc: command
+      # not found". Pre-install per docs/operations.md to avoid relying on
+      # this fallback.
       - name: Check govc
+        continue-on-error: true
         run: |
-          if ! command -v govc &>/dev/null; then
-            echo "govc not found — installing..."
-            GOVC_VERSION=$(curl -s https://api.github.com/repos/vmware/govmomi/releases/latest \
-              | grep '"tag_name"' | cut -d'"' -f4)
-            curl -fsSL \
-              "https://github.com/vmware/govmomi/releases/download/${GOVC_VERSION}/govc_Linux_x86_64.tar.gz" \
-              | sudo tar -xzf - -C /usr/local/bin govc
-            sudo chmod +x /usr/local/bin/govc
+          if command -v govc &>/dev/null; then
+            echo "govc already installed: $(govc version)"
+            exit 0
           fi
+          echo "govc not installed — attempting best-effort auto-install (requires sudo)."
+          echo "If this fails, pre-install per docs/operations.md → Setting up the runner."
+          GOVC_VERSION=$(curl -s https://api.github.com/repos/vmware/govmomi/releases/latest \
+            | grep '"tag_name"' | cut -d'"' -f4)
+          curl -fsSL \
+            "https://github.com/vmware/govmomi/releases/download/${GOVC_VERSION}/govc_Linux_x86_64.tar.gz" \
+            | sudo tar -xzf - -C /usr/local/bin govc
+          sudo chmod +x /usr/local/bin/govc
           echo "govc version: $(govc version)"
 
       # ── Run upload script ────────────────────────────────────────────────────

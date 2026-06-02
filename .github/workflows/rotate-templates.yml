@@ -30,6 +30,12 @@ on:
           - "false"
           - "true"
 
+# ── Token scope ───────────────────────────────────────────────────────────────
+# Read-only — rotate-templates calls vSphere via govc only (using the
+# GOVC_* secrets) and never touches the GitHub API beyond actions/checkout.
+permissions:
+  contents: read
+
 # ── Concurrency ───────────────────────────────────────────────────────────────
 # Don't race against a build that may be publishing a new template. The
 # `packer-build` group is held by build-templates.yml, so joining it here
@@ -47,12 +53,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      # Best-effort auto-install. Fallback needs sudo — if it fails, the
+      # downstream "Prune old templates" step will fail with a clear
+      # "govc: command not found". Pre-install per docs/operations.md to
+      # avoid relying on this fallback.
       - name: Install govc
+        continue-on-error: true
         run: |
           if command -v govc &>/dev/null; then
             echo "govc already installed: $(govc version)"
             exit 0
           fi
+          echo "govc not installed — attempting best-effort auto-install (requires sudo)."
+          echo "If this fails, pre-install per docs/operations.md → Setting up the runner."
           GOVC_VERSION=$(curl -fsSL https://api.github.com/repos/vmware/govmomi/releases/latest \
             | grep '"tag_name"' | cut -d'"' -f4)
           curl -fsSL \

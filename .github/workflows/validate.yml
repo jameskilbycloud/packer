@@ -14,8 +14,7 @@ on:
     paths:
       - "*.pkr.hcl"
       - "templates/**"
-      - "scripts/setup.sh"
-      - "scripts/vmtools.sh"
+      - "scripts/**"
       - ".github/workflows/validate.yml"
 
   push:
@@ -27,6 +26,14 @@ on:
 
   # Allow manual runs (useful for debugging workflow changes)
   workflow_dispatch:
+
+# ── Token scope ───────────────────────────────────────────────────────────────
+# Read-only access to the repository — validate only reads code, runs
+# `packer fmt --check` / `packer validate` / lint-user-data.sh against the
+# checkout, and reports back via the PR check status (which uses workflow
+# scope, not GITHUB_TOKEN). No GitHub API writes anywhere.
+permissions:
+  contents: read
 
 # ── Concurrency ───────────────────────────────────────────────────────────────
 # Cancel any in-progress validate run for the same PR/branch so stale checks
@@ -46,16 +53,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      # ── Install Packer (idempotent) ──────────────────────────────────────────
+      # ── Install Packer (idempotent, best-effort) ─────────────────────────────
       # On a runner pre-provisioned per docs/operations.md the binary is
       # already on PATH and this step is a no-op. The fallback install needs
-      # sudo, so prefer the pre-install path documented for the runner.
+      # sudo; if that fails (no sudo, network, broken APT) we DON'T fail the
+      # job here — continue-on-error: true lets the workflow proceed and the
+      # next step that calls `packer` surfaces a clear "command not found".
+      # Pre-install per docs/operations.md to avoid relying on this fallback.
       - name: Install Packer
+        continue-on-error: true
         run: |
           if command -v packer &>/dev/null; then
             echo "Packer already installed: $(packer version)"
             exit 0
           fi
+          echo "Packer not installed — attempting best-effort auto-install (requires sudo)."
+          echo "If this fails, pre-install per docs/operations.md → Setting up the runner."
           # Install via direct binary download — avoids APT codename mismatches
           # (e.g. pre-release Ubuntu codenames not yet in HashiCorp's repo)
           PACKER_VERSION=$(curl -fsSL https://api.releases.hashicorp.com/v1/releases/packer/latest \
@@ -69,13 +82,31 @@ jobs:
           rm /tmp/packer.zip
           packer version
 
+      # ── Install cloud-init (idempotent, best-effort) ─────────────────────────
+      # Required by the "Validate user-data against cloud-init schema" step
+      # below (scripts/lint-user-data.sh shells out to `cloud-init schema`).
+      # As with Packer above, this is best-effort — pre-install per
+      # docs/operations.md to avoid relying on the fallback.
+      - name: Install cloud-init
+        continue-on-error: true
+        run: |
+          if command -v cloud-init &>/dev/null; then
+            echo "cloud-init already installed: $(cloud-init --version 2>&1 | head -1)"
+            exit 0
+          fi
+          echo "cloud-init not installed — attempting best-effort auto-install (requires sudo)."
+          echo "If this fails, pre-install per docs/operations.md → Setting up the runner."
+          sudo apt-get update -qq 2>/dev/null || true
+          sudo apt-get install -y cloud-init
+          cloud-init --version
+
       # ── Cache the vsphere plugin ─────────────────────────────────────────────
       # Plugins live under ~/.config/packer/plugins/ on Linux. Keying on the
       # hash of packer.pkr.hcl invalidates the cache when required_plugins is
       # bumped. On a cache hit `packer init` is a near no-op (~1 s) instead of
       # downloading the plugin tarball from GitHub on every run (~6 s).
       - name: Cache Packer plugin
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.config/packer/plugins
           key: packer-plugins-${{ runner.os }}-${{ hashFiles('packer.pkr.hcl') }}

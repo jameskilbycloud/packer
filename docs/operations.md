@@ -66,9 +66,24 @@ sudo ./svc.sh install
 sudo ./svc.sh start
 ```
 
-4. **Pre-install the workflow dependencies as root**, one time, so the runner user does *not* need sudo for normal operation. The workflow steps `Install Packer`, `Install xorriso`, `Install govc`, and `Install pre-commit` all check `command -v` first and skip if the tool is already on PATH. `gh` is also required (used by `check-iso-updates` to open the bump PR and dispatch the upload). `cloud-init` is required by the user-data lint step in `validate.yml` — it provides the `cloud-init schema` CLI.
+4. **Pre-install the workflow dependencies as root**, one time, so the runner user does *not* need sudo for normal operation.
 
-   Become root first with `sudo -i` and paste the block, **or** prefix every line with `sudo`. Mixing `sudo apt-get update && apt-get install …` will fail with `Could not open lock file /var/lib/dpkg/lock-frontend` because the chained `&&` only carries sudo across to the first command.
+   Every workflow has an `Install <tool>` step (or equivalent) that attempts a best-effort auto-install for the tool it needs — `command -v` is checked first and the step is a no-op if the tool is already on PATH. All of these install steps are marked `continue-on-error: true` so a failed auto-install (no sudo, broken APT, network glitch) does **not** block the job: the workflow proceeds, and the downstream step that actually calls the tool surfaces a clear `command not found`. The auto-install is a convenience, not a contract — pre-installing is the supported path.
+
+   The full set of tools every workflow expects on the runner:
+
+   | Tool         | Used by                                                                                   | Auto-installed by                                  |
+   |--------------|-------------------------------------------------------------------------------------------|----------------------------------------------------|
+   | `packer`     | `build-templates`, `validate`, `pre-commit` (the `packer-fmt` hook)                       | All three workflows                                |
+   | `xorriso`    | `build-templates` (cloud-init CD image creation)                                          | `build-templates`                                  |
+   | `govc`       | `build-templates`, `upload-isos`, `rotate-templates` (Content Library + template pruning) | All three workflows                                |
+   | `pre-commit` | `pre-commit`                                                                              | `pre-commit` (system → `pip --user` fallback)      |
+   | `gh`         | `check-iso-updates` (opens the bump PR + dispatches `upload-isos`)                        | `check-iso-updates`                                |
+   | `cloud-init` | `validate` (user-data schema lint via `scripts/lint-user-data.sh`)                        | `validate`                                         |
+
+   The shell utilities `curl`, `python3`, `git`, `perl`, `unzip`, and `openssh-client` are assumed already present on the runner and are not auto-installed — install them once as part of the runner base image.
+
+   To pre-install the lot, become root first with `sudo -i` and paste the block below, **or** prefix every line with `sudo`. Mixing `sudo apt-get update && apt-get install …` will fail with `Could not open lock file /var/lib/dpkg/lock-frontend` because the chained `&&` only carries sudo across to the first command.
 
    ```bash
    # Run as root (sudo -i first, or prefix each line with sudo)
@@ -101,7 +116,7 @@ sudo ./svc.sh start
      | tar -xzf - -C /usr/local/bin govc
    ```
 
-   > **Note on Ubuntu 26.04 runners:** `actions/setup-python` is intentionally **not** used by any workflow because as of writing, upstream `actions/python-versions` doesn't yet publish 26.04 binaries — `version '3.x' ... was not found for Ubuntu 26.04`. The pre-commit workflow uses the runner's system `python3` directly. Pre-installing `pre-commit` as above means it never has to `pip install` at job time.
+   > **Note on Python on the runner:** no workflow uses `actions/setup-python` — the runner's system `python3` is used directly (the pre-commit workflow needs it for hook invocation, the user-data lint workflow needs it for the rendering harness in `lint-user-data.sh`). Pre-installing `pre-commit` as above means the hook chain never has to `pip install` at job time, which dovetails with the no-sudo-during-jobs goal.
 
    With these in place, the runner user only needs its own home directory and the GitHub Actions runner agent — no `sudoers` entry, no privilege escalation. This dramatically reduces the runner's blast radius if a workflow is ever compromised.
 
@@ -164,7 +179,7 @@ Create a dedicated vCenter Single Sign-On user (e.g. `packer@vsphere.local`) and
 
 ### GitHub Actions
 
-Three of the workflows (`build-templates`, `upload-isos`, `pre-commit`, `validate`) only need read access and the default `GITHUB_TOKEN` is enough. The `check-iso-updates` workflow needs to push a branch, open a PR, and dispatch `upload-isos.yml` — so two repository-level toggles must be enabled:
+Four of the workflows (`build-templates`, `upload-isos`, `pre-commit`, `validate`) only need read access and the default `GITHUB_TOKEN` is enough. The `check-iso-updates` workflow needs to push a branch, open a PR, and dispatch `upload-isos.yml` — so two repository-level toggles must be enabled:
 
 **Settings → Actions → General → Workflow permissions:**
 
@@ -198,14 +213,14 @@ Add each secret via **Settings → Secrets and variables → Actions → New rep
 | `VSPHERE_DATASTORE` | `vsphere_datastore` | Datastore for VM storage |
 | `VSPHERE_NETWORK` | `vsphere_network` | Port group / network name |
 | `VSPHERE_FOLDER` | `vsphere_folder` | VM folder for finished templates |
-| `VSPHERE_ISO_DATASTORE` | `vsphere_iso_datastore` | Datastore or Content Library name holding ISOs |
-| `VSPHERE_ISO_LIBRARY_DATASTORE` | `vsphere_iso_library_datastore` | Datastore backing the Content Library (upload workflow). Defaults to `vsphere_datastore` if unset. |
+| `VSPHERE_ISO_LIBRARY_DATASTORE` | (workflow env var, not a Packer var) | Datastore backing the Content Library where the ISOs live. Only needed by `upload-isos.yml` to create the library the first time; the build workflow resolves the actual backing datastore at runtime from the Content Library metadata via `govc library.info`. |
 | `BUILD_USERNAME` | `build_username` | OS user created during install |
 | `BUILD_PASSWORD` | `build_password` | Plaintext build password |
 | `BUILD_PASSWORD_ENCRYPTED` | `build_password_encrypted` | SHA-512 hash — `openssl passwd -6 '<password>'` |
-| `UBUNTU_2204_ISO_PATH` | `ubuntu_2204_iso_path` | ISO filename/path for 22.04 |
-| `UBUNTU_2404_ISO_PATH` | `ubuntu_2404_iso_path` | ISO filename/path for 24.04 |
-| `UBUNTU_2604_ISO_PATH` | `ubuntu_2604_iso_path` | ISO filename/path for 26.04 |
+| `ADMIN_USERNAME` (optional) | `admin_username` | Persistent admin account created by `setup.sh`. Leave empty to skip admin-user creation. |
+| `ADMIN_GITHUB_USER` (optional) | `admin_github_user` | GitHub username whose public keys are imported into the admin account via `ssh-import-id-gh`. Leave empty to skip key import. |
+
+> **No ISO-path secrets.** ISO paths and the ISO backing datastore are resolved at workflow runtime from the Content Library — `build-templates.yml` calls `govc library.info -json` to discover both the per-version ISO item and the datastore that hosts it. This means new Ubuntu point releases (e.g. `22.04.5` → `22.04.6`) work automatically once the new ISO is uploaded; there's nothing to edit in repository secrets.
 
 ## Workflow: validate
 
@@ -301,7 +316,7 @@ Every successful build emits two artefacts of metadata so the pipeline is observ
   "github": {
     "run_id": "...",
     "run_number": 142,
-    "actor": "jameskilbycloud",
+    "actor": "<github-username>",
     "event": "schedule",
     "sha": "...",
     "ref": "refs/heads/main"
@@ -495,8 +510,8 @@ The build workflow pre-flight check will list exactly which secrets are absent b
 **Runner not picking up jobs**
 Check the label the runner was registered with (visible in **Settings → Actions → Runners**). If it does not match `self-hosted`, set the `RUNNER_LABEL` repository variable to the correct label. See [Setting up the runner](#setting-up-the-runner).
 
-**Runner sudo prompt blocks job**
-The workflow's auto-install paths for Packer / xorriso / govc need sudo. Either pre-install them as root (recommended — eliminates the need for sudo on the runner entirely; see [Setting up the runner](#setting-up-the-runner)), or grant a tightly scoped sudoers entry as described there.
+**Workflow step fails with `command not found` for `packer` / `xorriso` / `govc` / `pre-commit` / `gh` / `cloud-init`**
+The matching `Install <tool>` step is `continue-on-error: true`, so a failed auto-install marks itself with ⚠️ and lets the workflow keep going — meaning the next step that calls the tool is what actually fails. Look at the `Install <tool>` step's log to see *why* the auto-install didn't run (most often: no sudo on the runner, broken third-party APT repo, network egress blocked). Then pre-install the tool as root per [Setting up the runner](#setting-up-the-runner) — that's the supported path and eliminates the need for sudo on the runner entirely. Alternatively, grant a tightly scoped sudoers entry as described in that section.
 
 **Build hangs at `Waiting for SSH`**
 The VM booted but Packer cannot reach port 22. Check that the machine running Packer has network access to the VM's subnet. Temporarily set `PACKER_LOG=1` and watch the boot sequence via the vSphere console.

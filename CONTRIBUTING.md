@@ -85,6 +85,20 @@ the change is localised. Keep the subject line ≤ 72 chars; put the
 PRs are auto-assigned to maintainers via [CODEOWNERS](.github/CODEOWNERS).
 Anyone is welcome to leave review comments regardless.
 
+## If you're forking
+
+A few files reference the canonical repo's GitHub identity directly —
+after forking, search-and-replace these to your own org/user so badges,
+review routing, and contact links work:
+
+- `README.md` — badge URLs (`github.com/jameskilbycloud/packer/...`)
+- `.github/CODEOWNERS` — `* @jameskilbycloud`
+- `SECURITY.md` — security disclosure contact
+- `CONTRIBUTING.md` — this file (issue/PR links)
+- `CHANGELOG.md` — repo-link refs at the bottom
+
+`git grep jameskilbycloud` lists everything in one go.
+
 ## Reporting bugs / requesting features
 
 Use the issue templates at

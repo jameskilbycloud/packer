@@ -31,7 +31,7 @@ you will be credited in the release notes if you'd like.
 | In scope | Out of scope |
 |---|---|
 | Packer HCL configuration in this repo | Vulnerabilities in upstream Ubuntu, the vsphere-iso plugin, govc, or vSphere itself — please report those to their respective projects |
-| Shell and PowerShell provisioner scripts | Misconfigurations introduced after a user customises their fork |
+| Shell provisioner scripts (`scripts/`) | Misconfigurations introduced after a user customises their fork |
 | GitHub Actions workflows in `.github/workflows/` | The user's own self-hosted runner host — its hardening is the user's responsibility |
 | Default settings that produce an insecure template | Issues that require an attacker who already has vCenter admin credentials |
 
@@ -63,11 +63,14 @@ documented here so they can be designed around rather than reported repeatedly:
 - **UFW is masked in produced templates.** This is intentional during the
   build (to avoid blocking SSH on first boot post-clone) but means clones
   ship without a firewall. Re-enable in your deployment pipeline.
-- **Self-hosted runner with passwordless sudo.** The runner setup
-  documented in `README.md` previously recommended blanket NOPASSWD sudo
-  for the runner user. As of the current revision, the recommended
-  setup is to pre-install Packer, xorriso, and govc as root (one-time)
-  so the runner needs no sudo at all during normal operation; a
-  command-scoped sudoers entry is documented as a fallback. Audit
-  existing runners — if you set up the runner before this change, the
-  blanket entry may still be in place at `/etc/sudoers.d/github-runner`.
+- **Self-hosted runner sudo posture.** The recommended setup
+  ([`docs/operations.md` → Setting up the runner](docs/operations.md#setting-up-the-runner))
+  is to pre-install Packer, xorriso, govc, gh, and cloud-init as root
+  one time so the runner user needs no sudo at all during normal
+  operation; the workflows' install steps are best-effort fallbacks
+  (`continue-on-error: true`) that only fire when a binary is missing.
+  A command-scoped `/etc/sudoers.d/github-runner` entry is documented
+  as an alternative if you prefer the auto-install fallback to keep
+  working. If you set up an earlier-generation runner with a blanket
+  NOPASSWD entry at `/etc/sudoers.d/github-runner`, audit it against
+  the current scoped example.
