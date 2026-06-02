@@ -29,3 +29,12 @@ desktop.ini
 
 # Claude Code transient artifacts
 .claude/
+
+# CI-runtime artefacts the workflows write into the runner's checkout.
+# In normal operation these are uploaded as workflow artifacts and never
+# land in the repo, but a tracking hiccup (or a local `packer build`) can
+# spill them onto disk where they'd otherwise be staged on the next add.
+packer-*.log
+build-metrics-*.json
+screenshots-*/
+smoke-screenshots-*/

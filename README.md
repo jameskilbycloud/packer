@@ -32,7 +32,7 @@ Autoinstall configuration is rendered at build time via HCL's `templatefile()` f
 
 | Tool | Minimum version | Notes |
 |---|---|---|
-| [Packer](https://developer.hashicorp.com/packer/install) | 1.10.0 | `brew install packer` or download binary |
+| [Packer](https://developer.hashicorp.com/packer/install) | 1.14.0 | `brew install packer` or download binary. Matches the `required_version` in `packer.pkr.hcl`. |
 | [govc](https://github.com/vmware/govmomi/releases) | any recent | Required for ISO upload only |
 | curl | any | ISO download |
 | sha256sum / shasum | any | Checksum verification (pre-installed on Linux/macOS) |
@@ -46,6 +46,12 @@ The machine running Packer must be able to reach the vCenter API (port 443) and 
 
 ```
 packer/
+├── README.md                       # This file
+├── CHANGELOG.md                    # Release-by-release change record
+├── CONTRIBUTING.md                 # PR + issue conventions
+├── SECURITY.md                     # Disclosure policy + known posture
+├── LICENSE                         # MIT
+│
 ├── packer.pkr.hcl                  # Plugin requirements (vsphere ≥ 2.1.2)
 ├── variables.pkr.hcl               # All variable declarations + defaults
 ├── locals.pkr.hcl                  # Shared locals: build_date, ssh_timeout
@@ -61,30 +67,43 @@ packer/
 ├── scripts/
 │   ├── upload-isos.sh              # Download ISOs → Content Library (called by upload-isos.yml)
 │   ├── check-iso-updates.sh        # Detect new Ubuntu point releases; --apply rewrites refs
+│   ├── vsphere-preflight.sh        # Fast pre-build health check (vCenter, datastore, library)
+│   ├── lint-user-data.sh           # Render *-user-data.pkrtpl + `cloud-init schema` validate
 │   ├── setup.sh                    # Post-install: upgrade, SSH hardening, host key wipe
-│   ├── finalize.sh                 # Last provisioner: remove build-time pwauth + sudoers drop-ins
+│   ├── desktop.sh                  # Desktop-only: ubuntu-desktop-minimal install + netplan rewrite
 │   ├── vmtools.sh                  # Verify / install open-vm-tools
-│   ├── desktop.sh                  # Desktop-only: ubuntu-desktop-minimal install
+│   ├── finalize.sh                 # Last provisioner: remove build-time pwauth + sudoers drop-ins
 │   ├── goss-validate.sh            # Goss smoke runner (in-build + post-publish)
 │   ├── smoke-test.sh               # Clone just-built template, boot, re-run goss
-│   └── prune-templates.sh          # Retention policy: keep last N per (version, role)
+│   ├── prune-templates.sh          # Retention policy: keep last N per (version, type)
+│   └── quarantine-template.sh      # Rename a failing template aside instead of destroying it
 │
 ├── goss/
-│   ├── server.yaml                 # Post-build assertions (universal)
-│   └── desktop.yaml                # Desktop-only additions (gossfile-includes server.yaml)
+│   ├── server.yaml                 # In-build assertions for server templates
+│   ├── desktop.yaml                # In-build assertions for desktop templates (gossfile-includes server.yaml)
+│   ├── server-clone.yaml           # Post-publish smoke assertions on a server clone
+│   └── desktop-clone.yaml          # Post-publish smoke assertions on a desktop clone
 │
 ├── docs/
 │   └── operations.md               # Operator reference: runner, perms, workflows, troubleshooting
 │
-├── manifests/                      # Build manifests written here after each run
+├── manifests/                      # Build manifests written here after each run (JSON gitignored)
 │
-└── .github/workflows/
-    ├── validate.yml                # PR fmt + packer validate
-    ├── pre-commit.yml              # Pre-commit hooks (gitleaks, yamllint, shellcheck, …)
-    ├── build-templates.yml         # Packer build + post-publish smoke + prune
-    ├── upload-isos.yml             # ISO uploads, manual + auto-dispatched
-    ├── check-iso-updates.yml       # Mon 06:00 UTC: bump PR + auto-upload on drift
-    └── rotate-templates.yml        # 1st of month 03:00 UTC: prune all groups
+├── .pre-commit-config.yaml         # Pre-commit hook chain (shellcheck, yamllint, gitleaks, packer-fmt)
+├── .yamllint.yml                   # yamllint rules
+│
+└── .github/
+    ├── CODEOWNERS                  # Review routing
+    ├── ISSUE_TEMPLATE/             # Bug / feature / config
+    ├── pull_request_template.md
+    ├── dependabot.yml              # Weekly action + module updates
+    └── workflows/
+        ├── validate.yml            # PR fmt + packer validate
+        ├── pre-commit.yml          # Pre-commit hooks (gitleaks, yamllint, shellcheck, …)
+        ├── build-templates.yml     # Packer build + post-publish smoke + prune
+        ├── upload-isos.yml         # ISO uploads, manual + auto-dispatched
+        ├── check-iso-updates.yml   # Mon 06:00 UTC: bump PR + auto-upload on drift
+        └── rotate-templates.yml    # 1st of month 03:00 UTC: prune all groups
 ```
 
 All `.pkr.hcl` files in the root are combined by Packer into a single build graph; the `build-templates` workflow uses `-only=` to target a specific source.
@@ -131,6 +150,7 @@ For zero-sudo operation, also pre-install `packer`, `xorriso`, and `govc` as roo
 |---|---|
 | vCenter connection | `VSPHERE_SERVER`, `VSPHERE_USER`, `VSPHERE_PASSWORD`, `VSPHERE_DATACENTER`, `VSPHERE_CLUSTER` (or `VSPHERE_HOST`), `VSPHERE_DATASTORE`, `VSPHERE_NETWORK`, `VSPHERE_FOLDER`, `VSPHERE_ISO_LIBRARY_DATASTORE` |
 | Build credentials | `BUILD_USERNAME`, `BUILD_PASSWORD`, `BUILD_PASSWORD_ENCRYPTED` |
+| Optional (admin account on built images) | `ADMIN_USERNAME`, `ADMIN_GITHUB_USER` — leave unset to skip admin-user creation in `setup.sh` |
 
 For `BUILD_PASSWORD_ENCRYPTED` you need a SHA-512 hash. Generate it on the runner VM (or any Linux shell — Codespace, WSL, an existing server):
 
@@ -257,7 +277,7 @@ All variables are declared in `variables.pkr.hcl`. Connection details and creden
 
 | Variable | Default | Description |
 |---|---|---|
-| `vm_hardware_version` | `19` | VMware hardware version. 19 = vSphere 7.0 U2, 20 = vSphere 8.0, 21 = vSphere 8.0 U2 |
+| `vm_hardware_version` | `21` | VMware hardware version. 19 = vSphere 7.0 U2, 20 = vSphere 8.0, 21 = vSphere 8.0 U2 |
 
 ### OS configuration
 
@@ -289,7 +309,7 @@ Threaded into the autoinstall user-data at render time, so they apply to every c
 |---|---|
 | OS | Ubuntu Server (minimal) |
 | vCPUs | 2 (1 socket × 2 cores) |
-| RAM | 4 GB (22.04 / 24.04), 8 GB (26.04) |
+| RAM | 4 GB (22.04 / 24.04), 6 GB (26.04 — `toram` boots the live ISO from RAM) |
 | Disk | 40 GB thin-provisioned (LVM) |
 | Network | vmxnet3, DHCP |
 | Firmware | EFI (Secure Boot disabled — needed so Packer can inject autoinstall args via the GRUB command line) |

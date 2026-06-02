@@ -1,5 +1,5 @@
 # =============================================================================
-# Ubuntu 26.04 LTS (Plucky Puffin) — Server & Desktop
+# Ubuntu 26.04 LTS (Resolute Raccoon) — Server & Desktop
 # =============================================================================
 # Server + desktop are defined as two sources inside a single `build {}` block,
 # which lets Packer run them in parallel from one runner. The build workflow
