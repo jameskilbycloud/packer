@@ -45,12 +45,21 @@ branches; once a fix is merged, users should pull the latest `main` and rebuild.
 These are properties of how the pipeline works that may surprise consumers,
 documented here so they can be designed around rather than reported repeatedly:
 
-- **Build credentials are present in clones by default.** The build user has
-  passwordless sudo and SSH password auth is enabled in the produced
-  template. This is a known gap and is tracked separately from this policy.
-  A "harden for clone" provisioner is planned; until then, treat freshly
-  built templates as not yet ready for production deployment without an
-  additional finalisation step.
+- **The build user account persists in clones, with its password set in
+  `/etc/shadow`.** This is the same posture as a stock Ubuntu install where
+  the install-time user is created during the autoinstall flow. The
+  build-only escalation knobs — passwordless sudo via
+  `/etc/sudoers.d/90-packer-${BUILD_USERNAME}` and the
+  `/etc/ssh/sshd_config.d/10-packer-pwauth.conf` drop-in that enables SSH
+  password authentication — are explicitly removed by
+  [`scripts/finalize.sh`](scripts/finalize.sh) before template conversion,
+  and [`goss/server.yaml`](goss/server.yaml) /
+  [`goss/desktop.yaml`](goss/desktop.yaml) assert the post-finalize state
+  on every build. Net effect on clones: SSH accepts only pubkey auth (no
+  password), and any `sudo` invocation prompts for the build user's
+  password. If your security model requires removing the build user
+  entirely or rotating its password, that remains a post-clone
+  configuration-management task.
 - **UFW is masked in produced templates.** This is intentional during the
   build (to avoid blocking SSH on first boot post-clone) but means clones
   ship without a firewall. Re-enable in your deployment pipeline.
