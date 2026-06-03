@@ -219,22 +219,68 @@ touch /var/lib/packer-firstboot/hostname.done
 SCRIPT
 chmod +x /usr/local/sbin/firstboot-hostname.sh
 
-# Mirror the ssh-host-keygen.service pattern: oneshot, gated by a sentinel
-# path, disables itself after success.
+# Hostname-suffix oneshot. Mirrors the ssh-host-keygen.service pattern:
+# gated by a sentinel path, disables itself after success.
 #
-# Same ordering bug as ssh-host-keygen — the previous version was
-# DefaultDependencies=no + Before=sysinit.target, which fired before /
-# was remounted read-write. The script's hostnamectl + /etc/hosts edit +
-# `touch /var/lib/packer-firstboot/hostname.done` all failed silently;
-# the unit exited 1 and stayed enabled (no ExecStartPost on failure),
-# but no clone ever got the suffix. Using default deps + ordering
-# against network-pre.target gets us a writable root and still runs
-# before NetworkManager / systemd-networkd sends DHCP with a hostname.
+# Unit-graph shape requirements (any change must preserve ALL THREE):
+#
+#   1. Must run AFTER rootfs is read-write so the script can
+#      `touch /var/lib/packer-firstboot/hostname.done`. PR #39 (the
+#      "oneshots after rootfs-rw" fix) corrected an earlier version
+#      that fired pre-remount and silently exited 1, leaving every
+#      clone without a suffix. Explicit
+#      `After=systemd-remount-fs.service local-fs.target` enforces
+#      this independently of any DefaultDependencies setting.
+#
+#   2. Must run BEFORE NetworkManager / systemd-networkd send a DHCP
+#      request so the lease carries the unique hostname.
+#      `Before=network-pre.target` is the canonical hook — that target
+#      is itself Before= NetworkManager.service / systemd-networkd.service /
+#      network.target, so naming it covers all three transitively.
+#
+#   3. Must not race into an ordering cycle with systemd-networkd.service.
+#      The previous version (DefaultDependencies=yes, plus a wide
+#      Before= naming network-pre.target / network.target /
+#      NetworkManager.service / systemd-networkd.service explicitly)
+#      hit a cycle on ~1 in 12 boots of 22.04-server — observed in
+#      failed smoke job 79250002217 (run 26868894622). systemd's
+#      logged resolution: "Found ordering cycle on firstboot-hostname.
+#      service/start [...] deleted to break ordering cycle starting
+#      with systemd-networkd.service/start". The unit therefore never
+#      ran, no sentinel was written, ExecStartPost never disabled the
+#      unit, and the two clone-side goss assertions
+#      (`hostname.done exists` + `firstboot-hostname.service enabled:
+#      false`) failed.
+#
+# Fix (this version):
+#   • `DefaultDependencies=no` drops the implicit
+#     `After=sysinit.target basic.target` chain. basic.target reaches
+#     sockets.target → ssh.socket on 22.04 server, which is the
+#     back-edge that closed the cycle with systemd-networkd. With it
+#     gone, the only graph edges this unit has are the explicit ones
+#     declared below.
+#   • Explicit `After=systemd-remount-fs.service local-fs.target`
+#     preserves requirement (1) without relying on default deps.
+#   • Single `Before=network-pre.target` covers requirement (2) and
+#     drops the redundant direct edges to network.target /
+#     NetworkManager.service / systemd-networkd.service that previously
+#     formed the cycle.
+#   • `Conflicts=shutdown.target` + `Before=shutdown.target` replace
+#     the shutdown-ordering edges that DefaultDependencies would have
+#     provided automatically.
+#   • `WantedBy=sysinit.target` (instead of multi-user.target) pulls
+#     the unit into the early-boot phase where network-pre.target is
+#     reached. WantedBy=multi-user.target would have queued the unit
+#     too late — multi-user.target activates after network.target, so
+#     the Before=network-pre.target ordering would no longer apply
+#     and the unit would race against an already-up network stack.
 cat > /etc/systemd/system/firstboot-hostname.service << 'UNIT'
 [Unit]
 Description=Append a unique suffix to the hostname on first boot of each clone
+DefaultDependencies=no
 After=systemd-remount-fs.service local-fs.target
-Before=network-pre.target network.target NetworkManager.service systemd-networkd.service
+Before=network-pre.target shutdown.target
+Conflicts=shutdown.target
 ConditionPathExists=!/var/lib/packer-firstboot/hostname.done
 
 [Service]
@@ -244,7 +290,7 @@ ExecStartPost=/bin/systemctl disable firstboot-hostname.service
 RemainAfterExit=yes
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=sysinit.target
 UNIT
 systemctl enable firstboot-hostname.service
 
