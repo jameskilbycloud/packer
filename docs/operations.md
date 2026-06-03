@@ -219,6 +219,7 @@ Add each secret via **Settings → Secrets and variables → Actions → New rep
 | `BUILD_PASSWORD_ENCRYPTED` | `build_password_encrypted` | SHA-512 hash — `openssl passwd -6 '<password>'` |
 | `ADMIN_USERNAME` (optional) | `admin_username` | Persistent admin account created by `setup.sh`. Leave empty to skip admin-user creation. |
 | `ADMIN_GITHUB_USER` (optional) | `admin_github_user` | GitHub username whose public keys are imported into the admin account via `ssh-import-id-gh`. Leave empty to skip key import. |
+| `SLACK_WEBHOOK_URL` (optional) | (workflow env var, not a Packer var) | Slack incoming-webhook URL for build success / failure notifications. If unset, the notify steps log "SLACK_WEBHOOK_URL not set — skipping." and exit cleanly. |
 
 > **No ISO-path secrets.** ISO paths and the ISO backing datastore are resolved at workflow runtime from the Content Library — `build-templates.yml` calls `govc library.info -json` to discover both the per-version ISO item and the datastore that hosts it. This means new Ubuntu point releases (e.g. `22.04.5` → `22.04.6`) work automatically once the new ISO is uploaded; there's nothing to edit in repository secrets.
 
@@ -437,7 +438,7 @@ The dump header line `--- govc guest.run rc=N, output bytes=M ---` tells you whe
 - **Transient patterns** (retried after a 60s backoff): `connection refused`, `i/o timeout`, `tls handshake`, `no route to host`, `temporary failure`, `service unavailable`, `context deadline exceeded`, `cannot connect`, `dial tcp`, `server closed`, `unexpected EOF`, `connection reset`. These cover vSphere DRS migrations, ISO datastore hiccups, and general network blips.
 - **Permanent patterns** (failed immediately): everything else — provisioner script failures, validation errors, missing variables, goss assertion failures. Retrying on these would just mask real bugs.
 
-`-on-error=cleanup` ensures Packer destroys any partial VM between attempts; `-force` lets the retry overwrite leftover artefacts. Tunable via `MAX_ATTEMPTS` env var on the step (default 2).
+`-on-error=abort` leaves the failing VM running and intact so the downstream "Capture console screenshot" step can grab a PNG of whatever's on screen at the failure point. A separate "Destroy orphaned VM" step in the workflow cleans up any leftover VMs between retry attempts so vSphere inventory still ends clean. `-force` lets the retry overwrite leftover artefacts (e.g. a partial Packer manifest). Tunable via `MAX_ATTEMPTS` env var on the step (default 2).
 
 ## Workflow: upload-isos
 
