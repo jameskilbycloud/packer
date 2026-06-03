@@ -16,5 +16,10 @@ updates:
       - "dependencies"
       - "github-actions"
     commit-message:
-      prefix: "chore(deps)"
+      # `include: "scope"` tells Dependabot to append the conventional-
+      # commits scope (`(deps)`) automatically. The literal prefix must
+      # therefore NOT pre-include `(deps)` — doing so produces
+      # `chore(deps)(deps): bump ...` (see merged commit 55d6a98 for the
+      # last PR title produced by that bug).
+      prefix: "chore"
       include: "scope"
