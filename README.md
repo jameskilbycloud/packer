@@ -416,7 +416,7 @@ network:
           addresses: [1.1.1.1, 8.8.8.8]
 ```
 
-For 26.04 (`templates/{server,desktop}-2604-user-data.pkrtpl`):
+For 26.04 (same shared `templates/{server,desktop}-user-data.pkrtpl` as 22.04 / 24.04 — the version-specific 2604 templates were merged into the shared ones in v1.0.0):
 
 ```yaml
 network:

@@ -6,7 +6,57 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-_No unreleased changes._
+### Fixed
+
+- **`firstboot-hostname.service` systemd ordering cycle on 22.04-server.**
+  The unit raced into an ordering cycle with `systemd-networkd.service`
+  on ~1 in 12 boots — systemd's resolution was to delete the
+  `firstboot-hostname.service` start job, so the unit never ran, no
+  sentinel was written, `ExecStartPost` never disabled it, and the
+  clone-side goss assertions (`hostname.done` exists +
+  `firstboot-hostname.service enabled: false`) failed. Tightened the
+  unit's scheduling-graph footprint to remove the cycle: added
+  `DefaultDependencies=no` (drops the implicit `After=basic.target`
+  back-edge through `sockets.target → ssh.socket`), replaced the broad
+  `Before=network-pre.target network.target NetworkManager.service
+  systemd-networkd.service` with `Before=network-pre.target
+  shutdown.target` (network-pre.target transitively orders before the
+  other three), added `Conflicts=shutdown.target` to preserve clean
+  shutdown ordering, and moved `WantedBy=multi-user.target` →
+  `WantedBy=sysinit.target` so the unit is pulled into the early-boot
+  phase where the `Before=network-pre.target` ordering actually
+  applies. Same pattern that `ssh-host-keygen.service` already used in
+  the same file. PR #43.
+
+### Changed
+
+- **Dependabot commit-message prefix** corrected. The config had
+  `prefix: "chore(deps)"` AND `include: "scope"`, which produced
+  `chore(deps)(deps): bump foo from x to y` (visible in merged commit
+  `55d6a98`). Fix: `prefix: "chore"` — Dependabot's `include: "scope"`
+  appends the `(deps)` scope automatically. PR #41.
+- **`CONTRIBUTING.md` adds a "Release & change-management policy"
+  section** codifying the PR-first rule that takes effect from v1.0.1
+  onward. Pre-v1.0.0 direct-to-main is preserved as historical (see
+  `[0.9.0]` / `[1.0.0]` entries); from now on fixes, features, and
+  dependency / workflow changes open a PR and squash-merge once CI is
+  green. Carve-out for release-cut bookkeeping and trivial fixes.
+  PR #41.
+
+### Docs
+
+- **Post-v1.0.1 accuracy pass** — `README.md` stale reference to the
+  deleted `templates/{server,desktop}-2604-user-data.pkrtpl` files
+  corrected to the shared `templates/{server,desktop}-user-data.pkrtpl`;
+  `docs/operations.md` build-retry section rewritten to describe
+  `-on-error=abort` (the actual flag) and the downstream cleanup step
+  (previous wording mistakenly said `-on-error=cleanup`);
+  `docs/operations.md` secrets table gains a `SLACK_WEBHOOK_URL`
+  (optional) row matching the workflow's reference;
+  `scripts/smoke-test.sh` header comment `SSH_TIMEOUT_SECONDS` default
+  corrected `180` → `240` to match the actual default on line 54;
+  `.github/workflows/build-templates.yml` pre-build comment block
+  corrected to say `-on-error=abort` (was `-on-error=cleanup`).
 
 ## [1.0.1] — 2026-06-03
 

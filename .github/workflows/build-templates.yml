@@ -618,8 +618,10 @@ jobs:
       # variable) we exit immediately so real bugs aren't masked behind
       # repeated builds.
       #
-      # `-on-error=cleanup` ensures Packer destroys the partial VM between
-      # attempts; `-force` lets the retry overwrite any leftover artefacts.
+      # `-on-error=abort` leaves the failing VM intact for the screenshot
+      # step (the "Destroy orphaned VM" step downstream handles cleanup);
+      # `-force` lets the retry overwrite any leftover artefacts. See the
+      # in-loop comment on lines 678-687 for the full screenshot rationale.
       - name: Packer build
         if: needs.resolve-targets.outputs.dry_run == 'false'
         env:

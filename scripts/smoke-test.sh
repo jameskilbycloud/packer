@@ -32,7 +32,7 @@
 #   VSPHERE_HOST           — ESXi host (alternative to cluster)
 #   VSPHERE_DATASTORE      — datastore for the clone
 #   SMOKE_TIMEOUT_SECONDS  — total wait for VMware Tools IP (default 600)
-#   SSH_TIMEOUT_SECONDS    — wait for SSH after IP appears (default 180)
+#   SSH_TIMEOUT_SECONDS    — wait for SSH after IP appears (default 240)
 #   CLONE_NAME             — override generated clone name
 # =============================================================================
 set -euo pipefail
