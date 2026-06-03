@@ -5,6 +5,24 @@ Thanks for the interest. This is one of the personal projects under the
 not commercial software. Contributions are welcome but the bar is "fits the
 existing patterns and doesn't break the six Linux builds."
 
+## Release & change-management policy
+
+Pre-v1.0.0 (through 2026-06-02), commits landed directly on `main` — the
+repo was in extended-debugging mode and direct pushes kept the iteration
+loop fast. The full history of that period is in
+[CHANGELOG.md](CHANGELOG.md) under `[0.9.0]` and `[1.0.0]`.
+
+From v1.0.1 onward the rule is **PR-first**:
+
+- All fixes, features, and dependency / workflow changes open a PR
+  against `main` and squash-merge once CI is green.
+- Dependabot bumps are PRs by construction; merge via the PR UI.
+- Maintainer direct-push to `main` is reserved for release-cut
+  bookkeeping (CHANGELOG promotion, annotated tag prep) and clearly
+  trivial fixes (broken link, README typo). Anything that touches
+  Packer HCL, scripts, workflows, or autoinstall templates goes
+  through a PR.
+
 ## Quick start
 
 1. **Fork** the repository and create a branch off `main` named for the
