@@ -8,7 +8,7 @@
 [![Check ISO updates](https://github.com/jameskilbycloud/packer/actions/workflows/check-iso-updates.yml/badge.svg)](https://github.com/jameskilbycloud/packer/actions/workflows/check-iso-updates.yml)
 [![Rotate templates](https://github.com/jameskilbycloud/packer/actions/workflows/rotate-templates.yml/badge.svg)](https://github.com/jameskilbycloud/packer/actions/workflows/rotate-templates.yml)
 
-Automated golden-image pipeline that builds Ubuntu VM templates directly in vSphere using [HashiCorp Packer](https://www.packer.io/). Supports three Ubuntu LTS versions (22.04, 24.04, 26.04) with server and desktop variants — six templates in total.
+Automated golden-image pipeline that builds Ubuntu VM templates directly in vSphere using [HashiCorp Packer](https://www.packer.io/). Supports three Ubuntu LTS versions (22.04, 24.04, 26.04) with server and desktop variants — six templates in total, all driven from GitHub
 
 ---
 
