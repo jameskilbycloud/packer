@@ -6,6 +6,116 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+_No unreleased changes._
+
+## [1.0.1] — 2026-06-03
+
+Polish + simplification on top of v1.0.0 — no functional regressions, no
+new features. Strips two workarounds that v1.0.0's `source.id: ubuntu-
+server-minimal` bypass made redundant, tightens the workflow's retry
+budget now that the underlying 26.04 instability is gone, and lands the
+rest of the pre-public audit.
+
+### Changed
+
+- **Workflow `MAX_ATTEMPTS` reduced to `2` uniform across all versions;
+  per-leg `timeout-minutes` 240 → 180.** The four-attempt budget on
+  2604 was belt-and-braces against the (now-fixed) overlay-oops
+  probabilistic failure. With v1.0.0's `source.id` bypass the 26.04
+  build is deterministic, so attempts 3–4 became dead weight — every
+  2604 leg since the bypass landed has hit attempt-1 clean. Two
+  attempts and a 3 h cap match the production behaviour of 22.04 /
+  24.04 throughout the late-pre-1.0 codebase, give faster regression
+  signal if the bypass ever stops working, and remove the per-version
+  conditional from the workflow.
+- **Workflow `permissions:` blocks tightened.** `build-templates.yml`
+  now declares `permissions: contents: read` at the workflow level; the
+  read-only workflows (`validate.yml`, `pre-commit.yml`,
+  `rotate-templates.yml`, `upload-isos.yml`, `check-iso-updates.yml`)
+  either already had it or get it added in this pass. Reduces the blast
+  radius of any future workflow-token leak.
+- **`SECURITY.md` "Build credentials in clones" rewritten** to describe
+  the actual post-finalize posture: SSH password-auth disabled, the
+  NOPASSWD sudoers drop-in removed, clones require the user's password
+  for sudo and accept SSH only via public-key auth. The previous
+  wording understated what `finalize.sh` already does. The stray
+  PowerShell reference (Linux-only repo) and a confused NOPASSWD aside
+  cleaned up at the same time.
+- **`docs/operations.md` corrected.** Four phantom secrets that don't
+  exist in the workflow (`VSPHERE_ISO_DATASTORE` and three
+  `UBUNTU_*_ISO_PATH` entries) removed from the secrets table;
+  `ADMIN_USERNAME` and `ADMIN_GITHUB_USER` added to match
+  `build-templates.yml`; "Three of the workflows" → "Four"; the Python
+  yaml-load defensive note rewritten; depersonalised actor example.
+- **`CONTRIBUTING.md` adds a "If you're forking" section** listing the
+  files that hard-code `jameskilbycloud` so a fork can search-and-
+  replace them in one go (README badge URLs, `.github/CODEOWNERS`,
+  `SECURITY.md` contact, this file's history links).
+- **`README.md` accuracy pass.** Project-structure tree expanded to
+  list every script and goss spec plus the top-level governance docs
+  (CHANGELOG / CONTRIBUTING / SECURITY / LICENSE etc.); specs table
+  corrected (`vm_hardware_version: 21`, RAM column reads
+  "4 GB (all server variants)"); Packer floor 1.10.0 → 1.14.0;
+  admin secrets row added; 26.04 codename Plucky Puffin → Resolute
+  Raccoon; removed the toram / RAM rationale note that no longer
+  matched the code.
+
+### Removed
+
+- **`toram` boot param and `server_2604_ram_mb` variable override.**
+  Both were added during the 26.04 debugging arc on the hypothesis
+  that the `ovl_iterate_merged` oops was triggered by squashfs read
+  pressure or memory pressure. Two test-branch runs with each removed
+  in turn (26842096585 with `toram` stripped, 26848137009 with the RAM
+  override stripped) showed clean attempt-1 success in 23–23.7 min,
+  confirming the v1.0.0 `source.id` bypass eliminated the trigger
+  entirely. The shared `server_ram_mb` default (4 GB) now covers all
+  server variants.
+- **`overlay.metacopy=off overlay.redirect_dir=off` kernel cmdline
+  params from the 26.04 boot command.** Test run 26864852257 confirmed
+  a clean attempt-1 success with both removed. The bypass route
+  doesn't go through the kernel overlay layer at all, so disabling its
+  metacopy / redirect-dir features had nothing left to protect. The
+  `ipv6.disable=1` param stays — it addresses a different bug class
+  (subiquity's Network observer entering a `_send_update: CHANGE
+  ens33` loop on IPv6 address-change events) that has nothing to do
+  with the curtin overlay.
+- **Dead bypass-trace code in `templates/server-user-data.pkrtpl` and
+  `templates/desktop-user-data.pkrtpl`.** The instrumentation that
+  routed the early-command probe through subiquity's debug log and
+  systemd journal was kept for one release in case the bypass needed
+  re-tracing; both routes were superseded by the probe that writes
+  `/var/log/installer/resolute-probe.txt`. Net diff: −171 / +47 lines
+  across the two templates. The probe itself stays as forensic
+  capacity for the next surprise.
+- **Run-IDs, commit SHAs, and PR refs from code comments.** They date
+  the comments and don't help a future reader — the explanatory
+  history lives in commit messages, this CHANGELOG, and release notes.
+
+### Fixed
+
+- **`build-templates.yml` retry-decision log-scan byte-diff bug.** The
+  retry loop used `tail -c $((after_bytes - before_bytes)) <log>` to
+  read only what the latest attempt added. Packer truncates the file
+  named in `PACKER_LOG_PATH` on every invocation, so on attempt 2 the
+  file is the same size as on attempt 1 and `attempt_bytes ≈ 0`,
+  making the regex match an empty string and the script give up after
+  one attempt. The scan now uses `tail -n 200 <log>`. Silent symptom of
+  the bug: builds presented as `MAX_ATTEMPTS=4` actually behaved as
+  `=2` — fortuitously the value `MAX_ATTEMPTS=2` is now reduced to in
+  this release.
+
+## [1.0.0] — 2026-06-02
+
+First fully-green end-to-end release. All six Ubuntu LTS templates
+(22.04 / 24.04 / 26.04 × server / desktop) build deterministically and
+pass post-publish clone smoke tests. Validated across two consecutive
+full-matrix runs at this SHA (26800495554 + 26805031992).
+
+The headline here is the structural fix for the 26.04 build, which was
+probabilistic (~50% per attempt) throughout the late-pre-1.0 codebase.
+See the `Fixed` block below for the root-cause write-up.
+
 ### Fixed
 
 - **26.04 OverlayFS kernel oops in curtin's rootfs-extract step — restored
@@ -305,11 +415,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   desktop install") was already on main via the squashed commit
   `8334922` ("fix desktop unattended-upgrades deadlock").
 
-## [1.0.0] — 2026-05-10
+## [0.9.0] — 2026-05-10
 
-First production-ready cut of the Linux-only pipeline. All six Ubuntu LTS
-templates (22.04 / 24.04 / 26.04 × server / desktop) build green on a single
-Packer run.
+> **Note.** This section was originally written as `[1.0.0] — 2026-05-10` —
+> a pre-public "first green run" milestone that was never cut as a git tag.
+> The `v1.0.0` tag actually shipped on 2026-06-02 (see the `[1.0.0]` entry
+> above) and carries the post-investigation overlay-oops fix plus the
+> clone-side NetworkManager and SSH-banner-probe fixes. This entry is
+> retained under `0.9.0` so the older history is preserved without two
+> headings claiming the same version.
+
+First green Linux-only pipeline run. All six Ubuntu LTS templates
+(22.04 / 24.04 / 26.04 × server / desktop) built green on a single Packer
+run, but the 26.04 build was still probabilistic (~50% per attempt); see
+the `[1.0.0]` entry above for the structural fix.
 
 ### Added
 
@@ -345,5 +464,7 @@ Packer run.
 
 - LICENSE (MIT) and SECURITY.md added.
 
-[Unreleased]: https://github.com/jameskilbycloud/packer/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/jameskilbycloud/packer/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/jameskilbycloud/packer/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/jameskilbycloud/packer/releases/tag/v1.0.0
+[0.9.0]: https://github.com/jameskilbycloud/packer/blob/main/CHANGELOG.md#090--2026-05-10
