@@ -1,12 +1,14 @@
 # Operations — CI/CD and troubleshooting
 
+> Covers: Packer 1.14+ · vSphere 7.0+ · Ubuntu 22.04 / 24.04 / 26.04 LTS · GitHub Actions self-hosted runner.
+
 Day-to-day this repo runs from GitHub Actions. This doc covers the parts that aren't part of the Quick start in the main [README](../README.md): how the workflows fit together, what the self-hosted runner needs, which permissions the vSphere account and the GitHub Actions token must have, the per-workflow reference, build lifecycle (smoke + retention), and troubleshooting.
 
 ## Overview
 
 Six workflows cover the full pipeline. Nothing runs locally — secrets are set via the GitHub Settings UI, builds are triggered from the Actions tab, and everything else is on a schedule.
 
-```
+```text
 One-time setup (GitHub UI)         Ongoing automation
 ──────────────────────────         ──────────────────────────────────────
 Settings → Secrets → add        ─► secrets available to all workflows
@@ -269,7 +271,7 @@ Once the build job succeeds for a matrix entry, the [`smoke`](#post-publish-smok
 
 Go to **Actions → Build Packer Templates → Run workflow**, pick a target, and optionally enable dry-run to validate without building.
 
-```
+```text
 workflow_dispatch inputs:
   build_target → 2404-server | 2404-desktop | all-servers | all | …
   dry_run      → false (default) | true
@@ -448,7 +450,7 @@ The dump header line `--- govc guest.run rc=N, output bytes=M ---` tells you whe
 
 **What it does:** Runs `scripts/upload-isos.sh` on the self-hosted runner, downloading ISOs from `releases.ubuntu.com` and importing them into your vSphere Content Library via govc. Installs govc automatically if not present on the runner.
 
-```
+```text
 workflow_dispatch inputs:
   ubuntu_versions  → "2204 2404 2604" (default) or any subset
   content_library  → "Packer-ISOs" (default)

@@ -64,7 +64,7 @@ From v1.0.1 onward the rule is **PR-first**:
 Follows [Conventional Commits](https://www.conventionalcommits.org/) loosely.
 Looking at recent history is the fastest way to match the style:
 
-```
+```text
 fix(2604): disable overlay.metacopy and overlay.redirect_dir to avoid kernel oops
 chore: remove Windows support from main; preserved on feature/windows-support
 docs: README accuracy pass against current state of main
