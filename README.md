@@ -14,7 +14,7 @@ Automated golden-image pipeline that builds Ubuntu VM templates directly in vSph
 
 ## How it works
 
-```
+```text
 Upload ISOs ──► packer init ──► packer build ──► vSphere Template
 (upload-isos.sh)                (vsphere-iso)    (ready to clone)
 ```
@@ -38,13 +38,13 @@ Autoinstall configuration is rendered at build time via HCL's `templatefile()` f
 | sha256sum / shasum | any | Checksum verification (pre-installed on Linux/macOS) |
 | vCenter | 7.0+ | ESXi standalone also works with minor config changes |
 
-The machine running Packer must be able to reach the vCenter API (port 443) and the VM's SSH port (22) on the VM network during the build.
+Your Packer runner needs outbound reach to the vCenter API (port `443`) and the VM's SSH port (`22`) on the VM network during the build.
 
 ---
 
 ## Project structure
 
-```
+```text
 packer/
 ├── README.md                       # This file
 ├── CHANGELOG.md                    # Release-by-release change record
@@ -106,7 +106,7 @@ packer/
         └── rotate-templates.yml    # 1st of month 03:00 UTC: prune all groups
 ```
 
-All `.pkr.hcl` files in the root are combined by Packer into a single build graph; the `build-templates` workflow uses `-only=` to target a specific source.
+Packer combines all `.pkr.hcl` files in the root into a single build graph; the `build-templates` workflow targets a specific source with `-only=`.
 
 ---
 
