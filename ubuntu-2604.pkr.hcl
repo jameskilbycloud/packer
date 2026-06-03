@@ -75,41 +75,28 @@ source "vsphere-iso" "ubuntu-2604-server" {
   }
   cd_label = "cidata"
 
-  # Boot — two independent live-installer kernel workarounds live before
-  # the `---` separator, so both apply only to the live installer (not the
-  # installed OS / clones).
+  # Boot — `ipv6.disable=1` lives before the `---` separator so it
+  # applies only to the live installer (not the installed OS / clones).
+  # Documented upstream fix for the subiquity Network observer
+  # _send_update CHANGE loop: each IPv6 address-change event (link-local
+  # on boot, SLAAC from router advertisements) fires a netlink CHANGE
+  # event that subiquity's network observer re-triggers, looping until
+  # ssh_timeout. See
+  # https://answers.launchpad.net/ubuntu/+source/ubiquity/+question/698383
   #
-  # 1. ipv6.disable=1 — documented upstream fix for the subiquity Network/
-  #    _send_update CHANGE loop. Each IPv6 address-change event (link-local
-  #    on boot, SLAAC from router advertisements) fires a netlink CHANGE
-  #    event; subiquity's network observer processes each one and somehow
-  #    re-triggers another, looping until ssh_timeout. See
-  #    https://answers.launchpad.net/ubuntu/+source/ubiquity/+question/698383
-  #
-  # 2. overlay.metacopy=off overlay.redirect_dir=off overlay.index=off
-  #    overlay.nfs_export=off overlay.xino_auto=on — belt-and-braces
-  #    mitigations for an OverlayFS kernel oops in `ovl_iterate_merged`
-  #    that fires during curtin's rootfs-extract step on 26.04
-  #    (LP #2150586 / #2150640 / #2150636 / #2150197 — all open, no
-  #    upstream fix at the time of writing). Symptom on affected boots:
-  #    rsync "exited with irqs disabled" plus a full RIP/stack trace on
-  #    the console, then subiquity hangs until ssh_timeout.
-  #
-  #    The actual root-cause bypass is `source.id: ubuntu-server-minimal`
-  #    in the autoinstall templates: it selects curtin's fsimage handler
-  #    (single-layer mount + copy) instead of the default fsimage-layered
-  #    (mount + overlay + copy), so the overlay code path is never
-  #    executed during install. These cmdline knobs were originally added
-  #    when we still believed the live env's own overlay was the trigger;
-  #    they remain only because they're cmdline-only / no runtime cost
-  #    and would absorb an as-yet-unseen variant of the bug. Previously-
-  #    documented experiments confirmed they were necessary BEFORE the
-  #    source.id bypass landed; their current need is unproven.
+  # Historical note: this boot_command previously carried `toram` plus
+  # five `overlay.*=off / xino_auto=on` knobs as probability-lowering
+  # mitigations for the LP #2150586 ovl_iterate_merged kernel oops. All
+  # six were validated redundant by three test-branch dispatches once
+  # `source.id: ubuntu-server-minimal` (in the autoinstall templates)
+  # structurally bypassed the bug at the curtin layer. See the commit
+  # history if a future Ubuntu point release reintroduces a related
+  # probabilistic install failure.
   boot_order = "disk,cdrom"
   boot_wait  = "5s"
   boot_command = [
     "c<wait2>",
-    "linux /casper/vmlinuz ipv6.disable=1 overlay.metacopy=off overlay.redirect_dir=off overlay.index=off overlay.nfs_export=off overlay.xino_auto=on --- autoinstall ds=nocloud<enter><wait5>",
+    "linux /casper/vmlinuz ipv6.disable=1 --- autoinstall ds=nocloud<enter><wait5>",
     "initrd /casper/initrd<enter><wait5>",
     "boot<enter><wait30>"
   ]
@@ -206,7 +193,7 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
   boot_wait  = "5s"
   boot_command = [
     "c<wait2>",
-    "linux /casper/vmlinuz ipv6.disable=1 overlay.metacopy=off overlay.redirect_dir=off overlay.index=off overlay.nfs_export=off overlay.xino_auto=on --- autoinstall ds=nocloud<enter><wait5>",
+    "linux /casper/vmlinuz ipv6.disable=1 --- autoinstall ds=nocloud<enter><wait5>",
     "initrd /casper/initrd<enter><wait5>",
     "boot<enter><wait30>"
   ]
