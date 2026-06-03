@@ -34,14 +34,9 @@ source "vsphere-iso" "ubuntu-2604-server" {
   vm_version    = var.vm_hardware_version
 
   # CPU / RAM
-  # 2604 server uses its own RAM override (var.server_2604_ram_mb, default
-  # 6144) because the boot_command below adds `toram` — casper copies the
-  # ~2.8 GB live ISO into RAM at boot and the default 4 GB doesn't leave
-  # enough for the install. See server_2604_ram_mb's description in
-  # variables.pkr.hcl and the boot_command rationale block below.
   CPUs            = 1
   cpu_cores       = var.server_cpu_count
-  RAM             = var.server_2604_ram_mb
+  RAM             = var.server_ram_mb
   RAM_reserve_all = false
 
   # Firmware — EFI without Secure Boot. Secure Boot locks GRUB's edit/command
@@ -92,52 +87,29 @@ source "vsphere-iso" "ubuntu-2604-server" {
   #    https://answers.launchpad.net/ubuntu/+source/ubiquity/+question/698383
   #
   # 2. overlay.metacopy=off overlay.redirect_dir=off overlay.index=off
-  #    overlay.nfs_export=off — probability-lowering mitigations for an
-  #    OverlayFS kernel oops in `ovl_iterate_merged` that fires during
-  #    curtin's rootfs-extract step on 26.04 (LP #2150586 / #2150640 /
-  #    #2150636 / #2150197 — all open, no upstream fix). Symptom on
-  #    affected boots: rsync "exited with irqs disabled" plus a full
-  #    RIP/stack trace on the console, then subiquity hangs until
-  #    ssh_timeout.
+  #    overlay.nfs_export=off overlay.xino_auto=on — belt-and-braces
+  #    mitigations for an OverlayFS kernel oops in `ovl_iterate_merged`
+  #    that fires during curtin's rootfs-extract step on 26.04
+  #    (LP #2150586 / #2150640 / #2150636 / #2150197 — all open, no
+  #    upstream fix at the time of writing). Symptom on affected boots:
+  #    rsync "exited with irqs disabled" plus a full RIP/stack trace on
+  #    the console, then subiquity hangs until ssh_timeout.
   #
-  #    These knobs are now belt-and-braces. The actual root-cause bypass
-  #    is `source.id: ubuntu-server-minimal` in the autoinstall templates
-  #    (selects curtin's fsimage handler, which never mounts an overlay
-  #    so ovl_iterate_merged is never reached). Past experiments
-  #    confirmed: stripping all four knobs reproduced the oops; keeping
-  #    only the first two also reproduced it. Do NOT strip these again
-  #    without a screenshot proving the kernel no longer oopses with
-  #    them removed.
-  #
-  # 3. toram — casper boot-to-RAM. Copies the entire live ISO into a
-  #    tmpfs at boot, then mounts root from there instead of from a
-  #    loop-mounted squashfs. Materially changes the overlay topology
-  #    that the open Launchpad bugs (LP #2150586, #2150640, #2150636,
-  #    #2150197 — all filed Apr–May 2026, all Undecided/New) identify
-  #    as the trigger. casper docs:
-  #    https://manpages.ubuntu.com/manpages/jammy/man7/casper.7.html
-  #    Requires server RAM bump to 6 GB (see RAM block above).
-  #
-  # 4. overlay.xino_auto=on — 5th overlay module knob beyond the four
-  #    above. xino composes inode IDs from high inode bits and fsid,
-  #    addressing a different inode-uniqueness class of bugs in the
-  #    same overlay subsystem. Documented in the kernel overlayfs docs:
-  #    https://docs.kernel.org/filesystems/overlayfs.html
-  #    Cheap (cmdline-only, no RAM cost) so worth pairing with toram.
-  #
-  # Mitigations 3 + 4 added 2026-05-30 in response to deep-research
-  # confirming the bug is a known un-triaged Resolute kernel issue.
-  # Neither has a "this stops the oops" confirmation in a primary
-  # source — they are mechanistically motivated by what the LP bugs
-  # implicate. If after a few dispatches the screenshot still shows the
-  # oops, escalate to a curtin-passthrough source-swap from cp:// to
-  # http[s]:// (replaces rsync-on-overlay with tar, the actual call
-  # path the bug fires in).
+  #    The actual root-cause bypass is `source.id: ubuntu-server-minimal`
+  #    in the autoinstall templates: it selects curtin's fsimage handler
+  #    (single-layer mount + copy) instead of the default fsimage-layered
+  #    (mount + overlay + copy), so the overlay code path is never
+  #    executed during install. These cmdline knobs were originally added
+  #    when we still believed the live env's own overlay was the trigger;
+  #    they remain only because they're cmdline-only / no runtime cost
+  #    and would absorb an as-yet-unseen variant of the bug. Previously-
+  #    documented experiments confirmed they were necessary BEFORE the
+  #    source.id bypass landed; their current need is unproven.
   boot_order = "disk,cdrom"
   boot_wait  = "5s"
   boot_command = [
     "c<wait2>",
-    "linux /casper/vmlinuz ipv6.disable=1 overlay.metacopy=off overlay.redirect_dir=off overlay.index=off overlay.nfs_export=off overlay.xino_auto=on toram --- autoinstall ds=nocloud<enter><wait5>",
+    "linux /casper/vmlinuz ipv6.disable=1 overlay.metacopy=off overlay.redirect_dir=off overlay.index=off overlay.nfs_export=off overlay.xino_auto=on --- autoinstall ds=nocloud<enter><wait5>",
     "initrd /casper/initrd<enter><wait5>",
     "boot<enter><wait30>"
   ]
@@ -226,15 +198,15 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
   }
   cd_label = "cidata"
 
-  # Boot — see server source comment above for ipv6.disable + overlay rationale
-  # (including the toram + overlay.xino_auto=on mitigations added 2026-05-30
-  # for LP #2150586 / #2150640). Desktop already has 8 GB RAM (var.desktop_ram_mb)
-  # so toram fits without a per-version override.
+  # Boot — see server source comment above for the ipv6.disable + overlay
+  # cmdline rationale (the desktop install path is identical until
+  # desktop.sh runs over SSH, so the same kernel-level mitigations apply
+  # for the same reasons).
   boot_order = "disk,cdrom"
   boot_wait  = "5s"
   boot_command = [
     "c<wait2>",
-    "linux /casper/vmlinuz ipv6.disable=1 overlay.metacopy=off overlay.redirect_dir=off overlay.index=off overlay.nfs_export=off overlay.xino_auto=on toram --- autoinstall ds=nocloud<enter><wait5>",
+    "linux /casper/vmlinuz ipv6.disable=1 overlay.metacopy=off overlay.redirect_dir=off overlay.index=off overlay.nfs_export=off overlay.xino_auto=on --- autoinstall ds=nocloud<enter><wait5>",
     "initrd /casper/initrd<enter><wait5>",
     "boot<enter><wait30>"
   ]

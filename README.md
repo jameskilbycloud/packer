@@ -259,11 +259,8 @@ All variables are declared in `variables.pkr.hcl`. Connection details and creden
 | Variable | Default | Description |
 |---|---|---|
 | `server_cpu_count` | `2` | vCPU cores |
-| `server_ram_mb` | `4096` | RAM in MB (22.04 / 24.04 server) |
-| `server_2604_ram_mb` | `6144` | RAM in MB (26.04 server only — see note) |
+| `server_ram_mb` | `4096` | RAM in MB (all server variants) |
 | `server_disk_gb` | `40` | OS disk size in GB |
-
-> **26.04 server RAM**: the 26.04 boot_command appends `toram` — casper copies the entire ~2.8 GB live ISO into RAM at boot, then mounts root from there. At 4 GB the install hits OOM or casper silently falls back to non-toram (mitigation lost); 6 GB leaves ~3 GB headroom for kernel + subiquity + curtin working set + file caches. 22.04 / 24.04 don't use `toram` and stay at 4 GB.
 
 ### VM hardware — desktop
 
@@ -309,7 +306,7 @@ Threaded into the autoinstall user-data at render time, so they apply to every c
 |---|---|
 | OS | Ubuntu Server (minimal) |
 | vCPUs | 2 (1 socket × 2 cores) |
-| RAM | 4 GB (22.04 / 24.04), 6 GB (26.04 — `toram` boots the live ISO from RAM) |
+| RAM | 4 GB (all server variants) |
 | Disk | 40 GB thin-provisioned (LVM) |
 | Network | vmxnet3, DHCP |
 | Firmware | EFI (Secure Boot disabled — needed so Packer can inject autoinstall args via the GRUB command line) |
