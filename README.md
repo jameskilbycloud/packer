@@ -8,7 +8,9 @@
 [![Check ISO updates](https://github.com/jameskilbycloud/packer/actions/workflows/check-iso-updates.yml/badge.svg)](https://github.com/jameskilbycloud/packer/actions/workflows/check-iso-updates.yml)
 [![Rotate templates](https://github.com/jameskilbycloud/packer/actions/workflows/rotate-templates.yml/badge.svg)](https://github.com/jameskilbycloud/packer/actions/workflows/rotate-templates.yml)
 
-Automated golden-image pipeline that builds Ubuntu VM templates directly in vSphere using [HashiCorp Packer](https://www.packer.io/). Supports three Ubuntu LTS versions (22.04, 24.04, 26.04) with server and desktop variants — six templates in total, all driven from GitHub
+Automated golden-image pipeline that builds Ubuntu VM templates directly in vSphere using [HashiCorp Packer](https://www.packer.io/). Supports three Ubuntu LTS versions (22.04, 24.04, 26.04) with server and desktop variants — six templates in total, all driven from GitHub Actions.
+
+📖 **Walkthrough:** [Automating vSphere Golden Images with Packer and GitHub Actions](https://jameskilby.co.uk/2026/04/packer-vsphere-golden-images/) — the why, the design, and the 26.04 install fixes I had to find along the way.
 
 ---
 
@@ -18,6 +20,7 @@ Automated golden-image pipeline that builds Ubuntu VM templates directly in vSph
 Upload ISOs ──► packer init ──► packer build ──► vSphere Template
 (upload-isos.sh)                (vsphere-iso)    (ready to clone)
 ```
+
 
 1. **ISO upload** — `scripts/upload-isos.sh` downloads Ubuntu ISOs from `releases.ubuntu.com`, verifies their SHA256 checksums, and imports them into a vSphere Content Library.
 2. **Packer build** — the `vsphere-iso` builder boots a VM from the ISO and attaches a secondary CD (labelled `cidata`) carrying the cloud-init autoinstall `user-data`.
