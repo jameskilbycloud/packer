@@ -202,7 +202,8 @@ Triggered from **Actions → Upload ISOs to Content Library → Run workflow**. 
 
 | Input | Default | Description |
 |---|---|---|
-| `ubuntu_versions` | `2204 2404 2604` | Space-separated versions to process |
+| `ubuntu_versions` | `2204 2404 2604` | Space-separated versions to process (blank for none) |
+| `extra_isos` | `""` | Space-separated slugs from the [extras catalogue](#extras-catalogue-opt-in), or `all`. Blank skips extras entirely. |
 | `content_library` | `Packer-ISOs` | Content Library name to create or reuse |
 | `download_dir` | `/var/tmp/packer-isos` | Runner-side directory for ISO downloads |
 | `keep_downloads` | `false` | `true` keeps the local copy after upload (useful when uploading to multiple vCenters) |
@@ -221,6 +222,34 @@ vCenter credentials and the Content Library backing datastore come from the GitH
 > **Point releases are auto-detected.** The [`check-iso-updates`](.github/workflows/check-iso-updates.yml) workflow runs every Monday and opens a PR rewriting these filenames across the repo when Ubuntu ships a new `.X` release (e.g. `26.04` → `26.04.1`). You shouldn't need to bump them by hand.
 
 All builds use the **live-server ISO** for both server and desktop images. The desktop environment (`ubuntu-desktop-minimal`) is installed by the `desktop.sh` provisioner after the OS install completes — there is no separate desktop ISO to manage.
+
+### Extras catalogue (opt-in)
+
+The uploader can also seed the same Content Library with non-Ubuntu homelab ISOs — useful when you want a single library that holds every distro you might clone a one-off VM from, not just the Packer build sources. Curated from Michael Cade's [iso_contentlib.sh](https://github.com/MichaelCade/2025-vSphere-Homelab/blob/main/iso_contentlib.sh).
+
+Off by default. Opt in via the `extra_isos` workflow input (or `EXTRA_ISOS` env var locally). Pass a space-separated list of slugs, or `all` for every entry:
+
+```text
+extra_isos: debian-12 rocky-9 alpine-3.21
+extra_isos: all
+```
+
+ISOs are processed **strictly serially** — each one is downloaded, checksum-verified (when the publisher offers a parseable SHA256SUMS/CHECKSUM), imported into the library, then deleted from the runner before the next one starts. Only ever one ISO on disk at a time, regardless of how many are requested.
+
+| Family | Slugs |
+|---|---|
+| Debian | `debian-12`, `debian-11-arm64`, `debian-12-live-kde` |
+| Enterprise Linux | `rocky-9`, `rocky-8`, `alma-9`, `alma-8`, `oracle-9`, `oracle-8` |
+| Stream / Fedora | `centos-stream-10`, `centos-stream-9`, `fedora-41-server` |
+| VMware Photon | `photon-5`, `photon-4` |
+| Minimal / niche | `alpine-3.21`, `arch`, `artix-plasma-dinit`, `nixos-24.11-plasma`, `nixos-24.11-gnome`, `tinycore-15`, `solus-budgie` |
+| Security | `kali-2024.4`, `parrot-6.3.2` |
+| Ubuntu spins | `kubuntu-24.10`, `lubuntu-24.04`, `linuxmint-22.1` |
+| Windows (eval) | `windows-server-2025-eval`, `windows-server-2022-eval`, `windows-server-2019-eval`, `windows-11-enterprise-eval`, `windows-10-enterprise-eval` |
+
+Checksum URLs are populated only for distros that publish a SHA256SUMS file the script can parse (Debian family, Alpine sidecar, Kali, Kubuntu/Lubuntu). Other entries download without verification and the script logs a clear warning — same trade-off Cade's script makes.
+
+The Ubuntu point-release auto-detector (`check-iso-updates`) does **not** scan the extras catalogue — those slugs are pinned to specific releases and you bump them by editing the arrays in [`scripts/upload-isos.sh`](scripts/upload-isos.sh) when you want a newer build.
 
 ---
 

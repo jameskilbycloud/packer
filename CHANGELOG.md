@@ -6,6 +6,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Extras ISO catalogue in `scripts/upload-isos.sh`.** Opt-in via a new
+  `EXTRA_ISOS` env var (workflow input: `extra_isos`) listing slugs from
+  a curated 30-entry catalogue covering Debian, Rocky/Alma/Oracle, CentOS
+  Stream, Fedora Server, VMware Photon, Alpine, Arch, Artix, NixOS, Kali,
+  Parrot, Kubuntu/Lubuntu/Mint, Solus, Tiny Core, and Windows Server /
+  Client eval images. Pass `all` to iterate every entry. Curated from
+  Michael Cade's [iso_contentlib.sh](https://github.com/MichaelCade/2025-vSphere-Homelab/blob/main/iso_contentlib.sh).
+  Each ISO is processed strictly serially (download → verify → import →
+  delete) so the runner only ever holds one ISO on disk, regardless of
+  how many slugs are requested. Checksum verification is honoured for
+  publishers that ship a parseable `SHA256SUMS` / `CHECKSUM` file; the
+  rest download with a clear "no checksum URL configured" warning rather
+  than silently passing. Existing Ubuntu-only flow is unchanged — blank
+  `EXTRA_ISOS` is the default, so no existing CI bandwidth or disk
+  budget shifts.
+
 ### Fixed
 
 - **`firstboot-hostname.service` systemd ordering cycle on 22.04-server.**

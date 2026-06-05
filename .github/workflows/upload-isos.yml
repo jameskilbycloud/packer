@@ -6,9 +6,14 @@ on:
   workflow_dispatch:
     inputs:
       ubuntu_versions:
-        description: "Ubuntu versions to upload (space-separated)"
+        description: "Ubuntu versions to upload (space-separated, blank for none)"
         required: false
         default: "2204 2404 2604"
+
+      extra_isos:
+        description: 'Extras catalogue (space-separated slugs, or "all", or blank). See scripts/upload-isos.sh.'
+        required: false
+        default: ""
 
       content_library:
         description: "Content Library name"
@@ -122,6 +127,7 @@ jobs:
           LIBRARY_DATASTORE:  ${{ secrets.VSPHERE_ISO_LIBRARY_DATASTORE }}
           CONTENT_LIBRARY:    ${{ github.event.inputs.content_library }}
           UBUNTU_VERSIONS:    ${{ github.event.inputs.ubuntu_versions }}
+          EXTRA_ISOS:         ${{ github.event.inputs.extra_isos }}
           KEEP_DOWNLOADS:     ${{ github.event.inputs.keep_downloads }}
           SKIP_CHECKSUM:      ${{ github.event.inputs.skip_checksum }}
           DOWNLOAD_DIR:       ${{ github.event.inputs.download_dir }}
