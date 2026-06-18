@@ -572,15 +572,22 @@ process_extra() {
     return 1
   fi
 
-  if ! import_iso "${iso_path}"; then
+  local import_rc=0
+  import_iso "${iso_path}" || import_rc=$?
+
+  # Clean up the local copy whether the import succeeded or failed, so a
+  # failed import doesn't leave a multi-GB ISO stranded on the runner during
+  # a long serial batch. KEEP_DOWNLOADS=true opts out (e.g. uploading to
+  # multiple vCenters).
+  if [[ "${KEEP_DOWNLOADS}" != "true" ]]; then
+    rm -f "${iso_path}"
+  fi
+
+  if [[ ${import_rc} -ne 0 ]]; then
     EXTRA_STATUS[${slug}]="FAILED"
     return 1
   fi
   EXTRA_STATUS[${slug}]="IMPORTED"
-
-  if [[ "${KEEP_DOWNLOADS}" != "true" ]]; then
-    rm -f "${iso_path}"
-  fi
 }
 
 # Expands "all" into EXTRA_ORDER, leaves explicit slug lists untouched, and
@@ -662,15 +669,21 @@ process_version() {
     return 1
   fi
 
-  if ! import_iso "${iso_path}"; then
+  local import_rc=0
+  import_iso "${iso_path}" || import_rc=$?
+
+  # Clean up the local copy whether the import succeeded or failed, so a
+  # failed import doesn't leave a multi-GB ISO stranded on the runner.
+  # KEEP_DOWNLOADS=true opts out (e.g. uploading to multiple vCenters).
+  if [[ "${KEEP_DOWNLOADS}" != "true" ]]; then
+    rm -f "${iso_path}"
+  fi
+
+  if [[ ${import_rc} -ne 0 ]]; then
     BUILD_STATUS[${version}]="FAILED"
     return 1
   fi
   BUILD_STATUS[${version}]="IMPORTED"
-
-  if [[ "${KEEP_DOWNLOADS}" != "true" ]]; then
-    rm -f "${iso_path}"
-  fi
 }
 
 # ── Summary ────────────────────────────────────────────────────────────────────
