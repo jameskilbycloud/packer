@@ -167,7 +167,7 @@ Create a dedicated vCenter Single Sign-On user (e.g. `packer@vsphere.local`) and
 | Virtual machine → Provisioning | Mark as template, Mark as virtual machine, Customize, Deploy template, Read customization specifications |
 | Virtual machine → Snapshot management | Create snapshot, Remove snapshot |
 | vApp | Import, View OVF environment, vApp instance configuration |
-| Content Library | Read storage, Add library item, Update library item _(only if templates publish to a library)_ |
+| Content Library | Read storage, Add library item, Update library item _(template publishing is on by default, targeting the ISO library `Packer-ISOs`; needed unless you disable it via `vsphere_template_content_library = ""`)_ |
 | Host → Local operations | Reconfigure virtual machine _(only when targeting an ESXi host directly via `VSPHERE_HOST`)_ |
 
 **Used by `upload-isos.yml` (govc → Content Library):**
@@ -224,6 +224,14 @@ Add each secret via **Settings → Secrets and variables → Actions → New rep
 | `SLACK_WEBHOOK_URL` (optional) | (workflow env var, not a Packer var) | Slack incoming-webhook URL for build success / failure notifications. If unset, the notify steps log "SLACK_WEBHOOK_URL not set — skipping." and exit cleanly. |
 
 > **No ISO-path secrets.** ISO paths and the ISO backing datastore are resolved at workflow runtime from the Content Library — `build-templates.yml` calls `govc library.info -json` to discover both the per-version ISO item and the datastore that hosts it. This means new Ubuntu point releases (e.g. `22.04.5` → `22.04.6`) work automatically once the new ISO is uploaded; there's nothing to edit in repository secrets.
+
+### Optional repository variables
+
+These are **variables**, not secrets (Settings → Secrets and variables → Actions → **Variables**), because they hold non-sensitive config:
+
+| Variable | Source variable | Description |
+|---|---|---|
+| `TEMPLATE_CONTENT_LIBRARY` (optional) | `vsphere_template_content_library` | Local-type Content Library to publish finished templates into as updatable OVF items. **Defaults to the ISO library** (`CONTENT_LIBRARY`, i.e. `Packer-ISOs`) — only set this to publish templates to a *different* library. The build user needs **Add / Update library item** on whichever library is targeted. |
 
 ## Workflow: validate
 

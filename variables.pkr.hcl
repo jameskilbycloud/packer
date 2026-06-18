@@ -73,6 +73,16 @@ variable "vsphere_iso_datastore" {
 }
 
 # =============================================================================
+# Template Publishing (optional)
+# =============================================================================
+
+variable "vsphere_template_content_library" {
+  type        = string
+  description = "Local-type Content Library to publish finished templates into, as updatable OVF items. Defaults to 'Packer-ISOs' — the same library the ISOs live in — so templates and source ISOs sit together. Set to a different library name to publish elsewhere, or to an empty string to disable publishing (inventory VM templates are still produced). The library must already exist. Each source publishes under a stable name (e.g. ubuntu-2404-server) so repeat builds update the same item (always-latest), while the dated inventory template is what rotate/prune manage."
+  default     = "Packer-ISOs"
+}
+
+# =============================================================================
 # Build Credentials
 # =============================================================================
 

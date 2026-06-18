@@ -8,6 +8,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Publish templates to a Content Library (on by default).** Each `ubuntu-*`
+  source now carries a `content_library_destination` block driven by a new
+  `vsphere_template_content_library` variable, which **defaults to the ISO
+  library `Packer-ISOs`** — so built templates land in the same library as the
+  source ISOs. The finished template is published as an **updatable OVF item**
+  under a stable, date-free name (`ubuntu-2404-server`, …) so repeat/weekly
+  builds update the same library item in place — always-latest — alongside the
+  existing dated inventory VM template that `rotate`/`prune` manage. Set the
+  variable to a different library name to publish elsewhere, or to `""` to
+  disable. In CI it defaults to the `CONTENT_LIBRARY` repo variable; set the
+  optional `TEMPLATE_CONTENT_LIBRARY` repo variable to override. The build user
+  needs Add/Update library item on the target library.
+
 - **Extras ISO catalogue in `scripts/upload-isos.sh`.** Opt-in via a new
   `EXTRA_ISOS` env var (workflow input: `extra_isos`) listing slugs from
   a curated 30-entry catalogue covering Debian, Rocky/Alma/Oracle, CentOS
