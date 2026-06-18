@@ -610,8 +610,14 @@ resolve_extras_selection() {
 # ── Library item existence check ───────────────────────────────────────────────
 library_item_exists() {
   local filename="$1"
-  # govc library.ls returns exit 0 even for non-existent paths — check output
-  [[ -n "$(govc library.ls "/${CONTENT_LIBRARY}/${filename}" 2>/dev/null)" ]]
+  # govc names the library *item* after the file's basename with the
+  # extension stripped (e.g. "ubuntu-26.04-live-server-amd64.iso" becomes
+  # the item "ubuntu-26.04-live-server-amd64"), so we must check for that
+  # item name, not the raw filename — otherwise the check never matches, the
+  # ISO is re-downloaded, and govc rejects the re-import with already_exists.
+  # govc library.ls returns exit 0 even for non-existent paths — check output.
+  local item="${filename%.iso}"
+  [[ -n "$(govc library.ls "/${CONTENT_LIBRARY}/${item}" 2>/dev/null)" ]]
 }
 
 # ── Import into Content Library ────────────────────────────────────────────────
