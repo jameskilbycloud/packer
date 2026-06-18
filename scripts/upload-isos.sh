@@ -25,7 +25,7 @@
 #   CONTENT_LIBRARY=MyISOs UBUNTU_VERSIONS="2404" ./scripts/upload-isos.sh
 #
 #   Pull a few extra OSes alongside Ubuntu:
-#   EXTRA_ISOS="debian-12 rocky-9 alpine-3.21" ./scripts/upload-isos.sh
+#   EXTRA_ISOS="debian-13 rocky-9 alpine-3.21" ./scripts/upload-isos.sh
 #
 #   Pull every extra OS in the catalogue:
 #   EXTRA_ISOS=all UBUNTU_VERSIONS="" ./scripts/upload-isos.sh
@@ -109,12 +109,12 @@ declare -A ISO_LABEL=(
 # one: delete its line in each array. EXTRA_ISOS="all" iterates the slug
 # list in EXTRA_ORDER below.
 declare -A EXTRA_FILENAME=(
-  [debian-12]="debian-12.9.0-amd64-netinst.iso"
+  [debian-13]="debian-13.5.0-amd64-netinst.iso"
   [debian-11-arm64]="debian-11.11.0-arm64-netinst.iso"
-  [debian-12-live-kde]="debian-live-12.9.0-amd64-kde.iso"
-  [rocky-9]="Rocky-9.5-x86_64-dvd.iso"
+  [debian-13-live-kde]="debian-live-13.5.0-amd64-kde.iso"
+  [rocky-9]="Rocky-9-latest-x86_64-dvd.iso"
   [rocky-8]="Rocky-8.10-x86_64-dvd1.iso"
-  [alma-9]="AlmaLinux-9.5-x86_64-dvd.iso"
+  [alma-9]="AlmaLinux-9-latest-x86_64-dvd.iso"
   [alma-8]="AlmaLinux-8.10-x86_64-dvd.iso"
   [oracle-9]="OracleLinux-R9-U5-x86_64-dvd.iso"
   [oracle-8]="OracleLinux-R8-U10-x86_64-dvd.iso"
@@ -124,14 +124,14 @@ declare -A EXTRA_FILENAME=(
   [photon-5]="photon-5.0-dde71ec57.x86_64.iso"
   [photon-4]="photon-4.0-c001795b8.iso"
   [alpine-3.21]="alpine-virt-3.21.3-x86_64.iso"
-  [arch]="archlinux-2025.03.01-x86_64.iso"
+  [arch]="archlinux-x86_64.iso"
   [artix-plasma-dinit]="artix-plasma-dinit-20240823-x86_64.iso"
   [nixos-24.11-plasma]="nixos-24.11-plasma6-x86_64-linux.iso"
   [nixos-24.11-gnome]="nixos-24.11-gnome-x86_64-linux.iso"
-  [kali-2024.4]="kali-linux-2024.4-installer-amd64.iso"
-  [parrot-6.3.2]="Parrot-security-6.3.2_amd64.iso"
-  [kubuntu-24.10]="kubuntu-24.10-desktop-amd64.iso"
-  [lubuntu-24.04]="lubuntu-24.04.2-desktop-amd64.iso"
+  [kali-2026.1]="kali-linux-2026.1-installer-amd64.iso"
+  [parrot-7.2]="Parrot-security-7.2_amd64.iso"
+  [kubuntu-24.04]="kubuntu-24.04.4-desktop-amd64.iso"
+  [lubuntu-24.04]="lubuntu-24.04.4-desktop-amd64.iso"
   [linuxmint-22.1]="linuxmint-22.1-cinnamon-64bit.iso"
   [solus-budgie]="Solus-Budgie-Release-2025-01-26.iso"
   [tinycore-15]="CorePlus-current.iso"
@@ -143,12 +143,12 @@ declare -A EXTRA_FILENAME=(
 )
 
 declare -A EXTRA_URL=(
-  [debian-12]="https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.9.0-amd64-netinst.iso"
+  [debian-13]="https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-13.5.0-amd64-netinst.iso"
   [debian-11-arm64]="https://cdimage.debian.org/cdimage/archive/11.11.0/arm64/iso-cd/debian-11.11.0-arm64-netinst.iso"
-  [debian-12-live-kde]="https://cdimage.debian.org/debian-cd/current-live/amd64/iso-hybrid/debian-live-12.9.0-amd64-kde.iso"
-  [rocky-9]="https://download.rockylinux.org/pub/rocky/9.5/isos/x86_64/Rocky-9.5-x86_64-dvd.iso"
+  [debian-13-live-kde]="https://cdimage.debian.org/debian-cd/current-live/amd64/iso-hybrid/debian-live-13.5.0-amd64-kde.iso"
+  [rocky-9]="https://download.rockylinux.org/pub/rocky/9/isos/x86_64/Rocky-9-latest-x86_64-dvd.iso"
   [rocky-8]="https://download.rockylinux.org/pub/rocky/8.10/isos/x86_64/Rocky-8.10-x86_64-dvd1.iso"
-  [alma-9]="https://repo.almalinux.org/almalinux/9.5/isos/x86_64/AlmaLinux-9.5-x86_64-dvd.iso"
+  [alma-9]="https://repo.almalinux.org/almalinux/9/isos/x86_64/AlmaLinux-9-latest-x86_64-dvd.iso"
   [alma-8]="https://repo.almalinux.org/almalinux/8.10/isos/x86_64/AlmaLinux-8.10-x86_64-dvd.iso"
   [oracle-9]="https://yum.oracle.com/ISOS/OracleLinux/OL9/u5/x86_64/OracleLinux-R9-U5-x86_64-dvd.iso"
   [oracle-8]="https://yum.oracle.com/ISOS/OracleLinux/OL8/u10/x86_64/OracleLinux-R8-U10-x86_64-dvd.iso"
@@ -158,14 +158,14 @@ declare -A EXTRA_URL=(
   [photon-5]="https://packages.vmware.com/photon/5.0/GA/iso/photon-5.0-dde71ec57.x86_64.iso"
   [photon-4]="https://packages.vmware.com/photon/4.0/Rev2/iso/photon-4.0-c001795b8.iso"
   [alpine-3.21]="https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/alpine-virt-3.21.3-x86_64.iso"
-  [arch]="https://archlinux.uk.mirror.allworldit.com/archlinux/iso/2025.03.01/archlinux-2025.03.01-x86_64.iso"
+  [arch]="https://archlinux.uk.mirror.allworldit.com/archlinux/iso/latest/archlinux-x86_64.iso"
   [artix-plasma-dinit]="https://iso.artixlinux.org/iso/artix-plasma-dinit-20240823-x86_64.iso"
   [nixos-24.11-plasma]="https://channels.nixos.org/nixos-24.11/latest-nixos-plasma6-x86_64-linux.iso"
   [nixos-24.11-gnome]="https://channels.nixos.org/nixos-24.11/latest-nixos-gnome-x86_64-linux.iso"
-  [kali-2024.4]="https://cdimage.kali.org/kali-2024.4/kali-linux-2024.4-installer-amd64.iso"
-  [parrot-6.3.2]="https://deb.parrot.sh/parrot/iso/6.3.2/Parrot-security-6.3.2_amd64.iso"
-  [kubuntu-24.10]="https://cdimage.ubuntu.com/kubuntu/releases/24.10/release/kubuntu-24.10-desktop-amd64.iso"
-  [lubuntu-24.04]="https://cdimage.ubuntu.com/lubuntu/releases/noble/release/lubuntu-24.04.2-desktop-amd64.iso"
+  [kali-2026.1]="https://cdimage.kali.org/current/kali-linux-2026.1-installer-amd64.iso"
+  [parrot-7.2]="https://deb.parrot.sh/parrot/iso/7.2/Parrot-security-7.2_amd64.iso"
+  [kubuntu-24.04]="https://cdimage.ubuntu.com/kubuntu/releases/24.04/release/kubuntu-24.04.4-desktop-amd64.iso"
+  [lubuntu-24.04]="https://cdimage.ubuntu.com/lubuntu/releases/noble/release/lubuntu-24.04.4-desktop-amd64.iso"
   [linuxmint-22.1]="https://mirrors.cicku.me/linuxmint/iso/stable/22.1/linuxmint-22.1-cinnamon-64bit.iso"
   [solus-budgie]="https://downloads.getsol.us/isos/2025-01-26/Solus-Budgie-Release-2025-01-26.iso"
   [tinycore-15]="https://distro.ibiblio.org/tinycorelinux/15.x/x86/release/CorePlus-current.iso"
@@ -177,12 +177,12 @@ declare -A EXTRA_URL=(
 )
 
 declare -A EXTRA_LABEL=(
-  [debian-12]="Debian 12.9.0 (Bookworm, amd64 netinst)"
+  [debian-13]="Debian 13.5.0 (Trixie, amd64 netinst)"
   [debian-11-arm64]="Debian 11.11.0 (Bullseye, arm64 netinst)"
-  [debian-12-live-kde]="Debian Live 12.9.0 (KDE, amd64)"
-  [rocky-9]="Rocky Linux 9.5 (x86_64 DVD)"
+  [debian-13-live-kde]="Debian Live 13.5.0 (KDE, amd64)"
+  [rocky-9]="Rocky Linux 9 (latest point release, x86_64 DVD)"
   [rocky-8]="Rocky Linux 8.10 (x86_64 DVD)"
-  [alma-9]="AlmaLinux 9.5 (x86_64 DVD)"
+  [alma-9]="AlmaLinux 9 (latest point release, x86_64 DVD)"
   [alma-8]="AlmaLinux 8.10 (x86_64 DVD)"
   [oracle-9]="Oracle Linux 9 Update 5 (x86_64 DVD)"
   [oracle-8]="Oracle Linux 8 Update 10 (x86_64 DVD)"
@@ -192,14 +192,14 @@ declare -A EXTRA_LABEL=(
   [photon-5]="VMware Photon OS 5.0 GA (x86_64)"
   [photon-4]="VMware Photon OS 4.0 Rev2 (x86_64)"
   [alpine-3.21]="Alpine Linux 3.21.3 (virt, x86_64)"
-  [arch]="Arch Linux 2025.03.01 (x86_64)"
+  [arch]="Arch Linux (latest rolling snapshot, x86_64)"
   [artix-plasma-dinit]="Artix Linux Plasma (dinit, 2024-08-23, x86_64)"
   [nixos-24.11-plasma]="NixOS 24.11 (Plasma 6, x86_64)"
   [nixos-24.11-gnome]="NixOS 24.11 (GNOME, x86_64)"
-  [kali-2024.4]="Kali Linux 2024.4 (installer, amd64)"
-  [parrot-6.3.2]="Parrot Security 6.3.2 (amd64)"
-  [kubuntu-24.10]="Kubuntu 24.10 (desktop, amd64)"
-  [lubuntu-24.04]="Lubuntu 24.04.2 (desktop, amd64)"
+  [kali-2026.1]="Kali Linux 2026.1 (installer, amd64)"
+  [parrot-7.2]="Parrot Security 7.2 (amd64)"
+  [kubuntu-24.04]="Kubuntu 24.04.4 LTS (desktop, amd64)"
+  [lubuntu-24.04]="Lubuntu 24.04.4 (desktop, amd64)"
   [linuxmint-22.1]="Linux Mint 22.1 (Cinnamon, 64-bit)"
   [solus-budgie]="Solus Budgie (2025-01-26)"
   [tinycore-15]="Tiny Core Linux 15.x (CorePlus, current)"
@@ -215,9 +215,9 @@ declare -A EXTRA_LABEL=(
 # Entries left empty intentionally — the script downloads without verification
 # and prints a warning, matching the behaviour Cade's reference script has.
 declare -A EXTRA_CHECKSUM_URL=(
-  [debian-12]="https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/SHA256SUMS"
+  [debian-13]="https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/SHA256SUMS"
   [debian-11-arm64]="https://cdimage.debian.org/cdimage/archive/11.11.0/arm64/iso-cd/SHA256SUMS"
-  [debian-12-live-kde]="https://cdimage.debian.org/debian-cd/current-live/amd64/iso-hybrid/SHA256SUMS"
+  [debian-13-live-kde]="https://cdimage.debian.org/debian-cd/current-live/amd64/iso-hybrid/SHA256SUMS"
   [rocky-9]=""
   [rocky-8]=""
   [alma-9]=""
@@ -234,9 +234,9 @@ declare -A EXTRA_CHECKSUM_URL=(
   [artix-plasma-dinit]=""
   [nixos-24.11-plasma]=""
   [nixos-24.11-gnome]=""
-  [kali-2024.4]="https://cdimage.kali.org/kali-2024.4/SHA256SUMS"
-  [parrot-6.3.2]=""
-  [kubuntu-24.10]="https://cdimage.ubuntu.com/kubuntu/releases/24.10/release/SHA256SUMS"
+  [kali-2026.1]="https://cdimage.kali.org/current/SHA256SUMS"
+  [parrot-7.2]=""
+  [kubuntu-24.04]="https://cdimage.ubuntu.com/kubuntu/releases/24.04/release/SHA256SUMS"
   [lubuntu-24.04]="https://cdimage.ubuntu.com/lubuntu/releases/noble/release/SHA256SUMS"
   [linuxmint-22.1]=""
   [solus-budgie]=""
@@ -251,13 +251,13 @@ declare -A EXTRA_CHECKSUM_URL=(
 # Iteration order for EXTRA_ISOS="all". Newest / most-common first so a
 # partial run still grabs the useful stuff before any wonky URL fails.
 EXTRA_ORDER=(
-  debian-12 debian-11-arm64 debian-12-live-kde
+  debian-13 debian-11-arm64 debian-13-live-kde
   rocky-9 rocky-8 alma-9 alma-8 oracle-9 oracle-8
   centos-stream-10 centos-stream-9 fedora-41-server
   photon-5 photon-4 alpine-3.21 arch artix-plasma-dinit
   nixos-24.11-plasma nixos-24.11-gnome
-  kali-2024.4 parrot-6.3.2
-  kubuntu-24.10 lubuntu-24.04 linuxmint-22.1 solus-budgie tinycore-15
+  kali-2026.1 parrot-7.2
+  kubuntu-24.04 lubuntu-24.04 linuxmint-22.1 solus-budgie tinycore-15
   windows-server-2025-eval windows-server-2022-eval windows-server-2019-eval
   windows-11-enterprise-eval windows-10-enterprise-eval
 )
