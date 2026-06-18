@@ -230,7 +230,7 @@ The uploader can also seed the same Content Library with non-Ubuntu homelab ISOs
 Off by default. Opt in via the `extra_isos` workflow input (or `EXTRA_ISOS` env var locally). Pass a space-separated list of slugs, or `all` for every entry:
 
 ```text
-extra_isos: debian-12 rocky-9 alpine-3.21
+extra_isos: debian-13 rocky-9 alpine-3.21
 extra_isos: all
 ```
 
@@ -242,13 +242,13 @@ Because the largest catalogue entries are full DVDs (~13 GB), the preflight disk
 
 | Family | Slugs |
 |---|---|
-| Debian | `debian-12`, `debian-11-arm64`, `debian-12-live-kde` |
+| Debian | `debian-13`, `debian-11-arm64`, `debian-13-live-kde` |
 | Enterprise Linux | `rocky-9`, `rocky-8`, `alma-9`, `alma-8`, `oracle-9`, `oracle-8` |
 | Stream / Fedora | `centos-stream-10`, `centos-stream-9`, `fedora-41-server` |
 | VMware Photon | `photon-5`, `photon-4` |
 | Minimal / niche | `alpine-3.21`, `arch`, `artix-plasma-dinit`, `nixos-24.11-plasma`, `nixos-24.11-gnome`, `tinycore-15`, `solus-budgie` |
-| Security | `kali-2024.4`, `parrot-6.3.2` |
-| Ubuntu spins | `kubuntu-24.10`, `lubuntu-24.04`, `linuxmint-22.1` |
+| Security | `kali-2026.1`, `parrot-7.2` |
+| Ubuntu spins | `kubuntu-24.04`, `lubuntu-24.04`, `linuxmint-22.1` |
 | Windows (eval) | `windows-server-2025-eval`, `windows-server-2022-eval`, `windows-server-2019-eval`, `windows-11-enterprise-eval`, `windows-10-enterprise-eval` |
 
 Checksum URLs are populated only for distros that publish a SHA256SUMS file the script can parse (Debian family, Alpine sidecar, Kali, Kubuntu/Lubuntu). Other entries download without verification and the script logs a clear warning — same trade-off Cade's script makes.
