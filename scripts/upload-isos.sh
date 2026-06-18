@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
 # upload-isos.sh
-# Downloads Ubuntu live-server ISOs and imports them into a vSphere Content
-# Library using govc.
+# Downloads Ubuntu live-server ISOs (and, optionally, a curated set of extra
+# homelab OS ISOs) and imports them into a vSphere Content Library using govc.
+#
+# Each ISO is processed serially: download → checksum (where available) →
+# import → delete the local copy. The runner therefore only ever holds a
+# single ISO on disk at once, regardless of how many are requested.
 #
 # Requirements:
 #   govc  — https://github.com/vmware/govmomi/releases
@@ -20,6 +24,12 @@
 #   Or override any variable inline:
 #   CONTENT_LIBRARY=MyISOs UBUNTU_VERSIONS="2404" ./scripts/upload-isos.sh
 #
+#   Pull a few extra OSes alongside Ubuntu:
+#   EXTRA_ISOS="debian-12 rocky-9 alpine-3.21" ./scripts/upload-isos.sh
+#
+#   Pull every extra OS in the catalogue:
+#   EXTRA_ISOS=all UBUNTU_VERSIONS="" ./scripts/upload-isos.sh
+#
 # Environment variables (all overridable):
 #   GOVC_URL          — vCenter HTTPS URL                     (required)
 #   GOVC_USERNAME     — vCenter username                      (required)
@@ -29,6 +39,9 @@
 #   LIBRARY_DATASTORE — Datastore that backs the library      (required)
 #   CONTENT_LIBRARY   — Content Library name                  (default: Packer-ISOs)
 #   UBUNTU_VERSIONS   — Space-separated versions to process   (default: 2204 2404 2604)
+#   EXTRA_ISOS        — Space-separated slugs from the extras (default: "")
+#                       catalogue, or "all". Run with no args
+#                       and see the summary for the slug list.
 #   DOWNLOAD_DIR      — Local temp dir for ISO downloads      (default: /var/tmp/packer-isos)
 #   KEEP_DOWNLOADS    — Set to "true" to keep local ISOs      (default: false)
 #   SKIP_CHECKSUM     — Set to "true" to skip SHA256 check    (default: false)
@@ -62,6 +75,7 @@ export GOVC_INSECURE="${GOVC_INSECURE:-false}"
 # ── Optional configuration ─────────────────────────────────────────────────────
 CONTENT_LIBRARY="${CONTENT_LIBRARY:-Packer-ISOs}"
 UBUNTU_VERSIONS="${UBUNTU_VERSIONS:-2204 2404 2604}"
+EXTRA_ISOS="${EXTRA_ISOS:-}"
 DOWNLOAD_DIR="${DOWNLOAD_DIR:-/var/tmp/packer-isos}"
 KEEP_DOWNLOADS="${KEEP_DOWNLOADS:-false}"
 SKIP_CHECKSUM="${SKIP_CHECKSUM:-false}"
@@ -83,8 +97,175 @@ declare -A ISO_LABEL=(
   [2604]="Ubuntu 26.04 LTS (Plucky Puffin)"
 )
 
+# ── Extras catalogue (opt-in via EXTRA_ISOS) ───────────────────────────────────
+# Curated from Michael Cade's iso_contentlib.sh
+# (https://github.com/MichaelCade/2025-vSphere-Homelab/blob/main/iso_contentlib.sh).
+# Each slug maps to a local filename, a download URL, a human label, and
+# (where the publisher offers a parseable SHA256SUMS / BSD-style CHECKSUM
+# file) a checksum URL. Entries with an empty checksum URL download without
+# verification — the script logs a clear warning when that happens.
+#
+# To add a new ISO: append to all four arrays under a fresh slug. To remove
+# one: delete its line in each array. EXTRA_ISOS="all" iterates the slug
+# list in EXTRA_ORDER below.
+declare -A EXTRA_FILENAME=(
+  [debian-12]="debian-12.9.0-amd64-netinst.iso"
+  [debian-11-arm64]="debian-11.11.0-arm64-netinst.iso"
+  [debian-12-live-kde]="debian-live-12.9.0-amd64-kde.iso"
+  [rocky-9]="Rocky-9.5-x86_64-dvd.iso"
+  [rocky-8]="Rocky-8.10-x86_64-dvd1.iso"
+  [alma-9]="AlmaLinux-9.5-x86_64-dvd.iso"
+  [alma-8]="AlmaLinux-8.10-x86_64-dvd.iso"
+  [oracle-9]="OracleLinux-R9-U5-x86_64-dvd.iso"
+  [oracle-8]="OracleLinux-R8-U10-x86_64-dvd.iso"
+  [centos-stream-10]="CentOS-Stream-10-latest-x86_64-dvd1.iso"
+  [centos-stream-9]="CentOS-Stream-9-latest-x86_64-dvd1.iso"
+  [fedora-41-server]="Fedora-Server-dvd-x86_64-41-1.4.iso"
+  [photon-5]="photon-5.0-dde71ec57.x86_64.iso"
+  [photon-4]="photon-4.0-c001795b8.iso"
+  [alpine-3.21]="alpine-virt-3.21.3-x86_64.iso"
+  [arch]="archlinux-2025.03.01-x86_64.iso"
+  [artix-plasma-dinit]="artix-plasma-dinit-20240823-x86_64.iso"
+  [nixos-24.11-plasma]="nixos-24.11-plasma6-x86_64-linux.iso"
+  [nixos-24.11-gnome]="nixos-24.11-gnome-x86_64-linux.iso"
+  [kali-2024.4]="kali-linux-2024.4-installer-amd64.iso"
+  [parrot-6.3.2]="Parrot-security-6.3.2_amd64.iso"
+  [kubuntu-24.10]="kubuntu-24.10-desktop-amd64.iso"
+  [lubuntu-24.04]="lubuntu-24.04.2-desktop-amd64.iso"
+  [linuxmint-22.1]="linuxmint-22.1-cinnamon-64bit.iso"
+  [solus-budgie]="Solus-Budgie-Release-2025-01-26.iso"
+  [tinycore-15]="CorePlus-current.iso"
+  [windows-server-2025-eval]="windows-server-2025-eval.iso"
+  [windows-server-2022-eval]="windows-server-2022-eval.iso"
+  [windows-server-2019-eval]="windows-server-2019-eval.iso"
+  [windows-11-enterprise-eval]="windows-11-enterprise-eval.iso"
+  [windows-10-enterprise-eval]="windows-10-enterprise-eval.iso"
+)
+
+declare -A EXTRA_URL=(
+  [debian-12]="https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.9.0-amd64-netinst.iso"
+  [debian-11-arm64]="https://cdimage.debian.org/cdimage/archive/11.11.0/arm64/iso-cd/debian-11.11.0-arm64-netinst.iso"
+  [debian-12-live-kde]="https://cdimage.debian.org/debian-cd/current-live/amd64/iso-hybrid/debian-live-12.9.0-amd64-kde.iso"
+  [rocky-9]="https://download.rockylinux.org/pub/rocky/9.5/isos/x86_64/Rocky-9.5-x86_64-dvd.iso"
+  [rocky-8]="https://download.rockylinux.org/pub/rocky/8.10/isos/x86_64/Rocky-8.10-x86_64-dvd1.iso"
+  [alma-9]="https://repo.almalinux.org/almalinux/9.5/isos/x86_64/AlmaLinux-9.5-x86_64-dvd.iso"
+  [alma-8]="https://repo.almalinux.org/almalinux/8.10/isos/x86_64/AlmaLinux-8.10-x86_64-dvd.iso"
+  [oracle-9]="https://yum.oracle.com/ISOS/OracleLinux/OL9/u5/x86_64/OracleLinux-R9-U5-x86_64-dvd.iso"
+  [oracle-8]="https://yum.oracle.com/ISOS/OracleLinux/OL8/u10/x86_64/OracleLinux-R8-U10-x86_64-dvd.iso"
+  [centos-stream-10]="https://mirror.stream.centos.org/10-stream/BaseOS/x86_64/iso/CentOS-Stream-10-latest-x86_64-dvd1.iso"
+  [centos-stream-9]="https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/iso/CentOS-Stream-9-latest-x86_64-dvd1.iso"
+  [fedora-41-server]="https://download.fedoraproject.org/pub/fedora/linux/releases/41/Server/x86_64/iso/Fedora-Server-dvd-x86_64-41-1.4.iso"
+  [photon-5]="https://packages.vmware.com/photon/5.0/GA/iso/photon-5.0-dde71ec57.x86_64.iso"
+  [photon-4]="https://packages.vmware.com/photon/4.0/Rev2/iso/photon-4.0-c001795b8.iso"
+  [alpine-3.21]="https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/alpine-virt-3.21.3-x86_64.iso"
+  [arch]="https://archlinux.uk.mirror.allworldit.com/archlinux/iso/2025.03.01/archlinux-2025.03.01-x86_64.iso"
+  [artix-plasma-dinit]="https://iso.artixlinux.org/iso/artix-plasma-dinit-20240823-x86_64.iso"
+  [nixos-24.11-plasma]="https://channels.nixos.org/nixos-24.11/latest-nixos-plasma6-x86_64-linux.iso"
+  [nixos-24.11-gnome]="https://channels.nixos.org/nixos-24.11/latest-nixos-gnome-x86_64-linux.iso"
+  [kali-2024.4]="https://cdimage.kali.org/kali-2024.4/kali-linux-2024.4-installer-amd64.iso"
+  [parrot-6.3.2]="https://deb.parrot.sh/parrot/iso/6.3.2/Parrot-security-6.3.2_amd64.iso"
+  [kubuntu-24.10]="https://cdimage.ubuntu.com/kubuntu/releases/24.10/release/kubuntu-24.10-desktop-amd64.iso"
+  [lubuntu-24.04]="https://cdimage.ubuntu.com/lubuntu/releases/noble/release/lubuntu-24.04.2-desktop-amd64.iso"
+  [linuxmint-22.1]="https://mirrors.cicku.me/linuxmint/iso/stable/22.1/linuxmint-22.1-cinnamon-64bit.iso"
+  [solus-budgie]="https://downloads.getsol.us/isos/2025-01-26/Solus-Budgie-Release-2025-01-26.iso"
+  [tinycore-15]="https://distro.ibiblio.org/tinycorelinux/15.x/x86/release/CorePlus-current.iso"
+  [windows-server-2025-eval]="https://software-static.download.prss.microsoft.com/dbazure/998969d5-f34g-4e03-ac9d-1f9786c66749/26100.32230.260111-0550.lt_release_svc_refresh_SERVER_EVAL_x64FRE_en-us.iso"
+  [windows-server-2022-eval]="https://software-static.download.prss.microsoft.com/sg/download/888969d5-f34g-4e03-ac9d-1f9786c66749/SERVER_EVAL_x64FRE_en-us.iso"
+  [windows-server-2019-eval]="https://software-static.download.prss.microsoft.com/dbazure/988969d5-f34g-4e03-ac9d-1f9786c66749/17763.3650.221105-1748.rs5_release_svc_refresh_SERVER_EVAL_x64FRE_en-us.iso"
+  [windows-11-enterprise-eval]="https://software-static.download.prss.microsoft.com/dbazure/888969d5-f34g-4e03-ac9d-1f9786c66749/22631.2428.231001-0608.23H2_NI_RELEASE_SVC_REFRESH_CLIENTENTERPRISEEVAL_OEMRET_x64FRE_en-us.iso"
+  [windows-10-enterprise-eval]="https://software-static.download.prss.microsoft.com/dbazure/988969d5-f34g-4e03-ac9d-1f9786c66750/19045.2006.220908-0225.22h2_release_svc_refresh_CLIENTENTERPRISEEVAL_OEMRET_x64FRE_en-us.iso"
+)
+
+declare -A EXTRA_LABEL=(
+  [debian-12]="Debian 12.9.0 (Bookworm, amd64 netinst)"
+  [debian-11-arm64]="Debian 11.11.0 (Bullseye, arm64 netinst)"
+  [debian-12-live-kde]="Debian Live 12.9.0 (KDE, amd64)"
+  [rocky-9]="Rocky Linux 9.5 (x86_64 DVD)"
+  [rocky-8]="Rocky Linux 8.10 (x86_64 DVD)"
+  [alma-9]="AlmaLinux 9.5 (x86_64 DVD)"
+  [alma-8]="AlmaLinux 8.10 (x86_64 DVD)"
+  [oracle-9]="Oracle Linux 9 Update 5 (x86_64 DVD)"
+  [oracle-8]="Oracle Linux 8 Update 10 (x86_64 DVD)"
+  [centos-stream-10]="CentOS Stream 10 (x86_64 DVD, latest)"
+  [centos-stream-9]="CentOS Stream 9 (x86_64 DVD, latest)"
+  [fedora-41-server]="Fedora Server 41 (x86_64 DVD)"
+  [photon-5]="VMware Photon OS 5.0 GA (x86_64)"
+  [photon-4]="VMware Photon OS 4.0 Rev2 (x86_64)"
+  [alpine-3.21]="Alpine Linux 3.21.3 (virt, x86_64)"
+  [arch]="Arch Linux 2025.03.01 (x86_64)"
+  [artix-plasma-dinit]="Artix Linux Plasma (dinit, 2024-08-23, x86_64)"
+  [nixos-24.11-plasma]="NixOS 24.11 (Plasma 6, x86_64)"
+  [nixos-24.11-gnome]="NixOS 24.11 (GNOME, x86_64)"
+  [kali-2024.4]="Kali Linux 2024.4 (installer, amd64)"
+  [parrot-6.3.2]="Parrot Security 6.3.2 (amd64)"
+  [kubuntu-24.10]="Kubuntu 24.10 (desktop, amd64)"
+  [lubuntu-24.04]="Lubuntu 24.04.2 (desktop, amd64)"
+  [linuxmint-22.1]="Linux Mint 22.1 (Cinnamon, 64-bit)"
+  [solus-budgie]="Solus Budgie (2025-01-26)"
+  [tinycore-15]="Tiny Core Linux 15.x (CorePlus, current)"
+  [windows-server-2025-eval]="Windows Server 2025 Evaluation (x64)"
+  [windows-server-2022-eval]="Windows Server 2022 Evaluation (x64)"
+  [windows-server-2019-eval]="Windows Server 2019 Evaluation (x64)"
+  [windows-11-enterprise-eval]="Windows 11 Enterprise Evaluation (x64, 23H2)"
+  [windows-10-enterprise-eval]="Windows 10 Enterprise Evaluation (x64, 22H2)"
+)
+
+# Checksum URLs are populated only where the publisher exposes a SHA256SUMS
+# (or BSD-style CHECKSUM) file that lists the ISO's filename verbatim.
+# Entries left empty intentionally — the script downloads without verification
+# and prints a warning, matching the behaviour Cade's reference script has.
+declare -A EXTRA_CHECKSUM_URL=(
+  [debian-12]="https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/SHA256SUMS"
+  [debian-11-arm64]="https://cdimage.debian.org/cdimage/archive/11.11.0/arm64/iso-cd/SHA256SUMS"
+  [debian-12-live-kde]="https://cdimage.debian.org/debian-cd/current-live/amd64/iso-hybrid/SHA256SUMS"
+  [rocky-9]=""
+  [rocky-8]=""
+  [alma-9]=""
+  [alma-8]=""
+  [oracle-9]=""
+  [oracle-8]=""
+  [centos-stream-10]=""
+  [centos-stream-9]=""
+  [fedora-41-server]=""
+  [photon-5]=""
+  [photon-4]=""
+  [alpine-3.21]="https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/alpine-virt-3.21.3-x86_64.iso.sha256"
+  [arch]=""
+  [artix-plasma-dinit]=""
+  [nixos-24.11-plasma]=""
+  [nixos-24.11-gnome]=""
+  [kali-2024.4]="https://cdimage.kali.org/kali-2024.4/SHA256SUMS"
+  [parrot-6.3.2]=""
+  [kubuntu-24.10]="https://cdimage.ubuntu.com/kubuntu/releases/24.10/release/SHA256SUMS"
+  [lubuntu-24.04]="https://cdimage.ubuntu.com/lubuntu/releases/noble/release/SHA256SUMS"
+  [linuxmint-22.1]=""
+  [solus-budgie]=""
+  [tinycore-15]=""
+  [windows-server-2025-eval]=""
+  [windows-server-2022-eval]=""
+  [windows-server-2019-eval]=""
+  [windows-11-enterprise-eval]=""
+  [windows-10-enterprise-eval]=""
+)
+
+# Iteration order for EXTRA_ISOS="all". Newest / most-common first so a
+# partial run still grabs the useful stuff before any wonky URL fails.
+EXTRA_ORDER=(
+  debian-12 debian-11-arm64 debian-12-live-kde
+  rocky-9 rocky-8 alma-9 alma-8 oracle-9 oracle-8
+  centos-stream-10 centos-stream-9 fedora-41-server
+  photon-5 photon-4 alpine-3.21 arch artix-plasma-dinit
+  nixos-24.11-plasma nixos-24.11-gnome
+  kali-2024.4 parrot-6.3.2
+  kubuntu-24.10 lubuntu-24.04 linuxmint-22.1 solus-budgie tinycore-15
+  windows-server-2025-eval windows-server-2022-eval windows-server-2019-eval
+  windows-11-enterprise-eval windows-10-enterprise-eval
+)
+
 declare -A BUILD_STATUS=()
+declare -A EXTRA_STATUS=()
 DOWNLOADED_ISO_PATH=""
+EXTRA_SELECTED=()
 
 # ── Prerequisites ──────────────────────────────────────────────────────────────
 check_prerequisites() {
@@ -118,13 +299,24 @@ check_prerequisites() {
     fi
   fi
 
-  local version_count
+  local version_count extras_count
   version_count=$(echo "${UBUNTU_VERSIONS}" | wc -w)
+  extras_count=${#EXTRA_SELECTED[@]}
+  # A single full DVD (Rocky/Alma/Oracle/CentOS Stream) is the largest thing
+  # the catalogue can pull, topping out around ~13 GB. That sets the per-ISO
+  # high-water mark; Windows evals (~5 GB) and the netinst/live images are
+  # comfortably under it.
+  local max_iso_gb=14
   local required_gb
   if [[ "${KEEP_DOWNLOADS}" == "true" ]]; then
-    required_gb=$(( version_count * 2 + 1 ))
+    # Everything stays on disk, so sum it: Ubuntu live-server ISOs (~3 GB
+    # each) plus each extra at the DVD high-water, so KEEP_DOWNLOADS=true with
+    # all extras can't silently overcommit the runner disk.
+    required_gb=$(( version_count * 3 + extras_count * max_iso_gb + 1 ))
   else
-    required_gb=3
+    # Per-ISO download → import → delete: only one ISO on disk at a time, so
+    # we just need room for the single largest (a full DVD) plus headroom.
+    required_gb=$(( max_iso_gb + 1 ))
   fi
   mkdir -p "${DOWNLOAD_DIR}"
   local avail_kb avail_gb
@@ -226,8 +418,18 @@ diagnose_connectivity() {
 }
 
 # ── Checksum ───────────────────────────────────────────────────────────────────
+# Verifies $iso_file against a SHA256 listed at $checksum_url. Handles three
+# real-world formats so the same function works for Ubuntu, Debian, Kali
+# (standard `<hash>  [*]filename` SHA256SUMS), Alpine-style sidecar files
+# (`<hash>  filename` — one line), and any future publisher that uses the
+# BSD-style `SHA256 (filename) = <hash>` layout.
+#
+# Empty $checksum_url means "no published checksum file" — warn and return
+# success so the rest of the pipeline can decide what to do (matches the
+# graceful-degrade behaviour for SHA256SUMS files that don't list every
+# basename).
 verify_checksum() {
-  local iso_file="$1" base_url="$2"
+  local iso_file="$1" checksum_url="$2"
   local filename; filename=$(basename "${iso_file}")
 
   if [[ "${SKIP_CHECKSUM}" == "true" ]]; then
@@ -235,18 +437,31 @@ verify_checksum() {
     return 0
   fi
 
-  info "Downloading SHA256SUMS..."
+  if [[ -z "${checksum_url}" ]]; then
+    warn "No checksum URL configured for ${filename} — skipping verification"
+    return 0
+  fi
+
+  info "Downloading checksum file..."
   local sums_file="${DOWNLOAD_DIR}/SHA256SUMS.${filename}"
-  if ! download_with_retries "${sums_file}" "${base_url}/SHA256SUMS"; then
-    error "Could not fetch SHA256SUMS from ${base_url}"
-    diagnose_connectivity "${base_url}/SHA256SUMS"
+  if ! download_with_retries "${sums_file}" "${checksum_url}"; then
+    error "Could not fetch checksum file from ${checksum_url}"
+    diagnose_connectivity "${checksum_url}"
     return 1
   fi
 
+  # Standard format: "<hash>  filename" or "<hash>  *filename"
   local expected_hash
-  expected_hash=$(grep " \*${filename}$\| ${filename}$" "${sums_file}" | awk '{print $1}')
+  expected_hash=$(grep -E " \*?${filename}\$" "${sums_file}" | awk '{print $1}' | head -1)
+
+  # BSD format fallback: "SHA256 (filename) = <hash>"
   if [[ -z "${expected_hash}" ]]; then
-    warn "Checksum for '${filename}' not found in SHA256SUMS — skipping"
+    expected_hash=$(grep -E "\(${filename}\)" "${sums_file}" \
+      | awk -F'= ' '{print $2}' | awk '{print $1}' | head -1)
+  fi
+
+  if [[ -z "${expected_hash}" ]]; then
+    warn "Checksum for '${filename}' not found in checksum file — skipping"
     return 0
   fi
 
@@ -284,8 +499,112 @@ download_iso() {
     return 1
   fi
 
-  verify_checksum "${iso_path}" "${base_url}"
+  if ! verify_checksum "${iso_path}" "${base_url}/SHA256SUMS"; then
+    rm -f "${iso_path}"
+    return 1
+  fi
   DOWNLOADED_ISO_PATH="${iso_path}"
+}
+
+# ── Extras: download → verify → import → delete (per ISO) ──────────────────────
+# Same strict serial pattern as Ubuntu — only one ISO ever lives on disk.
+# Each step in here can fail independently; on any failure we mark the slug
+# FAILED and move on so a single broken URL doesn't kill the whole batch.
+download_extra() {
+  local slug="$1"
+  local filename="${EXTRA_FILENAME[${slug}]}"
+  local url="${EXTRA_URL[${slug}]}"
+  local iso_path="${DOWNLOAD_DIR}/${filename}"
+
+  DOWNLOADED_ISO_PATH=""
+
+  if [[ -f "${iso_path}" ]]; then
+    info "Removing leftover partial file: ${iso_path}"
+    rm -f "${iso_path}"
+  fi
+
+  info "Downloading ${filename}..."
+  local curl_rc=0
+  download_with_retries "${iso_path}" "${url}" progress || curl_rc=$?
+  if [[ ${curl_rc} -ne 0 ]]; then
+    error "Download failed (curl exit ${curl_rc}) after retries"
+    diagnose_connectivity "${url}"
+    rm -f "${iso_path}"
+    return 1
+  fi
+
+  if ! verify_checksum "${iso_path}" "${EXTRA_CHECKSUM_URL[${slug}]:-}"; then
+    rm -f "${iso_path}"
+    return 1
+  fi
+  DOWNLOADED_ISO_PATH="${iso_path}"
+}
+
+process_extra() {
+  local slug="$1"
+  if [[ -z "${EXTRA_FILENAME[${slug}]+x}" ]]; then
+    error "Unknown extra ISO slug: '${slug}' — see the summary table for valid slugs"
+    EXTRA_STATUS[${slug}]="FAILED (unknown slug)"
+    return 1
+  fi
+
+  local label="${EXTRA_LABEL[${slug}]}"
+  local filename="${EXTRA_FILENAME[${slug}]}"
+
+  header "${label}"
+
+  if library_item_exists "${filename}"; then
+    success "Already present: ${CONTENT_LIBRARY}/${filename}"
+    EXTRA_STATUS[${slug}]="SKIPPED (already present)"
+    return 0
+  fi
+  info "Not found — will download and import"
+
+  if ! download_extra "${slug}"; then
+    EXTRA_STATUS[${slug}]="FAILED"
+    return 1
+  fi
+
+  local iso_path="${DOWNLOADED_ISO_PATH}"
+  if [[ -z "${iso_path}" ]]; then
+    error "No file path set after download"
+    EXTRA_STATUS[${slug}]="FAILED"
+    return 1
+  fi
+
+  if ! import_iso "${iso_path}"; then
+    EXTRA_STATUS[${slug}]="FAILED"
+    return 1
+  fi
+  EXTRA_STATUS[${slug}]="IMPORTED"
+
+  if [[ "${KEEP_DOWNLOADS}" != "true" ]]; then
+    rm -f "${iso_path}"
+  fi
+}
+
+# Expands "all" into EXTRA_ORDER, leaves explicit slug lists untouched, and
+# trims duplicates so a user passing the same slug twice doesn't get two
+# library-exists checks. Sets EXTRA_SELECTED as the final ordered list.
+resolve_extras_selection() {
+  EXTRA_SELECTED=()
+  [[ -z "${EXTRA_ISOS}" ]] && return 0
+
+  local requested=()
+  if [[ "${EXTRA_ISOS}" == "all" ]]; then
+    requested=("${EXTRA_ORDER[@]}")
+  else
+    # shellcheck disable=SC2206
+    requested=( ${EXTRA_ISOS} )
+  fi
+
+  local seen=()
+  local slug
+  for slug in "${requested[@]}"; do
+    [[ " ${seen[*]} " == *" ${slug} "* ]] && continue
+    seen+=("${slug}")
+    EXTRA_SELECTED+=("${slug}")
+  done
 }
 
 # ── Library item existence check ───────────────────────────────────────────────
@@ -303,7 +622,10 @@ import_iso() {
   info "Importing into Content Library '${CONTENT_LIBRARY}'..."
   info "  Size: $(du -sh "${iso_path}" | cut -f1)"
 
-  govc library.import "${CONTENT_LIBRARY}" "${iso_path}"
+  if ! govc library.import "${CONTENT_LIBRARY}" "${iso_path}"; then
+    error "Import failed: ${CONTENT_LIBRARY}/${filename}"
+    return 1
+  fi
   success "Imported: ${CONTENT_LIBRARY}/${filename}"
 }
 
@@ -334,7 +656,10 @@ process_version() {
     return 1
   fi
 
-  import_iso "${iso_path}"
+  if ! import_iso "${iso_path}"; then
+    BUILD_STATUS[${version}]="FAILED"
+    return 1
+  fi
   BUILD_STATUS[${version}]="IMPORTED"
 
   if [[ "${KEEP_DOWNLOADS}" != "true" ]]; then
@@ -346,18 +671,43 @@ process_version() {
 print_summary() {
   header "Summary"
   echo ""
-  printf "  %-8s  %-40s  %s\n" "VERSION" "ISO" "STATUS"
-  printf "  %-8s  %-40s  %s\n" "-------" "---" "------"
-  for version in ${UBUNTU_VERSIONS}; do
-    local filename="${ISO_FILENAME[${version}]:-N/A}"
-    local status="${BUILD_STATUS[${version}]:-NOT PROCESSED}"
-    local colour="${RESET}"
-    [[ "${status}" == "IMPORTED" ]] && colour="${GREEN}"
-    [[ "${status}" == SKIPPED*   ]] && colour="${YELLOW}"
-    [[ "${status}" == "FAILED"*  ]] && colour="${RED}"
-    printf "  %-8s  %-40s  ${colour}%s${RESET}\n" "${version}" "${filename}" "${status}"
-  done
-  echo ""
+  if [[ -n "${UBUNTU_VERSIONS// }" ]]; then
+    printf "  %-8s  %-50s  %s\n" "VERSION" "ISO" "STATUS"
+    printf "  %-8s  %-50s  %s\n" "-------" "---" "------"
+    for version in ${UBUNTU_VERSIONS}; do
+      local filename="${ISO_FILENAME[${version}]:-N/A}"
+      local status="${BUILD_STATUS[${version}]:-NOT PROCESSED}"
+      local colour="${RESET}"
+      [[ "${status}" == "IMPORTED" ]] && colour="${GREEN}"
+      [[ "${status}" == SKIPPED*   ]] && colour="${YELLOW}"
+      [[ "${status}" == "FAILED"*  ]] && colour="${RED}"
+      printf "  %-8s  %-50s  ${colour}%s${RESET}\n" "${version}" "${filename}" "${status}"
+    done
+    echo ""
+  fi
+
+  if [[ ${#EXTRA_SELECTED[@]} -gt 0 ]]; then
+    printf "  %-28s  %-50s  %s\n" "EXTRA SLUG" "ISO" "STATUS"
+    printf "  %-28s  %-50s  %s\n" "----------" "---" "------"
+    local slug
+    for slug in "${EXTRA_SELECTED[@]}"; do
+      local filename="${EXTRA_FILENAME[${slug}]:-N/A}"
+      local status="${EXTRA_STATUS[${slug}]:-NOT PROCESSED}"
+      local colour="${RESET}"
+      [[ "${status}" == "IMPORTED" ]] && colour="${GREEN}"
+      [[ "${status}" == SKIPPED*   ]] && colour="${YELLOW}"
+      [[ "${status}" == FAILED*    ]] && colour="${RED}"
+      printf "  %-28s  %-50s  ${colour}%s${RESET}\n" "${slug}" "${filename}" "${status}"
+    done
+    echo ""
+  fi
+
+  if [[ ${#EXTRA_SELECTED[@]} -eq 0 ]]; then
+    info "Extras catalogue available (set EXTRA_ISOS to opt in):"
+    printf '    %s\n' "${EXTRA_ORDER[*]}" | fold -sw 72 | sed 's/^/    /'
+    echo ""
+  fi
+
   info "Content Library : ${CONTENT_LIBRARY}"
   info "vCenter         : ${GOVC_URL}"
   echo ""
@@ -378,8 +728,17 @@ print_summary() {
 main() {
   echo ""
   echo -e "${BOLD}Packer ISO Uploader — vSphere Content Library${RESET}"
-  echo -e "Versions: ${UBUNTU_VERSIONS}"
+  echo -e "Ubuntu versions : ${UBUNTU_VERSIONS:-(none)}"
+  echo -e "Extra ISOs      : ${EXTRA_ISOS:-(none)}"
   echo ""
+
+  # Resolve extras up-front so prerequisites can size disk correctly and
+  # bad slugs fail fast — before we spend time on vSphere round-trips.
+  resolve_extras_selection
+  if [[ -n "${EXTRA_ISOS}" && ${#EXTRA_SELECTED[@]} -eq 0 ]]; then
+    error "EXTRA_ISOS was set but resolved to an empty selection."
+    exit 1
+  fi
 
   check_prerequisites
   verify_govc_connection
@@ -389,6 +748,11 @@ main() {
   local failed=0
   for version in ${UBUNTU_VERSIONS}; do
     process_version "${version}" || { BUILD_STATUS[${version}]="FAILED"; failed=1; }
+  done
+
+  local slug
+  for slug in "${EXTRA_SELECTED[@]}"; do
+    process_extra "${slug}" || { EXTRA_STATUS[${slug}]="FAILED"; failed=1; }
   done
 
   print_summary
