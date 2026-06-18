@@ -169,7 +169,7 @@ declare -A EXTRA_URL=(
   [linuxmint-22.1]="https://mirrors.cicku.me/linuxmint/iso/stable/22.1/linuxmint-22.1-cinnamon-64bit.iso"
   [solus-budgie]="https://downloads.getsol.us/isos/2025-01-26/Solus-Budgie-Release-2025-01-26.iso"
   [tinycore-15]="https://distro.ibiblio.org/tinycorelinux/15.x/x86/release/CorePlus-current.iso"
-  [windows-server-2025-eval]="https://software-static.download.prss.microsoft.com/dbazure/888969d5-f34g-4e03-ac9d-1f9786c66749/26100.1.240331-1435.ge_release_SERVER_EVAL_x64FRE_en-us.iso"
+  [windows-server-2025-eval]="https://software-static.download.prss.microsoft.com/dbazure/998969d5-f34g-4e03-ac9d-1f9786c66749/26100.32230.260111-0550.lt_release_svc_refresh_SERVER_EVAL_x64FRE_en-us.iso"
   [windows-server-2022-eval]="https://software-static.download.prss.microsoft.com/sg/download/888969d5-f34g-4e03-ac9d-1f9786c66749/SERVER_EVAL_x64FRE_en-us.iso"
   [windows-server-2019-eval]="https://software-static.download.prss.microsoft.com/dbazure/988969d5-f34g-4e03-ac9d-1f9786c66749/17763.3650.221105-1748.rs5_release_svc_refresh_SERVER_EVAL_x64FRE_en-us.iso"
   [windows-11-enterprise-eval]="https://software-static.download.prss.microsoft.com/dbazure/888969d5-f34g-4e03-ac9d-1f9786c66749/22631.2428.231001-0608.23H2_NI_RELEASE_SVC_REFRESH_CLIENTENTERPRISEEVAL_OEMRET_x64FRE_en-us.iso"
@@ -302,16 +302,21 @@ check_prerequisites() {
   local version_count extras_count
   version_count=$(echo "${UBUNTU_VERSIONS}" | wc -w)
   extras_count=${#EXTRA_SELECTED[@]}
+  # A single full DVD (Rocky/Alma/Oracle/CentOS Stream) is the largest thing
+  # the catalogue can pull, topping out around ~13 GB. That sets the per-ISO
+  # high-water mark; Windows evals (~5 GB) and the netinst/live images are
+  # comfortably under it.
+  local max_iso_gb=14
   local required_gb
   if [[ "${KEEP_DOWNLOADS}" == "true" ]]; then
-    # Largest extras (Windows evals, full DVDs) run ~5 GB. Use 5 GB/ISO as
-    # the high-water mark so KEEP_DOWNLOADS=true with all extras doesn't
-    # silently overcommit the runner disk.
-    required_gb=$(( version_count * 2 + extras_count * 5 + 1 ))
+    # Everything stays on disk, so sum it: Ubuntu live-server ISOs (~3 GB
+    # each) plus each extra at the DVD high-water, so KEEP_DOWNLOADS=true with
+    # all extras can't silently overcommit the runner disk.
+    required_gb=$(( version_count * 3 + extras_count * max_iso_gb + 1 ))
   else
-    # Per-ISO download → import → delete. Only one ISO on disk at a time.
-    # Headroom for the Windows ISOs is 6 GB.
-    required_gb=6
+    # Per-ISO download → import → delete: only one ISO on disk at a time, so
+    # we just need room for the single largest (a full DVD) plus headroom.
+    required_gb=$(( max_iso_gb + 1 ))
   fi
   mkdir -p "${DOWNLOAD_DIR}"
   local avail_kb avail_gb
@@ -494,7 +499,10 @@ download_iso() {
     return 1
   fi
 
-  verify_checksum "${iso_path}" "${base_url}/SHA256SUMS"
+  if ! verify_checksum "${iso_path}" "${base_url}/SHA256SUMS"; then
+    rm -f "${iso_path}"
+    return 1
+  fi
   DOWNLOADED_ISO_PATH="${iso_path}"
 }
 
@@ -525,7 +533,10 @@ download_extra() {
     return 1
   fi
 
-  verify_checksum "${iso_path}" "${EXTRA_CHECKSUM_URL[${slug}]:-}"
+  if ! verify_checksum "${iso_path}" "${EXTRA_CHECKSUM_URL[${slug}]:-}"; then
+    rm -f "${iso_path}"
+    return 1
+  fi
   DOWNLOADED_ISO_PATH="${iso_path}"
 }
 
@@ -561,7 +572,10 @@ process_extra() {
     return 1
   fi
 
-  import_iso "${iso_path}"
+  if ! import_iso "${iso_path}"; then
+    EXTRA_STATUS[${slug}]="FAILED"
+    return 1
+  fi
   EXTRA_STATUS[${slug}]="IMPORTED"
 
   if [[ "${KEEP_DOWNLOADS}" != "true" ]]; then
@@ -608,7 +622,10 @@ import_iso() {
   info "Importing into Content Library '${CONTENT_LIBRARY}'..."
   info "  Size: $(du -sh "${iso_path}" | cut -f1)"
 
-  govc library.import "${CONTENT_LIBRARY}" "${iso_path}"
+  if ! govc library.import "${CONTENT_LIBRARY}" "${iso_path}"; then
+    error "Import failed: ${CONTENT_LIBRARY}/${filename}"
+    return 1
+  fi
   success "Imported: ${CONTENT_LIBRARY}/${filename}"
 }
 
@@ -639,7 +656,10 @@ process_version() {
     return 1
   fi
 
-  import_iso "${iso_path}"
+  if ! import_iso "${iso_path}"; then
+    BUILD_STATUS[${version}]="FAILED"
+    return 1
+  fi
   BUILD_STATUS[${version}]="IMPORTED"
 
   if [[ "${KEEP_DOWNLOADS}" != "true" ]]; then

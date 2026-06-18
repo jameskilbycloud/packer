@@ -236,6 +236,10 @@ extra_isos: all
 
 ISOs are processed **strictly serially** — each one is downloaded, checksum-verified (when the publisher offers a parseable SHA256SUMS/CHECKSUM), imported into the library, then deleted from the runner before the next one starts. Only ever one ISO on disk at a time, regardless of how many are requested.
 
+A checksum **mismatch** aborts that ISO (the bad file is deleted and it is **not** imported); a failed download or import is likewise marked `FAILED` in the summary. Either way the batch continues — one broken slug doesn't stop the rest — but the run exits non-zero so a CI job still goes red.
+
+Because the largest catalogue entries are full DVDs (~13 GB), the preflight disk check requires ~15 GB free in `download_dir` for a normal run (one ISO on disk at a time). With `keep_downloads: true` nothing is deleted between ISOs, so it instead requires roughly that much **per** ISO selected — `extra_isos: all` with `keep_downloads` wants several hundred GB.
+
 | Family | Slugs |
 |---|---|
 | Debian | `debian-12`, `debian-11-arm64`, `debian-12-live-kde` |
