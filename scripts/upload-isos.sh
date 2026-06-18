@@ -299,26 +299,49 @@ check_prerequisites() {
     fi
   fi
 
-  local version_count extras_count
-  version_count=$(echo "${UBUNTU_VERSIONS}" | wc -w)
-  extras_count=${#EXTRA_SELECTED[@]}
-  # A single full DVD (Rocky/Alma/Oracle/CentOS Stream) is the largest thing
-  # the catalogue can pull, topping out around ~13 GB. That sets the per-ISO
-  # high-water mark; Windows evals (~5 GB) and the netinst/live images are
-  # comfortably under it.
-  local max_iso_gb=14
+  mkdir -p "${DOWNLOAD_DIR}"
+
+  # When we're not keeping downloads, DOWNLOAD_DIR is meant to be transient —
+  # it should only ever hold the single in-flight ISO. Purge any *.iso left
+  # behind by a previous crashed/cancelled run so stale files don't eat into
+  # the space check below (or the runner's disk).
+  if [[ "${KEEP_DOWNLOADS}" != "true" ]]; then
+    local stale
+    while IFS= read -r stale; do
+      [[ -n "${stale}" ]] || continue
+      info "Removing stale download from a previous run: $(basename "${stale}")"
+      rm -f "${stale}"
+    done < <(find "${DOWNLOAD_DIR}" -maxdepth 1 -type f -name '*.iso' 2>/dev/null)
+  fi
+
+  # Size the disk requirement from the actual Content-Length of the ISOs this
+  # run will fetch, rather than a catalogue-wide worst case — so a Windows-only
+  # or netinst-only run isn't blocked by the size of a full DVD it never touches.
+  local urls=() v s
+  for v in ${UBUNTU_VERSIONS}; do
+    [[ -n "${ISO_FILENAME[${v}]:-}" ]] && urls+=("${ISO_BASE_URL[${v}]}/${ISO_FILENAME[${v}]}")
+  done
+  for s in "${EXTRA_SELECTED[@]}"; do
+    [[ -n "${EXTRA_URL[${s}]:-}" ]] && urls+=("${EXTRA_URL[${s}]}")
+  done
+
+  local fallback_bytes=$(( 14 * 1024 * 1024 * 1024 ))  # unknown size → assume a full DVD
+  local max_bytes=0 total_bytes=0 b u
+  for u in "${urls[@]}"; do
+    b=$(curl -sIL --connect-timeout 10 --max-time 30 "${u}" 2>/dev/null \
+         | awk -F': ' 'tolower($1)=="content-length"{n=$2} END{gsub(/\r/,"",n); print n+0}')
+    { [[ "${b}" =~ ^[0-9]+$ ]] && [[ "${b}" -gt 0 ]]; } || b=${fallback_bytes}
+    if (( b > max_bytes )); then max_bytes=${b}; fi
+    total_bytes=$(( total_bytes + b ))
+  done
+
+  # ~2 GB headroom for the checksum sidecar, govc temp, and rounding.
   local required_gb
   if [[ "${KEEP_DOWNLOADS}" == "true" ]]; then
-    # Everything stays on disk, so sum it: Ubuntu live-server ISOs (~3 GB
-    # each) plus each extra at the DVD high-water, so KEEP_DOWNLOADS=true with
-    # all extras can't silently overcommit the runner disk.
-    required_gb=$(( version_count * 3 + extras_count * max_iso_gb + 1 ))
+    required_gb=$(( total_bytes / 1024 / 1024 / 1024 + 2 ))   # everything kept → sum
   else
-    # Per-ISO download → import → delete: only one ISO on disk at a time, so
-    # we just need room for the single largest (a full DVD) plus headroom.
-    required_gb=$(( max_iso_gb + 1 ))
+    required_gb=$(( max_bytes / 1024 / 1024 / 1024 + 2 ))     # one at a time → largest
   fi
-  mkdir -p "${DOWNLOAD_DIR}"
   local avail_kb avail_gb
   avail_kb=$(df -k "${DOWNLOAD_DIR}" | awk 'NR==2 {print $4}')
   avail_gb=$(( avail_kb / 1024 / 1024 ))
