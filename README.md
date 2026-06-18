@@ -281,6 +281,7 @@ All variables are declared in `variables.pkr.hcl`. Connection details and creden
 | `vsphere_network` | yes | — | Port group / network name for the VM NIC |
 | `vsphere_folder` | no | `"packer"` | VM folder path for finished templates |
 | `vsphere_iso_datastore` | yes | — | Datastore **or** Content Library name holding the ISOs |
+| `vsphere_template_content_library` | no | `"Packer-ISOs"` | Local Content Library to publish finished templates into as updatable OVF items — defaults to the ISO library. `""` = disable. See [Publishing templates to a Content Library](#publishing-templates-to-a-content-library) |
 
 ### Build credentials
 
@@ -494,17 +495,26 @@ variable "server_disk_gb" {
 }
 ```
 
-### Storing templates in a Content Library
+### Publishing templates to a Content Library
 
-To output finished templates to a Content Library instead of the standard VM inventory, add a `content_library_destination` block to the source:
+Each source publishes its finished template into a Content Library as an **updatable OVF item**, in addition to the inventory VM template. This is **on by default** and targets the **same library the ISOs live in** (`Packer-ISOs`), so a single library holds both the source ISOs and the built templates.
+
+- **Variable:** `vsphere_template_content_library` (default `Packer-ISOs`). Set it to a different library name to publish elsewhere, or to `""` to disable.
+- **CI:** defaults to the `CONTENT_LIBRARY` repo variable (the ISO library, `Packer-ISOs` if unset). Set the optional repo **variable** `TEMPLATE_CONTENT_LIBRARY` to publish templates to a different library than the ISOs.
 
 ```hcl
-content_library_destination {
-  library = "My-Template-Library"
-  ovf     = true
-  destroy = true   # removes the VM after exporting to the library
-}
+# Default: templates land in the same library as the ISOs (Packer-ISOs).
+# Override to a separate library:
+vsphere_template_content_library = "Packer-Templates"
+# Or disable publishing entirely (inventory VM template still produced):
+vsphere_template_content_library = ""
 ```
+
+The library must already exist and be a **Local**-type library. Each source publishes under a **stable** name (`ubuntu-2404-server`, `ubuntu-2404-desktop`, …) with **no build date**, so repeat/weekly builds **update the same OVF item in place** — the library always holds the latest. The dated inventory VM template (`convert_to_template = true`, still produced) is the thing `rotate-templates`/`prune-templates` manage; the library item is the portable, multi-vCenter-distributable copy.
+
+> OVF items are used (`ovf = true`) precisely because VM-template library items **cannot** be updated — a same-name re-import would fail. The build VM is **not** destroyed (`destroy` is left at its default) since it still becomes the inventory template.
+
+Because publishing is now on by default, the build user needs **Add / Update library item** on the target library (`Packer-ISOs` by default) — see [docs/operations.md → vSphere privileges](docs/operations.md#vsphere).
 
 ---
 

@@ -111,6 +111,22 @@ source "vsphere-iso" "ubuntu-2204-server" {
 
   # Output — convert the finished VM to a vSphere template
   convert_to_template = true
+
+  # Publish to a Content Library as an updatable, portable OVF item. Opt-in:
+  # only emitted when vsphere_template_content_library is set. The item name
+  # is stable (no build_date) so repeat builds UPDATE the same library item —
+  # always-latest — while the dated inventory template above is what
+  # rotate/prune manage. OVF (not VM-template) items are the ones that can be
+  # updated in place.
+  dynamic "content_library_destination" {
+    for_each = var.vsphere_template_content_library != "" ? [1] : []
+    content {
+      library     = var.vsphere_template_content_library
+      name        = "ubuntu-2204-server"
+      description = "Ubuntu 22.04 LTS Server — Packer ${local.build_timestamp} | git: ${var.git_commit}"
+      ovf         = true
+    }
+  }
 }
 
 # ── Ubuntu 22.04 Desktop ──────────────────────────────────────────────────────
@@ -214,6 +230,18 @@ source "vsphere-iso" "ubuntu-2204-desktop" {
 
   # Output
   convert_to_template = true
+
+  # Publish to a Content Library as an updatable, portable OVF item — see the
+  # server source above for the stable-name / opt-in rationale.
+  dynamic "content_library_destination" {
+    for_each = var.vsphere_template_content_library != "" ? [1] : []
+    content {
+      library     = var.vsphere_template_content_library
+      name        = "ubuntu-2204-desktop"
+      description = "Ubuntu 22.04 LTS Desktop — Packer ${local.build_timestamp} | git: ${var.git_commit}"
+      ovf         = true
+    }
+  }
 }
 
 # ── Build ─────────────────────────────────────────────────────────────────────
