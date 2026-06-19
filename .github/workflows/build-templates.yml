@@ -568,7 +568,7 @@ jobs:
           vsphere_host                = "${{ secrets.VSPHERE_HOST }}"
           vsphere_datastore           = "${{ secrets.VSPHERE_DATASTORE }}"
           vsphere_network             = "${{ secrets.VSPHERE_NETWORK }}"
-          vsphere_folder              = "${{ secrets.VSPHERE_FOLDER }}"
+          vsphere_folder              = "${{ secrets.VSPHERE_FOLDER || 'packer' }}"
           vsphere_iso_datastore       = "${{ env.ISO_BACKING_DATASTORE }}"
           vsphere_template_content_library = "${{ vars.TEMPLATE_CONTENT_LIBRARY || vars.CONTENT_LIBRARY || 'Packer-ISOs' }}"
           build_username              = "${{ secrets.BUILD_USERNAME }}"
