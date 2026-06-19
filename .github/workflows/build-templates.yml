@@ -61,6 +61,16 @@ concurrency:
   group: packer-build
   cancel-in-progress: false   # queue rather than cancel — don't orphan VMs
 
+# ── Global env ────────────────────────────────────────────────────────────────
+# Disable HashiCorp's checkpoint update-check for every `packer` invocation.
+# When the runner's Packer lags the latest release, `packer version` prints a
+# multi-line "Your version of Packer is out of date!" notice; piped into
+# `head -1` under the default `bash -eo pipefail`, that races a SIGPIPE and
+# exits 141 (which red-failed the metrics step on a successful 22.04 build).
+# Disabling checkpoint removes the notice (and a needless network round-trip).
+env:
+  CHECKPOINT_DISABLE: "1"
+
 # ── Jobs ──────────────────────────────────────────────────────────────────────
 jobs:
 
@@ -336,7 +346,7 @@ jobs:
           # Install via direct binary download — avoids APT codename mismatches
           # (e.g. pre-release Ubuntu codenames not yet in HashiCorp's repo)
           PACKER_VERSION=$(curl -fsSL https://api.releases.hashicorp.com/v1/releases/packer/latest \
-            | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
+            | grep -o '"version":"[^"]*"' | sed -n '1p' | cut -d'"' -f4)
           ARCH=$(dpkg --print-architecture)
           curl -fsSL "https://releases.hashicorp.com/packer/${PACKER_VERSION}/packer_${PACKER_VERSION}_linux_${ARCH}.zip" \
             -o /tmp/packer.zip
@@ -351,7 +361,7 @@ jobs:
         continue-on-error: true
         run: |
           if command -v xorriso &>/dev/null; then
-            echo "xorriso already installed: $(xorriso --version 2>&1 | head -1)"
+            echo "xorriso already installed: $(xorriso --version 2>&1 | sed -n '1p')"
             exit 0
           fi
           echo "xorriso not installed — attempting best-effort auto-install (requires sudo)."
@@ -360,7 +370,7 @@ jobs:
           # pre-release Ubuntu codenames) must not block the standard repo install.
           sudo apt-get update -qq 2>/dev/null || true
           sudo apt-get install -y xorriso
-          echo "xorriso: $(xorriso --version 2>&1 | head -1)"
+          echo "xorriso: $(xorriso --version 2>&1 | sed -n '1p')"
 
       # ── Install govc (required to resolve Content Library ISO paths) ──────────
       - name: Install govc
@@ -937,7 +947,13 @@ jobs:
           end_epoch=$(date -u +%s)
           duration=$((end_epoch - BUILD_START_EPOCH))
 
-          packer_version=$(packer version | head -1)
+          # No pipe to `head`: `packer version` can emit a multi-line update
+          # notice, and `… | head -1` under pipefail races a SIGPIPE (exit 141).
+          # Capture the full output and take the first line via parameter
+          # expansion instead. CHECKPOINT_DISABLE (workflow env) also suppresses
+          # the notice, but this keeps the step robust on its own.
+          packer_version=$(packer version 2>/dev/null || true)
+          packer_version=${packer_version%%$'\n'*}
           plugin_versions=$(packer plugins installed 2>/dev/null || true)
 
           manifest_path="manifests/${MANIFEST_NAME}.json"
