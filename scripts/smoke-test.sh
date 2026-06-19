@@ -372,8 +372,20 @@ fi
 [[ -n "${VSPHERE_FOLDER:-}" ]] && clone_args+=(-folder "${VSPHERE_FOLDER}")
 [[ -n "${VSPHERE_DATASTORE:-}" ]] && clone_args+=(-ds "${VSPHERE_DATASTORE}")
 
+# `govc find .` returns a root-relative inventory path (e.g. ./vm/packer/<name>).
+# `govc vm.info`/`object.collect` accept that form, but `vm.clone -vm` needs a
+# name or an *absolute* inventory path and fails to resolve the relative form
+# once the template lives in a subfolder (e.g. /vm/packer). Normalise to an
+# absolute inventory path so the clone source resolves regardless of folder.
+if [[ "${template}" == /* ]]; then
+  template_src="${template}"
+else
+  template_src="/${GOVC_DATACENTER}/${template#./}"
+fi
+
 echo "==> Cloning template (powered-off)..."
-govc vm.clone -on=false -vm "${template}" "${clone_args[@]}" "${CLONE_NAME}"
+echo "    source: ${template_src}"
+govc vm.clone -on=false -vm "${template_src}" "${clone_args[@]}" "${CLONE_NAME}"
 
 echo "==> Powering on clone..."
 govc vm.power -on=true "${CLONE_NAME}"
