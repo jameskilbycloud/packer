@@ -27,6 +27,14 @@
 #   QUARANTINE_FOLDER  — folder name to skip when iterating matches (default:
 #                        "quarantine"). Smoke-failed templates are moved here
 #                        by quarantine-template.sh and must never be auto-pruned.
+#   QUARANTINE_RETAIN_DAYS — retention for the quarantine folder itself. The
+#                        live-template prune above NEVER touches */quarantine/*
+#                        (an operator may be mid-investigation), so without this
+#                        the quarantine folder grows unbounded. After the live
+#                        prune, a separate pass destroys quarantined templates
+#                        whose embedded build date is older than this many days,
+#                        giving a fixed investigation window. Default: 30. Set
+#                        to 0 to disable quarantine pruning entirely.
 #
 # Grouping: templates are named `ubuntu-<version>-<type>-<YYYYMMDD>`. The
 # group key is `${name%-*}` — everything before the trailing date suffix.
@@ -47,6 +55,7 @@ NAME_PATTERN="${NAME_PATTERN:-ubuntu-*}"
 RETAIN="${RETAIN:-2}"
 DRY_RUN="${DRY_RUN:-false}"
 QUARANTINE_FOLDER="${QUARANTINE_FOLDER:-quarantine}"
+QUARANTINE_RETAIN_DAYS="${QUARANTINE_RETAIN_DAYS:-30}"
 
 echo "Retention policy: keep ${RETAIN} templates per (version, type) group"
 echo "Pattern: ${NAME_PATTERN}"
@@ -135,9 +144,73 @@ for group in "${groups_order[@]}"; do
   done <<< "${sorted}"
 done
 
+# ── Quarantine retention ─────────────────────────────────────────────────────
+# The live-template prune above deliberately skips */quarantine/* so an
+# in-flight investigation is never pruned out from under an operator. That
+# leaves the quarantine folder to grow forever, so enforce a separate
+# age-based retention here. Quarantined templates are named
+# `<orig>-YYYYMMDD-quarantined-r<RUN>` (see quarantine-template.sh), so the
+# build date is recoverable from the name — we compare it against a cutoff
+# date rather than reading each VM's createDate (portable; no per-VM call).
+quarantine_destroyed=0
+if [[ "${QUARANTINE_RETAIN_DAYS}" == "0" ]]; then
+  echo ""
+  echo "Quarantine retention disabled (QUARANTINE_RETAIN_DAYS=0)."
+else
+  echo ""
+  echo "=== Quarantine retention: drop quarantined templates older than ${QUARANTINE_RETAIN_DAYS} day(s) ==="
+  # Compute the cutoff date as YYYYMMDD. GNU date (Linux runner) takes -d;
+  # BSD date (local macOS) takes -v. Zero-padded YYYYMMDD strings compare
+  # correctly with `<` inside [[ ]], so no epoch arithmetic is needed.
+  if ! cutoff=$(date -d "-${QUARANTINE_RETAIN_DAYS} days" +%Y%m%d 2>/dev/null); then
+    cutoff=$(date -v-"${QUARANTINE_RETAIN_DAYS}"d +%Y%m%d 2>/dev/null || echo "")
+  fi
+  if [[ -z "${cutoff}" ]]; then
+    echo "  ⚠️  Could not compute a cutoff date — skipping quarantine retention this run."
+  else
+    echo "  Cutoff: quarantined templates dated before ${cutoff} are eligible for deletion."
+    q_matches=$(govc find . -type m -name "*-quarantined-*" 2>/dev/null || true)
+    if [[ -z "${q_matches}" ]]; then
+      echo "  No quarantined templates found."
+    else
+      while IFS= read -r qp; do
+        [[ -z "${qp}" ]] && continue
+        qname="${qp##*/}"
+        # Recover the build date: the 8-digit group immediately before
+        # `-quarantined`. Anything we can't date is left alone — never guess.
+        if [[ "${qname}" =~ ([0-9]{8})-quarantined ]]; then
+          qdate="${BASH_REMATCH[1]}"
+        else
+          echo "  skip (no parseable date): ${qp}"
+          continue
+        fi
+        is_template=$(govc object.collect -s "${qp}" config.template 2>/dev/null || echo "")
+        if [[ "${is_template}" != "true" ]]; then
+          echo "  skip (not a template, config.template=${is_template:-unknown}): ${qp}"
+          continue
+        fi
+        if [[ "${qdate}" < "${cutoff}" ]]; then
+          if [[ "${DRY_RUN}" == "true" ]]; then
+            printf "  WOULD DESTROY  : %s (dated %s)\n" "${qp}" "${qdate}"
+          else
+            printf "  DESTROY        : %s (dated %s)\n" "${qp}" "${qdate}"
+            if govc vm.destroy "${qp}"; then
+              quarantine_destroyed=$((quarantine_destroyed + 1))
+            else
+              echo "    ✘ destroy failed for ${qp} — continuing"
+            fi
+          fi
+        else
+          printf "  KEEP           : %s (dated %s)\n" "${qp}" "${qdate}"
+        fi
+      done <<< "${q_matches}"
+    fi
+  fi
+fi
+
 echo ""
 if [[ "${DRY_RUN}" == "true" ]]; then
   echo "Dry-run complete. No templates were destroyed."
 else
-  echo "Prune complete. Destroyed: ${destroyed} template(s)."
+  echo "Prune complete. Destroyed: ${destroyed} live + ${quarantine_destroyed} quarantined template(s)."
 fi
