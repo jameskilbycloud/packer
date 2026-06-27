@@ -29,6 +29,11 @@ on:
         options:
           - "false"
           - "true"
+      quarantine_retain_days:
+        description: "Delete quarantined templates older than N days (0 = disable)"
+        required: false
+        default: "30"
+        type: string
 
 # ── Token scope ───────────────────────────────────────────────────────────────
 # Read-only — rotate-templates calls vSphere via govc only (using the
@@ -85,4 +90,5 @@ jobs:
           NAME_PATTERN: ${{ github.event.inputs.name_pattern || 'ubuntu-*' }}
           RETAIN:       ${{ github.event.inputs.retain || vars.TEMPLATE_RETENTION_COUNT || '2' }}
           DRY_RUN:      ${{ github.event.inputs.dry_run || vars.TEMPLATE_PRUNE_DRY_RUN || 'false' }}
+          QUARANTINE_RETAIN_DAYS: ${{ github.event.inputs.quarantine_retain_days || vars.QUARANTINE_RETAIN_DAYS || '30' }}
         run: bash scripts/prune-templates.sh

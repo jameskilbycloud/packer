@@ -571,7 +571,7 @@ jobs:
           vsphere_folder              = "${{ secrets.VSPHERE_FOLDER || 'packer' }}"
           vsphere_iso_datastore       = "${{ env.ISO_BACKING_DATASTORE }}"
           vsphere_template_content_library = "${{ vars.TEMPLATE_CONTENT_LIBRARY || vars.CONTENT_LIBRARY || 'Packer-ISOs' }}"
-          build_username              = "${{ secrets.BUILD_USERNAME }}"
+          build_username              = "${{ secrets.BUILD_USERNAME || 'ubuntu' }}"
           build_password              = "${{ secrets.BUILD_PASSWORD }}"
           build_password_encrypted    = "${{ secrets.BUILD_PASSWORD_ENCRYPTED }}"
           ubuntu_2204_iso_path        = "${{ env.RESOLVED_ISO_2204 }}"
@@ -1114,6 +1114,9 @@ jobs:
           NAME_PATTERN:    ${{ matrix.vm_glob }}
           RETAIN:          ${{ vars.TEMPLATE_RETENTION_COUNT || '2' }}
           DRY_RUN:         ${{ vars.TEMPLATE_PRUNE_DRY_RUN || 'false' }}
+          # Quarantine retention is owned by the monthly rotate-templates.yml so
+          # it runs once per cycle, not once per matrix build. Disable it here.
+          QUARANTINE_RETAIN_DAYS: "0"
         run: bash scripts/prune-templates.sh
 
       # ── Slack notifications ──────────────────────────────────────────────────
