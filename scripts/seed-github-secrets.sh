@@ -51,8 +51,17 @@ command -v gh >/dev/null 2>&1 || { echo "❌ GitHub CLI (gh) not found. Install:
 gh auth status >/dev/null 2>&1 || { echo "❌ gh is not authenticated. Run: gh auth login" >&2; exit 1; }
 [[ -f "${ENV_FILE}" ]] || { echo "❌ ${ENV_FILE} not found. Copy .secrets.env.example to .secrets.env and fill it in." >&2; exit 1; }
 
-repo_args=()
-[[ -n "${REPO}" ]] && repo_args=(--repo "${REPO}")
+# Set one secret or variable, reading the value from stdin so it never appears
+# on the command line (visible in `ps`). A helper — rather than a "${arr[@]}"
+# of optional --repo args — because bash 3.2 (macOS /bin/bash) aborts on an
+# empty array expansion under `set -u`.
+gh_set() { # gh_set <secret|variable> <key>   (value on stdin)
+  if [[ -n "${REPO}" ]]; then
+    gh "$1" set "$2" --repo "${REPO}"
+  else
+    gh "$1" set "$2"
+  fi
+}
 
 secrets_set=0 vars_set=0 skipped=0
 target_desc="${REPO:-current repo}"
@@ -84,7 +93,7 @@ while IFS= read -r line || [[ -n "${line}" ]]; do
     if ${DRY_RUN}; then
       echo "  variable  ${key}  (would set)"
     else
-      printf '%s' "${value}" | gh variable set "${key}" "${repo_args[@]}" --body -
+      printf '%s' "${value}" | gh_set variable "${key}"
       echo "  variable  ${key}  ✔"
     fi
     vars_set=$((vars_set + 1))
@@ -93,7 +102,7 @@ while IFS= read -r line || [[ -n "${line}" ]]; do
       echo "  secret    ${key}  (would set)"
     else
       # Value via stdin, never on the command line, so it can't leak into `ps`.
-      printf '%s' "${value}" | gh secret set "${key}" "${repo_args[@]}"
+      printf '%s' "${value}" | gh_set secret "${key}"
       echo "  secret    ${key}  ✔"
     fi
     secrets_set=$((secrets_set + 1))
