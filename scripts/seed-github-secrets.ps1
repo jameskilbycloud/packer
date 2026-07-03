@@ -22,12 +22,17 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$File = ".secrets.env",
+  [string]$File = "",
   [string]$Repo = $env:GH_REPO,
   [switch]$DryRun
 )
 
 $ErrorActionPreference = "Stop"
+
+# Default to .secrets.env at the repo root (this script lives in scripts/, so its
+# parent is the root) so it's found no matter where you invoke the script from.
+# An explicit -File is used as given (relative to your current directory).
+if (-not $File) { $File = Join-Path (Split-Path -Parent $PSScriptRoot) ".secrets.env" }
 
 # Keys that are repo VARIABLES (vars.* in the workflows), not secrets. Keep in
 # sync with VARIABLE_KEYS in scripts/seed-github-secrets.sh.
