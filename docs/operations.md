@@ -203,7 +203,14 @@ If your repository lives under an organisation, the same two toggles also exist 
 
 Add each secret via **Settings → Secrets and variables → Actions → New repository secret**. Re-paste the new value any time it changes; secrets are overwritten in place.
 
-> **Bulk seeding.** Instead of pasting each one by hand, copy [`.secrets.env.example`](../.secrets.env.example) to `.secrets.env` (gitignored), fill it in, and run `bash scripts/seed-github-secrets.sh` (add `--dry-run` to preview). It sets every non-blank key via `gh` — routing the repo variables below to `gh variable set` and everything else to `gh secret set` — and skips blanks so you can re-run it incrementally. Requires `gh auth login` with repo admin rights.
+> **Bulk seeding.** Instead of pasting each one by hand, copy [`.secrets.env.example`](../.secrets.env.example) to `.secrets.env` (gitignored) and fill it in, then run the seeder. It sets every non-blank key via `gh` — routing the repo variables below to `gh variable set` and everything else to `gh secret set` — and skips blanks so you can re-run it incrementally. Both seeders need the GitHub CLI signed in (`gh auth login`) with repo **admin** rights (setting secrets requires admin, not just maintain).
+>
+> | Platform | Command | Preview |
+> |---|---|---|
+> | Linux / macOS / Git Bash / WSL | `bash scripts/seed-github-secrets.sh` | `--dry-run` |
+> | Windows PowerShell | `pwsh scripts/seed-github-secrets.ps1` | `-DryRun` |
+>
+> **On Windows** you have two paths. If you have **Git Bash** (bundled with [Git for Windows](https://git-scm.com/download/win)) or **WSL**, the `.sh` version works as-is — the repo pins `*.sh` to LF via `.gitattributes` so the shebang doesn't break on checkout. Otherwise use the native **PowerShell** version (`.ps1`), which needs no bash. Install the CLI with `winget install GitHub.cli`. Editing `.secrets.env` in Notepad (CRLF line endings) is fine — both seeders strip the `\r`. Override the target repo with `--repo owner/name` (bash) / `-Repo owner/name` (PowerShell), or the `GH_REPO` env var.
 
 | Secret | Source variable | Description |
 |---|---|---|

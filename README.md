@@ -37,6 +37,7 @@ Autoinstall configuration is rendered at build time via HCL's `templatefile()` f
 |---|---|---|
 | [Packer](https://developer.hashicorp.com/packer/install) | 1.14.0 | `brew install packer` or download binary. Matches the `required_version` in `packer.pkr.hcl`. |
 | [govc](https://github.com/vmware/govmomi/releases) | any recent | Required for ISO upload only |
+| [GitHub CLI (`gh`)](https://cli.github.com) | any recent | For the bulk secret seeder (`scripts/seed-github-secrets.{sh,ps1}`) and the `check-iso-updates` workflow. `brew install gh` / `winget install GitHub.cli`. Run `gh auth login` (repo admin) before seeding. |
 | curl | any | ISO download |
 | sha256sum / shasum | any | Checksum verification (pre-installed on Linux/macOS) |
 | vCenter | 7.0+ | ESXi standalone also works with minor config changes |
@@ -146,6 +147,8 @@ For zero-sudo operation, also pre-install `packer`, `xorriso`, and `govc` as roo
 ### 4. Add repository secrets
 
 **Settings → Secrets and variables → Actions → New repository secret.** Paste each value. The full reference (every secret + which workflow uses it) is in [docs/operations.md → GitHub Secrets](docs/operations.md#github-secrets). Minimum:
+
+> **Faster:** seed every secret and variable in one shot from a local file instead of pasting them — copy `.secrets.env.example` to `.secrets.env`, fill it in, and run `bash scripts/seed-github-secrets.sh` (Linux/macOS/Git Bash/WSL) or `pwsh scripts/seed-github-secrets.ps1` (Windows). Requires the [GitHub CLI](https://cli.github.com) signed in with `gh auth login` (repo admin). See [docs/operations.md → GitHub Secrets](docs/operations.md#github-secrets).
 
 | Category | Secrets |
 |---|---|
