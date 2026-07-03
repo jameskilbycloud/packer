@@ -22,6 +22,10 @@ manifests/*.json
 # Temporary runner vars file written by CI
 runner.pkrvars.hcl
 
+# Filled-in GitHub secrets/variables for scripts/seed-github-secrets.sh.
+# The .example template IS tracked; the real .secrets.env never is.
+.secrets.env
+
 # OS metadata files — written by Finder / Explorer, never useful in the repo
 .DS_Store
 Thumbs.db

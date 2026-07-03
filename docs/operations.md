@@ -203,6 +203,8 @@ If your repository lives under an organisation, the same two toggles also exist 
 
 Add each secret via **Settings → Secrets and variables → Actions → New repository secret**. Re-paste the new value any time it changes; secrets are overwritten in place.
 
+> **Bulk seeding.** Instead of pasting each one by hand, copy [`.secrets.env.example`](../.secrets.env.example) to `.secrets.env` (gitignored), fill it in, and run `bash scripts/seed-github-secrets.sh` (add `--dry-run` to preview). It sets every non-blank key via `gh` — routing the repo variables below to `gh variable set` and everything else to `gh secret set` — and skips blanks so you can re-run it incrementally. Requires `gh auth login` with repo admin rights.
+
 | Secret | Source variable | Description |
 |---|---|---|
 | `VSPHERE_SERVER` | `vsphere_server` | vCenter URL, e.g. `https://vcenter.example.com` |
