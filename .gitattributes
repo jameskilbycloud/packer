@@ -1,2 +1,9 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Shell scripts must stay LF even on Windows checkouts, or the `#!/usr/bin/env
+# bash` shebang breaks with a literal CR (`bash\r: not found`) under Git Bash / WSL.
+*.sh text eol=lf
+
+# PowerShell scripts are happiest as CRLF on Windows (they tolerate LF too).
+*.ps1 text eol=crlf
