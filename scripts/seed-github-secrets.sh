@@ -24,7 +24,11 @@ set -euo pipefail
 # sync with `grep -rhoE 'vars\.[A-Z_]+' .github/workflows/`.
 VARIABLE_KEYS=" CONTENT_LIBRARY RUNNER_LABEL TEMPLATE_RETENTION_COUNT TEMPLATE_PRUNE_DRY_RUN TEMPLATE_CONTENT_LIBRARY QUARANTINE_RETAIN_DAYS PREFLIGHT_MIN_FREE_GB "
 
-ENV_FILE=".secrets.env"
+# Default to .secrets.env at the repo root (this script lives in scripts/, so
+# its parent is the root) so it's found no matter where you invoke the script
+# from. An explicit --file is used as given (relative to your current directory).
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="$(dirname -- "${SCRIPT_DIR}")/.secrets.env"
 REPO="${GH_REPO:-}"
 DRY_RUN=false
 
