@@ -104,8 +104,8 @@ NETPLAN
     exit 1
   fi
 else
-  echo "==> ${NETPLAN_FILE} not found — skipping clone-safe rewrite."
-  echo "    (Expected on every Ubuntu desktop autoinstall; investigate if missing.)"
+  echo "==> No known netplan file (50-cloud-init.yaml / 00-installer-config.yaml) found — skipping clone-safe rewrite."
+  echo "    (Unexpected on an Ubuntu desktop autoinstall; investigate if this fires.)"
 fi
 
 echo "==> desktop.sh complete."

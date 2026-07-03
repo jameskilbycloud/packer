@@ -295,7 +295,9 @@ UNIT
 systemctl enable firstboot-hostname.service
 
 echo "==> Hardening SSH configuration..."
-cat >> /etc/ssh/sshd_config.d/99-packer-hardening.conf << 'EOF'
+# Truncate (>) rather than append (>>): this block fully owns the file, so a
+# re-run of the provisioner must not stack a second copy of these directives.
+cat > /etc/ssh/sshd_config.d/99-packer-hardening.conf << 'EOF'
 # Packer build hardening — adjust after deployment as needed
 PermitRootLogin no
 PasswordAuthentication yes

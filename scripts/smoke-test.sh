@@ -565,13 +565,22 @@ scp "${SSH_OPTS[@]}" "${scp_files[@]}" "${BUILD_USERNAME}@${ip}:/tmp/"
 # goss assertions need to read /etc/sudoers.d, /etc/ssh, etc. Use sudo with
 # password (finalize.sh removed the NOPASSWD drop-in, but build user is in
 # the sudo group via autoinstall).
+#
+# The password is delivered over ssh's stdin (consumed by `sudo -S`), NOT
+# embedded in the remote command string. Embedding it as `echo '${BUILD_PASSWORD}'`
+# both broke on any password containing a single quote and briefly exposed the
+# secret in the guest's process table. Piping via the here-string keeps it off
+# argv entirely — same rationale as the diagnostic pass's `-e BUILD_PASS=` +
+# stdin approach above. goss reads no stdin of its own, so the leftover empty
+# stdin after sudo consumes the first line is harmless.
 echo "==> Running goss against the clone (sudo on the guest)..."
+# rc=0 + `|| rc=$?` so a failing ssh doesn't trip `set -e` before the failure
+# message / exit below (the EXIT trap still handles clone teardown either way).
+rc=0
 ssh "${SSH_OPTS[@]}" "${BUILD_USERNAME}@${ip}" \
-  "echo '${BUILD_PASSWORD}' | sudo -S -p '' \
+  "sudo -S -p '' \
      env GOSS_SPEC=/tmp/${spec_name} BUILD_USERNAME=${BUILD_USERNAME} \
-     bash /tmp/goss-validate.sh"
-
-rc=$?
+     bash /tmp/goss-validate.sh" <<<"${BUILD_PASSWORD}" || rc=$?
 if [[ ${rc} -ne 0 ]]; then
   echo "❌ Smoke test FAILED on clone ${CLONE_NAME} (goss exit ${rc})"
   exit ${rc}

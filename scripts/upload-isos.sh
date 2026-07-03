@@ -343,7 +343,10 @@ check_prerequisites() {
     required_gb=$(( max_bytes / 1024 / 1024 / 1024 + 2 ))     # one at a time → largest
   fi
   local avail_kb avail_gb
-  avail_kb=$(df -k "${DOWNLOAD_DIR}" | awk 'NR==2 {print $4}')
+  # -P forces POSIX single-line output; without it GNU df wraps a long
+  # device/filesystem name onto its own line, making NR==2 the wrapped
+  # continuation and $4 wrong/empty → a bogus "insufficient disk space" abort.
+  avail_kb=$(df -Pk "${DOWNLOAD_DIR}" | awk 'NR==2 {print $4}')
   avail_gb=$(( avail_kb / 1024 / 1024 ))
   if [[ "${avail_gb}" -lt "${required_gb}" ]]; then
     error "Insufficient disk space in ${DOWNLOAD_DIR} (need ~${required_gb} GB, have ~${avail_gb} GB)"
@@ -501,8 +504,8 @@ verify_checksum() {
 # ── ISO download ───────────────────────────────────────────────────────────────
 download_iso() {
   local version="$1"
-  local filename="${ISO_FILENAME[${version}]}"
-  local base_url="${ISO_BASE_URL[${version}]}"
+  local filename="${ISO_FILENAME[${version}]:-}"
+  local base_url="${ISO_BASE_URL[${version}]:-}"
   local iso_path="${DOWNLOAD_DIR}/${filename}"
 
   DOWNLOADED_ISO_PATH=""
@@ -669,9 +672,19 @@ import_iso() {
 process_version() {
   local version="$1"
   local label="${ISO_LABEL[${version}]:-Ubuntu ${version}}"
-  local filename="${ISO_FILENAME[${version}]}"
+  local filename="${ISO_FILENAME[${version}]:-}"
 
   header "${label}"
+
+  # Guard against a version code with no map entry (operator typo, e.g.
+  # UBUNTU_VERSIONS="2504"). Without the :- above this aborts the whole run
+  # under `set -u`; instead fail just this version, mirroring the unknown-slug
+  # handling in process_extra.
+  if [[ -z "${filename}" ]]; then
+    error "Unknown Ubuntu version '${version}' — no ISO_FILENAME entry. Known: ${!ISO_FILENAME[*]}"
+    BUILD_STATUS[${version}]="FAILED (unknown version)"
+    return 1
+  fi
 
   if library_item_exists "${filename}"; then
     success "Already present: ${CONTENT_LIBRARY}/${filename}"
