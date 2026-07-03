@@ -49,6 +49,22 @@ repos:
         files: '\.pkr\.hcl$'
         pass_filenames: false
 
+  # ── goss spec drift ───────────────────────────────────────────────────────
+  # The in-build (server.yaml / desktop.yaml) and post-clone (*-clone.yaml)
+  # goss specs are hand-mirrored near-duplicates. This local hook fails if their
+  # assertion-key sets diverge beyond the known intentional differences, so a
+  # new assertion added to one spec but not the other is caught in CI rather
+  # than silently going unchecked on clones. See scripts/check-goss-drift.sh.
+  - repo: local
+    hooks:
+      - id: goss-drift
+        name: goss spec drift
+        description: Ensure in-build and post-clone goss specs stay in sync
+        entry: scripts/check-goss-drift.sh
+        language: system
+        files: '^goss/.*\.yaml$'
+        pass_filenames: false
+
   # ── shellcheck ──────────────────────────────────────────────────────────
   # shellcheck-py wraps the upstream shellcheck binary as a Python package
   # so contributors don't need a separate Homebrew / apt install.
