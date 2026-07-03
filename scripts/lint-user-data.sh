@@ -15,7 +15,7 @@
 #   - templates/server-user-data.pkrtpl
 #   - templates/desktop-user-data.pkrtpl
 #
-# What we substitute (matches the templatefile() call sites in ubuntu-*.pkr.hcl):
+# What we substitute (matches the templatefile() call sites in ubuntu.pkr.hcl):
 #   ${vm_hostname}                                  → lint-host
 #   ${build_username}                               → lintuser
 #   ${build_password_encrypted}                     → $6$rounds=4096$salt$hash...

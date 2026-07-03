@@ -59,9 +59,7 @@ packer/
 ├── variables.pkr.hcl               # All variable declarations + defaults
 ├── locals.pkr.hcl                  # Shared locals: build_date, ssh_timeout
 │
-├── ubuntu-2204.pkr.hcl             # 22.04 server + desktop sources
-├── ubuntu-2404.pkr.hcl             # 24.04 server + desktop sources
-├── ubuntu-2604.pkr.hcl             # 26.04 server + desktop sources
+├── ubuntu.pkr.hcl                  # All 3 LTS releases (server + desktop sources + builds)
 │
 ├── templates/
 │   ├── server-user-data.pkrtpl     # Cloud-init autoinstall (server, all versions)
