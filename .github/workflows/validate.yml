@@ -137,7 +137,7 @@ jobs:
             -var="vsphere_network=ci-validate" \
             -var="vsphere_iso_datastore=ci-validate" \
             -var="build_password=ci-validate" \
-            -var="build_password_encrypted=ci-validate" \
+            -var='build_password_encrypted=$6$civalidate$civalidate' \
             .
 
       # ── Cloud-init schema validation of the autoinstall user-data ───────────

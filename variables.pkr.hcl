@@ -37,6 +37,11 @@ variable "vsphere_cluster" {
   type        = string
   description = "Name of the vSphere cluster (leave empty to use vsphere_host directly)"
   default     = ""
+  # Note: "exactly one of vsphere_cluster / vsphere_host" cannot be enforced
+  # here — Packer variable validation blocks may only reference their own
+  # variable, not vsphere_host. The locals ternary in each ubuntu-*.pkr.hcl
+  # turns "" into null and lets the builder pick whichever is set; if both are
+  # empty the build fails fast at clone with a placement error.
 }
 
 variable "vsphere_host" {
@@ -90,6 +95,17 @@ variable "build_username" {
   type        = string
   description = "Admin username created during the OS install"
   default     = "ubuntu"
+
+  # Guard the "unset secret clobbers the default" footgun: CI feeds this from a
+  # secret with no per-var fallback, so a missing BUILD_USERNAME would pass
+  # build_username = "" — silently overriding the "ubuntu" default. An empty
+  # username makes autoinstall create a nameless user, writes a "'' ALL=..."
+  # sudoers entry, and leaves Packer trying to SSH as "". Fail at validate
+  # instead. (The workflow also defaults to 'ubuntu' as a first line of defence.)
+  validation {
+    condition     = length(trimspace(var.build_username)) > 0
+    error_message = "The build_username must not be empty. In CI, set the BUILD_USERNAME secret (the workflow also falls back to 'ubuntu')."
+  }
 }
 
 variable "build_password" {
@@ -102,6 +118,14 @@ variable "build_password_encrypted" {
   type        = string
   description = "SHA-512 hashed password injected into autoinstall user-data. Generate with: openssl passwd -6 '<your-password>'"
   sensitive   = true
+
+  # autoinstall expects a SHA-512 crypt hash ($6$...). A plaintext password or
+  # a wrong-algorithm hash here produces an account with an unusable password
+  # and no clear error until the build fails at SSH. Catch it at validate.
+  validation {
+    condition     = can(regex("^\\$6\\$", var.build_password_encrypted))
+    error_message = "The build_password_encrypted value must be a SHA-512 crypt hash starting with '$6$'. Generate with: openssl passwd -6 '<password>'."
+  }
 }
 
 variable "build_ssh_authorized_keys" {
@@ -169,6 +193,13 @@ variable "vm_hardware_version" {
   type        = number
   description = "VMware hardware version. 19 = vSphere 7.0 U2, 20 = vSphere 8.0, 21 = vSphere 8.0 U2"
   default     = 21
+
+  # Only the documented, tested hardware versions are supported. A typo (e.g.
+  # 12 or 210) would otherwise reach the builder and fail deep in the clone.
+  validation {
+    condition     = contains([19, 20, 21], var.vm_hardware_version)
+    error_message = "The vm_hardware_version must be one of 19 (vSphere 7.0 U2), 20 (vSphere 8.0), or 21 (vSphere 8.0 U2)."
+  }
 }
 
 # =============================================================================
