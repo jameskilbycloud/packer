@@ -35,6 +35,14 @@ concurrency:
 jobs:
   pre-commit:
     name: Run pre-commit hooks
+    # Do NOT run fork PRs on the self-hosted runner. pre-commit executes hook
+    # definitions from the PR's own .pre-commit-config.yaml (and the local
+    # packer-fmt hook), so a malicious fork PR could run arbitrary code on a
+    # runner inside the vSphere network. Restrict to pushes and same-repo
+    # (branch) PRs; fork PRs get these checks once a maintainer pushes the
+    # branch into the repo. Belt-and-braces alongside the "require approval for
+    # outside collaborators" Actions setting.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
     timeout-minutes: 10
 
@@ -56,23 +64,9 @@ jobs:
       # `pre-commit run` step will surface the missing tool clearly.
       - name: Install Packer
         continue-on-error: true
-        run: |
-          if command -v packer &>/dev/null; then
-            echo "Packer already installed: $(packer version)"
-            exit 0
-          fi
-          echo "Packer not installed — attempting best-effort auto-install (requires sudo)."
-          echo "If this fails, pre-install per docs/operations.md → Setting up the runner."
-          PACKER_VERSION=$(curl -fsSL https://api.releases.hashicorp.com/v1/releases/packer/latest \
-            | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
-          ARCH=$(dpkg --print-architecture)
-          curl -fsSL "https://releases.hashicorp.com/packer/${PACKER_VERSION}/packer_${PACKER_VERSION}_linux_${ARCH}.zip" \
-            -o /tmp/packer.zip
-          python3 -c "import zipfile,sys; zipfile.ZipFile('/tmp/packer.zip').extract('packer','/tmp')"
-          sudo mv /tmp/packer /usr/local/bin/packer
-          sudo chmod +x /usr/local/bin/packer
-          rm /tmp/packer.zip
-          packer version
+        uses: ./.github/actions/install-verified-binary
+        with:
+          tool: packer
 
       # ── Install pre-commit (idempotent, best-effort) ─────────────────────────
       # Prefer the runner's system pre-commit (apt-installed per
