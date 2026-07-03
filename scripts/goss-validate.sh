@@ -51,14 +51,15 @@ echo ""
 
 # --vars-inline passes a JSON object that becomes `.Vars.*` in the spec's
 # Go-templated fields (e.g. `.Vars.build_username`).
+# rc=0 + `|| rc=$?` so a goss failure doesn't trip `set -e` before the cleanup
+# and messaging below — otherwise those lines are dead code on the failure path.
+rc=0
 goss \
   --vars-inline "{\"build_username\":\"${BUILD_USERNAME}\"}" \
   --gossfile "${GOSS_SPEC}" \
   validate \
   --color \
-  --format documentation
-
-rc=$?
+  --format documentation || rc=$?
 
 # ── Clean up so the binary and spec don't ship in the template ──
 echo ""
