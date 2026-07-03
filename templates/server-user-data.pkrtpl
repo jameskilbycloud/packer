@@ -32,7 +32,7 @@ autoinstall:
     #
     # Note on dollar-brace escaping in this file: templatefile() consumes
     # dollar-brace references at render time (they map to the variables
-    # passed by the ubuntu-*.pkr.hcl source block, e.g. the build_username
+    # passed by the ubuntu.pkr.hcl source block, e.g. the build_username
     # Packer variable). To pass a literal dollar-brace through to the
     # guest shell — for shell parameter expansion — write it with a
     # doubled dollar sign so templatefile() emits one dollar at render
