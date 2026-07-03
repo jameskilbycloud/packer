@@ -10,13 +10,12 @@ on:
   workflow_dispatch:
 
 # ── Permissions ───────────────────────────────────────────────────────────────
-# contents:        push a branch with the bump
-# pull-requests:   open the bump PR
-# actions:         trigger upload-isos.yml against the new branch
+# Least privilege: default the whole workflow to read-only and grant each job
+# only the write scopes it actually uses (see the per-job `permissions:` blocks).
+#   check:          contents:write (push bump branch) + pull-requests:write (open PR)
+#   trigger-upload: actions:write (dispatch upload-isos.yml)
 permissions:
-  contents: write
-  pull-requests: write
-  actions: write
+  contents: read
 
 # ── Concurrency ───────────────────────────────────────────────────────────────
 # Queue rather than cancel — a previous run that's still opening a PR shouldn't
@@ -28,6 +27,9 @@ concurrency:
 jobs:
   check:
     name: Detect new ISO point releases
+    permissions:
+      contents: write        # push the bump branch
+      pull-requests: write   # open the bump PR
     runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
     timeout-minutes: 15
     outputs:
@@ -176,6 +178,8 @@ jobs:
     name: Trigger upload-isos against PR branch
     needs: check
     if: needs.check.outputs.drift == 'true' && needs.check.outputs.existing_pr == ''
+    permissions:
+      actions: write         # dispatch upload-isos.yml
     runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
     timeout-minutes: 5
     steps:

@@ -1,0 +1,28 @@
+name: Install verified binary (govc / packer)
+description: >
+  Best-effort, idempotent install of govc or packer with SHA256 verification
+  against the publisher's own checksums file before any sudo. A no-op when the
+  tool is already on PATH (the runner is normally pre-provisioned per
+  docs/operations.md). Replaces the previous inline "curl | sudo tar" blocks
+  that piped an unverified download straight into sudo.
+inputs:
+  tool:
+    description: "Which tool to install: govc or packer."
+    required: true
+  version:
+    description: >
+      Exact version to install (packer: e.g. 1.14.0; govc: e.g. v0.49.0). Leave
+      empty to resolve the latest release. Pin this to defend against an
+      upstream release being replaced; the checksum verification below already
+      defends against a corrupted or MITM'd download body at a given version.
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Install ${{ inputs.tool }} (verified)
+      shell: bash
+      env:
+        TOOL: ${{ inputs.tool }}
+        PIN_VERSION: ${{ inputs.version }}
+      run: bash "${GITHUB_ACTION_PATH}/install.sh"

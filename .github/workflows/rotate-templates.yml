@@ -59,20 +59,9 @@ jobs:
       # avoid relying on this fallback.
       - name: Install govc
         continue-on-error: true
-        run: |
-          if command -v govc &>/dev/null; then
-            echo "govc already installed: $(govc version)"
-            exit 0
-          fi
-          echo "govc not installed — attempting best-effort auto-install (requires sudo)."
-          echo "If this fails, pre-install per docs/operations.md → Setting up the runner."
-          GOVC_VERSION=$(curl -fsSL https://api.github.com/repos/vmware/govmomi/releases/latest \
-            | grep '"tag_name"' | cut -d'"' -f4)
-          curl -fsSL \
-            "https://github.com/vmware/govmomi/releases/download/${GOVC_VERSION}/govc_Linux_x86_64.tar.gz" \
-            | sudo tar -xzf - -C /usr/local/bin govc
-          sudo chmod +x /usr/local/bin/govc
-          echo "govc installed: $(govc version)"
+        uses: ./.github/actions/install-verified-binary
+        with:
+          tool: govc
 
       - name: Prune old templates
         env:

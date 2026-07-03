@@ -78,6 +78,7 @@ jobs:
   resolve-targets:
     name: Resolve build targets
     runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
+    timeout-minutes: 5   # pure shell matrix computation; never legitimately runs long
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       smoke_matrix: ${{ steps.set-matrix.outputs.smoke_matrix }}
@@ -219,20 +220,9 @@ jobs:
       # per docs/operations.md to avoid relying on this fallback.
       - name: Install govc
         continue-on-error: true
-        run: |
-          if command -v govc &>/dev/null; then
-            echo "govc already installed: $(govc version)"
-            exit 0
-          fi
-          echo "govc not installed — attempting best-effort auto-install (requires sudo)."
-          echo "If this fails, pre-install per docs/operations.md → Setting up the runner."
-          GOVC_VERSION=$(curl -fsSL https://api.github.com/repos/vmware/govmomi/releases/latest \
-            | grep '"tag_name"' | cut -d'"' -f4)
-          curl -fsSL \
-            "https://github.com/vmware/govmomi/releases/download/${GOVC_VERSION}/govc_Linux_x86_64.tar.gz" \
-            | sudo tar -xzf - -C /usr/local/bin govc
-          sudo chmod +x /usr/local/bin/govc
-          echo "govc installed: $(govc version)"
+        uses: ./.github/actions/install-verified-binary
+        with:
+          tool: govc
 
       - name: vSphere health checks
         env:
@@ -336,25 +326,9 @@ jobs:
       # fallback.
       - name: Install Packer
         continue-on-error: true
-        run: |
-          if command -v packer &>/dev/null; then
-            echo "Packer already installed: $(packer version)"
-            exit 0
-          fi
-          echo "Packer not installed — attempting best-effort auto-install (requires sudo)."
-          echo "If this fails, pre-install per docs/operations.md → Setting up the runner."
-          # Install via direct binary download — avoids APT codename mismatches
-          # (e.g. pre-release Ubuntu codenames not yet in HashiCorp's repo)
-          PACKER_VERSION=$(curl -fsSL https://api.releases.hashicorp.com/v1/releases/packer/latest \
-            | grep -o '"version":"[^"]*"' | sed -n '1p' | cut -d'"' -f4)
-          ARCH=$(dpkg --print-architecture)
-          curl -fsSL "https://releases.hashicorp.com/packer/${PACKER_VERSION}/packer_${PACKER_VERSION}_linux_${ARCH}.zip" \
-            -o /tmp/packer.zip
-          python3 -c "import zipfile,sys; zipfile.ZipFile('/tmp/packer.zip').extract('packer','/tmp')"
-          sudo mv /tmp/packer /usr/local/bin/packer
-          sudo chmod +x /usr/local/bin/packer
-          rm /tmp/packer.zip
-          packer version
+        uses: ./.github/actions/install-verified-binary
+        with:
+          tool: packer
 
       # ── Install xorriso (required for cloud-init CD image creation) ─────────
       - name: Install xorriso
@@ -375,20 +349,9 @@ jobs:
       # ── Install govc (required to resolve Content Library ISO paths) ──────────
       - name: Install govc
         continue-on-error: true
-        run: |
-          if command -v govc &>/dev/null; then
-            echo "govc already installed: $(govc version)"
-            exit 0
-          fi
-          echo "govc not installed — attempting best-effort auto-install (requires sudo)."
-          echo "If this fails, pre-install per docs/operations.md → Setting up the runner."
-          GOVC_VERSION=$(curl -fsSL https://api.github.com/repos/vmware/govmomi/releases/latest \
-            | grep '"tag_name"' | cut -d'"' -f4)
-          curl -fsSL \
-            "https://github.com/vmware/govmomi/releases/download/${GOVC_VERSION}/govc_Linux_x86_64.tar.gz" \
-            | sudo tar -xzf - -C /usr/local/bin govc
-          sudo chmod +x /usr/local/bin/govc
-          echo "govc installed: $(govc version)"
+        uses: ./.github/actions/install-verified-binary
+        with:
+          tool: govc
 
       # ── Resolve Content Library ISO paths via govc library.info ─────────────
       # Content Library items live at contentlib-{lib-uuid}/{item-uuid}/{file}
@@ -499,6 +462,11 @@ jobs:
       # "already exists" errors with `|| true`. Nested paths (e.g. "a/b/c")
       # are handled by creating each level in turn.
       - name: Ensure vSphere VM folder exists
+        # Skip on dry-run: this MUTATES vSphere (creates inventory folders) and
+        # `packer validate` doesn't need the folder to exist. The read-only ISO
+        # path resolution above still runs on dry-run because validate needs the
+        # resolved paths in runner.pkrvars.hcl.
+        if: needs.resolve-targets.outputs.dry_run == 'false'
         env:
           GOVC_URL:        ${{ secrets.VSPHERE_SERVER }}
           GOVC_USERNAME:   ${{ secrets.VSPHERE_USER }}
@@ -639,6 +607,15 @@ jobs:
           PACKER_LOG: 1
           PACKER_LOG_PATH: packer-${{ matrix.label }}.log
           TMPDIR: /var/tmp   # /tmp is a small tmpfs; Packer writes CD images here
+          # govc creds for the in-loop pre-retry VM cleanup. Set here as real
+          # environment variables (never interpolated into the run: script text)
+          # so a secret containing a shell metacharacter can't break out of the
+          # command — matching the "Destroy orphaned VM" step's env: pattern.
+          GOVC_URL:        ${{ secrets.VSPHERE_SERVER }}
+          GOVC_USERNAME:   ${{ secrets.VSPHERE_USER }}
+          GOVC_PASSWORD:   ${{ secrets.VSPHERE_PASSWORD }}
+          GOVC_INSECURE:   ${{ secrets.VSPHERE_INSECURE || 'false' }}
+          GOVC_DATACENTER: ${{ secrets.VSPHERE_DATACENTER }}
           # Retry budget — 2 attempts uniform across all versions.
           #
           # History: 2604 used to need MAX_ATTEMPTS=4 because curtin's
@@ -758,28 +735,13 @@ jobs:
               # FINAL attempt — that path falls through to the downstream
               # screenshot step, which grabs a PNG before "Destroy orphaned
               # VM" cleans up.
-              vms=$(GOVC_URL='${{ secrets.VSPHERE_SERVER }}' \
-                    GOVC_USERNAME='${{ secrets.VSPHERE_USER }}' \
-                    GOVC_PASSWORD='${{ secrets.VSPHERE_PASSWORD }}' \
-                    GOVC_INSECURE='${{ secrets.VSPHERE_INSECURE || 'false' }}' \
-                    GOVC_DATACENTER='${{ secrets.VSPHERE_DATACENTER }}' \
-                    govc find . -type m -name "${{ matrix.vm_glob }}" 2>/dev/null || true)
+              vms=$(govc find . -type m -name "${{ matrix.vm_glob }}" 2>/dev/null || true)
               if [[ -n "${vms}" ]]; then
                 while IFS= read -r vm; do
                   [[ -z "${vm}" ]] && continue
                   echo "    Pre-retry cleanup: destroying leftover VM ${vm}"
-                  GOVC_URL='${{ secrets.VSPHERE_SERVER }}' \
-                    GOVC_USERNAME='${{ secrets.VSPHERE_USER }}' \
-                    GOVC_PASSWORD='${{ secrets.VSPHERE_PASSWORD }}' \
-                    GOVC_INSECURE='${{ secrets.VSPHERE_INSECURE || 'false' }}' \
-                    GOVC_DATACENTER='${{ secrets.VSPHERE_DATACENTER }}' \
-                    govc vm.power -off=true -force=true "${vm}" 2>/dev/null || true
-                  GOVC_URL='${{ secrets.VSPHERE_SERVER }}' \
-                    GOVC_USERNAME='${{ secrets.VSPHERE_USER }}' \
-                    GOVC_PASSWORD='${{ secrets.VSPHERE_PASSWORD }}' \
-                    GOVC_INSECURE='${{ secrets.VSPHERE_INSECURE || 'false' }}' \
-                    GOVC_DATACENTER='${{ secrets.VSPHERE_DATACENTER }}' \
-                    govc vm.destroy "${vm}" 2>/dev/null || true
+                  govc vm.power -off=true -force=true "${vm}" 2>/dev/null || true
+                  govc vm.destroy "${vm}" 2>/dev/null || true
                 done <<< "${vms}"
               fi
 
@@ -1192,7 +1154,14 @@ jobs:
   smoke:
     name: Smoke ubuntu-${{ matrix.label }}
     needs: [resolve-targets, build]
-    if: success() && needs.resolve-targets.outputs.dry_run == 'false'
+    # Run smoke as long as the run wasn't cancelled and this isn't a dry-run —
+    # NOT gated on `success()`. `build` uses fail-fast:false, so one failed
+    # variant flips the whole `build` job to `failure`; a `success()` gate would
+    # then skip smoke for every template that built cleanly, publishing them
+    # unverified. `!cancelled()` lets smoke run per-leg regardless of a sibling
+    # build failure. If resolve-targets itself fails, its dry_run output is
+    # empty so the `== 'false'` check is false and smoke is correctly skipped.
+    if: ${{ !cancelled() && needs.resolve-targets.outputs.dry_run == 'false' }}
     runs-on: ${{ vars.RUNNER_LABEL || 'self-hosted' }}
     timeout-minutes: 30
 
@@ -1208,20 +1177,9 @@ jobs:
       # Best-effort auto-install — see comment on the earlier Install govc step.
       - name: Install govc
         continue-on-error: true
-        run: |
-          if command -v govc &>/dev/null; then
-            echo "govc already installed: $(govc version)"
-            exit 0
-          fi
-          echo "govc not installed — attempting best-effort auto-install (requires sudo)."
-          echo "If this fails, pre-install per docs/operations.md → Setting up the runner."
-          GOVC_VERSION=$(curl -fsSL https://api.github.com/repos/vmware/govmomi/releases/latest \
-            | grep '"tag_name"' | cut -d'"' -f4)
-          curl -fsSL \
-            "https://github.com/vmware/govmomi/releases/download/${GOVC_VERSION}/govc_Linux_x86_64.tar.gz" \
-            | sudo tar -xzf - -C /usr/local/bin govc
-          sudo chmod +x /usr/local/bin/govc
-          echo "govc installed: $(govc version)"
+        uses: ./.github/actions/install-verified-binary
+        with:
+          tool: govc
 
       - name: Run smoke test against cloned template
         env:
