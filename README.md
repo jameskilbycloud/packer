@@ -37,7 +37,7 @@ Autoinstall configuration is rendered at build time via HCL's `templatefile()` f
 |---|---|---|
 | [Packer](https://developer.hashicorp.com/packer/install) | 1.14.0 | `brew install packer` or download binary. Matches the `required_version` in `packer.pkr.hcl`. |
 | [govc](https://github.com/vmware/govmomi/releases) | any recent | Required for ISO upload only |
-| [GitHub CLI (`gh`)](https://cli.github.com) | any recent | For the bulk secret seeder (`scripts/seed-github-secrets.{sh,ps1}`) and the `check-iso-updates` workflow. `brew install gh` / `winget install GitHub.cli`. Run `gh auth login` (repo admin) before seeding. |
+| [GitHub CLI (`gh`)](https://cli.github.com) | any recent | For the bulk secret seeder (`scripts/seed-github-secrets.{sh,ps1}`) and the `check-iso-updates` workflow. `brew install gh` / `winget install GitHub.cli`. Run `gh auth login` (repo admin) before seeding. **On Windows, also install [Git for Windows](https://git-scm.com/download/win)** — `gh` shells out to Git to detect the current repo, so without it the seeder's `gh secret set` fails; it also provides Git Bash for the `.sh` seeder. (Or pass `-Repo owner/name` to skip repo detection.) |
 | curl | any | ISO download |
 | sha256sum / shasum | any | Checksum verification (pre-installed on Linux/macOS) |
 | vCenter | 7.0+ | ESXi standalone also works with minor config changes |
