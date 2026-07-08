@@ -96,8 +96,8 @@ source "vsphere-iso" "ubuntu-2204-server" {
   notes         = "Ubuntu ${local.ubuntu["2204"].dotted} LTS Server — built by Packer on ${local.build_timestamp} | git: ${var.git_commit}"
   vm_version    = var.vm_hardware_version
 
-  CPUs            = 1
-  cpu_cores       = var.server_cpu_count
+  CPUs            = var.server_cpu_count
+  cpu_cores       = 1
   RAM             = var.server_ram_mb
   RAM_reserve_all = false
 
@@ -182,8 +182,8 @@ source "vsphere-iso" "ubuntu-2204-desktop" {
   notes         = "Ubuntu ${local.ubuntu["2204"].dotted} LTS Desktop — built by Packer on ${local.build_timestamp} | git: ${var.git_commit}"
   vm_version    = var.vm_hardware_version
 
-  CPUs            = 1
-  cpu_cores       = var.desktop_cpu_count
+  CPUs            = var.desktop_cpu_count
+  cpu_cores       = 1
   RAM             = var.desktop_ram_mb
   RAM_reserve_all = false
 
@@ -377,8 +377,8 @@ source "vsphere-iso" "ubuntu-2404-server" {
   notes         = "Ubuntu ${local.ubuntu["2404"].dotted} LTS Server — built by Packer on ${local.build_timestamp} | git: ${var.git_commit}"
   vm_version    = var.vm_hardware_version
 
-  CPUs            = 1
-  cpu_cores       = var.server_cpu_count
+  CPUs            = var.server_cpu_count
+  cpu_cores       = 1
   RAM             = var.server_ram_mb
   RAM_reserve_all = false
 
@@ -463,8 +463,8 @@ source "vsphere-iso" "ubuntu-2404-desktop" {
   notes         = "Ubuntu ${local.ubuntu["2404"].dotted} LTS Desktop — built by Packer on ${local.build_timestamp} | git: ${var.git_commit}"
   vm_version    = var.vm_hardware_version
 
-  CPUs            = 1
-  cpu_cores       = var.desktop_cpu_count
+  CPUs            = var.desktop_cpu_count
+  cpu_cores       = 1
   RAM             = var.desktop_ram_mb
   RAM_reserve_all = false
 
@@ -664,8 +664,8 @@ source "vsphere-iso" "ubuntu-2604-server" {
   notes         = "Ubuntu ${local.ubuntu["2604"].dotted} LTS Server — built by Packer on ${local.build_timestamp} | git: ${var.git_commit}"
   vm_version    = var.vm_hardware_version
 
-  CPUs            = 1
-  cpu_cores       = var.server_cpu_count
+  CPUs            = var.server_cpu_count
+  cpu_cores       = 1
   RAM             = var.server_ram_mb
   RAM_reserve_all = false
 
@@ -750,8 +750,8 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
   notes         = "Ubuntu ${local.ubuntu["2604"].dotted} LTS Desktop — built by Packer on ${local.build_timestamp} | git: ${var.git_commit}"
   vm_version    = var.vm_hardware_version
 
-  CPUs            = 1
-  cpu_cores       = var.desktop_cpu_count
+  CPUs            = var.desktop_cpu_count
+  cpu_cores       = 1
   RAM             = var.desktop_ram_mb
   RAM_reserve_all = false
 
