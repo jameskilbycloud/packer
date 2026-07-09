@@ -571,8 +571,15 @@ jobs:
           if [[ -n "${{ steps.build-keypair.outputs.public_key }}" ]]; then
             echo "build_ssh_private_key_file = \"${{ steps.build-keypair.outputs.private_key_path }}\"" >> runner.pkrvars.hcl
             authkeys="[\"${{ steps.build-keypair.outputs.public_key }}\""
-            if [[ -n "${SMOKE_SSH_PUBLIC_KEY}" ]]; then
-              authkeys="${authkeys}, \"${SMOKE_SSH_PUBLIC_KEY}\""
+            # Normalise the smoke pubkey to a single clean line before embedding
+            # it in the HCL string. `gh secret set … < key.pub` keeps the file's
+            # trailing newline, and a literal newline inside an HCL "..." string
+            # is invalid — it would fail `packer validate` and kill the build.
+            # awk 'NF{print;exit}' emits the first non-blank line and stops, so
+            # CR/LF, a trailing newline, or accidental extra lines can't leak in.
+            smoke_pub="$(printf '%s' "${SMOKE_SSH_PUBLIC_KEY}" | tr -d '\r' | awk 'NF{print; exit}')"
+            if [[ -n "${smoke_pub}" ]]; then
+              authkeys="${authkeys}, \"${smoke_pub}\""
             fi
             authkeys="${authkeys}]"
             echo "build_ssh_authorized_keys = ${authkeys}" >> runner.pkrvars.hcl
