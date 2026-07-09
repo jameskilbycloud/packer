@@ -525,6 +525,13 @@ jobs:
       # We write a temporary vars file rather than passing dozens of -var flags.
       # The file is removed in the cleanup step regardless of build success.
       - name: Write variables file
+        env:
+          # Appended to the template's authorized_keys so a VMC smoke job can
+          # SSH straight into the clone (guest-ops injection is impossible on
+          # VMC). Empty on non-VMC setups → only the ephemeral build key is
+          # injected, unchanged behaviour. Read from env, not inline `${{ }}`,
+          # so an SSH key with special chars can't break the HCL list literal.
+          SMOKE_SSH_PUBLIC_KEY: ${{ secrets.SMOKE_SSH_PUBLIC_KEY }}
         run: |
           cat > runner.pkrvars.hcl << 'EOF'
           vsphere_server              = "${{ secrets.VSPHERE_SERVER }}"
@@ -557,12 +564,18 @@ jobs:
 
           # Append the ephemeral build SSH keypair vars (only set on real
           # builds; dry-run skips the keypair-generation step). HCL list
-          # literal: `["ssh-ed25519 AAAA... comment"]`.
+          # literal: `["ssh-ed25519 AAAA... comment"]`. The smoke pubkey, when
+          # present, is appended as a second list element so it also lands in
+          # the template's authorized_keys — that's what lets the ssh-direct
+          # (VMC) smoke path work without guest ops.
           if [[ -n "${{ steps.build-keypair.outputs.public_key }}" ]]; then
-            {
-              echo "build_ssh_private_key_file = \"${{ steps.build-keypair.outputs.private_key_path }}\""
-              echo "build_ssh_authorized_keys = [\"${{ steps.build-keypair.outputs.public_key }}\"]"
-            } >> runner.pkrvars.hcl
+            echo "build_ssh_private_key_file = \"${{ steps.build-keypair.outputs.private_key_path }}\"" >> runner.pkrvars.hcl
+            authkeys="[\"${{ steps.build-keypair.outputs.public_key }}\""
+            if [[ -n "${SMOKE_SSH_PUBLIC_KEY}" ]]; then
+              authkeys="${authkeys}, \"${SMOKE_SSH_PUBLIC_KEY}\""
+            fi
+            authkeys="${authkeys}]"
+            echo "build_ssh_authorized_keys = ${authkeys}" >> runner.pkrvars.hcl
           fi
 
       # ── Validate ─────────────────────────────────────────────────────────────
@@ -1197,6 +1210,12 @@ jobs:
           VSPHERE_DATASTORE: ${{ secrets.VSPHERE_DATASTORE }}
           BUILD_USERNAME:    ${{ secrets.BUILD_USERNAME }}
           BUILD_PASSWORD:    ${{ secrets.BUILD_PASSWORD }}
+          # Set → ssh-direct mode: SSH straight into the clone with this key
+          # instead of injecting one via VMware Tools guest ops. Required on
+          # VMC, where guest-ops file transfer to the ESXi host is blocked.
+          # Its pubkey must be in SMOKE_SSH_PUBLIC_KEY (baked into the template
+          # at build time). Unset → guest-ops mode, unchanged behaviour.
+          SMOKE_SSH_PRIVATE_KEY: ${{ secrets.SMOKE_SSH_PRIVATE_KEY }}
           TEMPLATE_PATTERN:  ${{ matrix.glob }}
           GOSS_SPEC:         ${{ matrix.goss_spec }}
           # smoke-test.sh writes PNGs here on failure (govc vm.console -capture

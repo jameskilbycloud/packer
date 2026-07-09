@@ -4,11 +4,21 @@
 # Post-publish smoke test for a Packer-built template.
 #
 # Clones the newest template matching TEMPLATE_PATTERN, powers it on, waits
-# for VMware Tools to report an IP, injects a fresh ephemeral pubkey via the
-# VMware Tools Guest Operations API (the template has SSH password auth
-# disabled by finalize.sh, so a direct SSH password login is not an option),
-# SSHes in, runs goss-validate.sh against the spec under sudo, and destroys
-# the clone in an EXIT trap regardless of pass / fail.
+# for VMware Tools to report an IP, gets an SSH key onto the clone, SSHes in,
+# runs goss-validate.sh against the spec under sudo, and destroys the clone in
+# an EXIT trap regardless of pass / fail.
+#
+# Two ways the SSH key gets onto the clone (see SMOKE access mode below):
+#   guest-ops  (default): generate a fresh ephemeral keypair here and inject
+#     the pubkey via the VMware Tools Guest Operations API. The template has
+#     SSH password auth disabled by finalize.sh, so a password login is not an
+#     option — but guest ops authenticate through vmtoolsd, not sshd.
+#   ssh-direct (SMOKE_SSH_PRIVATE_KEY set): the template already carries a
+#     dedicated smoke pubkey (appended to build_ssh_authorized_keys at build
+#     time), so we skip guest ops entirely and SSH straight to the clone's IP
+#     with the matching private key. Required on VMware Cloud on AWS (VMC),
+#     where guest-ops file transfer connects the runner directly to the ESXi
+#     host — a path VMC blocks, so every guest.upload / guest.run times out.
 #
 # Why a separate post-publish smoke test:
 # The build-time goss pass runs BEFORE Packer converts the VM to a template,
@@ -34,6 +44,9 @@
 #   SMOKE_TIMEOUT_SECONDS  — total wait for VMware Tools IP (default 600)
 #   SSH_TIMEOUT_SECONDS    — wait for SSH after IP appears (default 240)
 #   CLONE_NAME             — override generated clone name
+#   SMOKE_SSH_PRIVATE_KEY  — PEM/OpenSSH private key whose pubkey the template
+#                            already carries. Set → ssh-direct mode (skip guest
+#                            ops); unset → guest-ops mode. Required on VMC.
 # =============================================================================
 set -euo pipefail
 
@@ -52,6 +65,19 @@ export GOVC_INSECURE="${GOVC_INSECURE:-false}"
 VSPHERE_FOLDER="${VSPHERE_FOLDER:-packer}"
 SMOKE_TIMEOUT_SECONDS="${SMOKE_TIMEOUT_SECONDS:-600}"
 SSH_TIMEOUT_SECONDS="${SSH_TIMEOUT_SECONDS:-240}"
+
+# ── SSH access mode ───────────────────────────────────────────────────────────
+# ssh-direct when a smoke private key is supplied (the template carries the
+# matching pubkey), otherwise guest-ops. See the header for the full rationale;
+# the short version is that VMC cannot do guest-ops file transfer at all, so
+# VMC deployments must set SMOKE_SSH_PRIVATE_KEY.
+SMOKE_SSH_PRIVATE_KEY="${SMOKE_SSH_PRIVATE_KEY:-}"
+if [[ -n "${SMOKE_SSH_PRIVATE_KEY}" ]]; then
+  SMOKE_MODE="ssh-direct"
+else
+  SMOKE_MODE="guest-ops"
+fi
+echo "==> SSH access mode: ${SMOKE_MODE}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GOSS_SPEC_ABS="$(cd "$(dirname "${GOSS_SPEC}")" && pwd)/$(basename "${GOSS_SPEC}")"
@@ -116,7 +142,14 @@ echo "==> Clone target: ${CLONE_NAME}"
 # GDM but never get a DHCP lease, this gives us the only diagnostic path
 # we have for what NetworkManager / netplan / systemd-networkd actually
 # did at boot.
-guest_auth=(-l "${BUILD_USERNAME}:${BUILD_PASSWORD}" -vm "${CLONE_NAME}")
+#
+# Only in guest-ops mode: in ssh-direct mode (VMC) guest ops are unreachable,
+# so leaving guest_auth unset makes the cleanup diag skip the guest.run path
+# and fall back to the vCenter-side diagnostics (vm.info / events / screenshot),
+# which go through vCenter and work on VMC.
+if [[ "${SMOKE_MODE}" == "guest-ops" ]]; then
+  guest_auth=(-l "${BUILD_USERNAME}:${BUILD_PASSWORD}" -vm "${CLONE_NAME}")
+fi
 
 cleanup() {
   # Accept exit code as $1 if the trap forwarded one (e.g. from a multi-
@@ -426,48 +459,71 @@ if [[ -z "${ip}" ]]; then
 fi
 echo "    IP: ${ip}"
 
-# ── Inject ephemeral pubkey via VMware Tools Guest Operations API ─────────────
-# The template has SSH password auth disabled (finalize.sh removes the
-# build-time drop-in), so we cannot just `sshpass` in. Guest operations
-# authenticate against the guest OS via vmtoolsd, bypassing sshd entirely.
-echo "==> Injecting ephemeral SSH pubkey via VMware Tools guest ops..."
+# ── Provision SSH access to the clone ─────────────────────────────────────────
+# keydir holds the private key we SSH with in both modes; the EXIT trap wipes
+# it. Capture the script's true exit code as the FIRST thing in the trap body —
+# otherwise the preceding `rm` clobbers $? to 0 and cleanup mis-reports success
+# on a failed run, silently skipping the diagnostic dump.
 keydir=$(mktemp -d)
-# Capture the script's true exit code as the FIRST thing in the trap body —
-# otherwise the preceding `rm` clobbers $? to 0 and cleanup mis-reports
-# success on a failed run, silently skipping the diagnostic dump.
-#
 # shellcheck disable=SC2154
 # (_exit_rc is assigned at the start of the same trap string, before it's
 # referenced — shellcheck's scope analysis doesn't see the assignment-then-
 # use happen inside a single-quoted trap body.)
 trap '_exit_rc=$?; rm -rf "${keydir}"; cleanup "${_exit_rc}"' EXIT
-ssh-keygen -t ed25519 -N '' -f "${keydir}/id_ed25519" \
-  -C "smoke-test-${GITHUB_RUN_ID:-local}" >/dev/null
-chmod 600 "${keydir}/id_ed25519"
 
-# guest_auth is already defined above (right after CLONE_NAME), so the EXIT
-# trap can use it on early failures. Don't redefine.
+if [[ "${SMOKE_MODE}" == "ssh-direct" ]]; then
+  # VMC path: the template already carries the matching pubkey (appended to
+  # build_ssh_authorized_keys at build time), so we just drop the provided
+  # private key into keydir and SSH straight in. No guest ops — VMC blocks
+  # the ESXi-host-direct file transfer they rely on.
+  echo "==> ssh-direct: writing supplied SMOKE_SSH_PRIVATE_KEY (guest-ops injection skipped)"
+  printf '%s\n' "${SMOKE_SSH_PRIVATE_KEY}" > "${keydir}/id_ed25519"
+  chmod 600 "${keydir}/id_ed25519"
+  # Fail fast with a clear message if the secret isn't a usable private key,
+  # rather than surfacing an opaque SSH "permission denied" 4 minutes later.
+  # </dev/null so an accidentally passphrase-protected key fails fast here
+  # instead of hanging the job on an interactive passphrase prompt.
+  if ! ssh-keygen -y -f "${keydir}/id_ed25519" </dev/null >/dev/null 2>&1; then
+    echo "❌ SMOKE_SSH_PRIVATE_KEY is not a usable (unencrypted) OpenSSH private key."
+    echo "   Store it with real newlines and no passphrase, e.g.:"
+    echo "     ssh-keygen -t ed25519 -N '' -f smoke_key"
+    echo "     gh secret set SMOKE_SSH_PRIVATE_KEY < smoke_key"
+    exit 1
+  fi
+else
+  # ── Inject ephemeral pubkey via VMware Tools Guest Operations API ────────────
+  # The template has SSH password auth disabled (finalize.sh removes the
+  # build-time drop-in), so we cannot just `sshpass` in. Guest operations
+  # authenticate against the guest OS via vmtoolsd, bypassing sshd entirely.
+  echo "==> Injecting ephemeral SSH pubkey via VMware Tools guest ops..."
+  ssh-keygen -t ed25519 -N '' -f "${keydir}/id_ed25519" \
+    -C "smoke-test-${GITHUB_RUN_ID:-local}" >/dev/null
+  chmod 600 "${keydir}/id_ed25519"
 
-# Upload the pubkey to /tmp first — /tmp is world-writable so the upload
-# never fails on perms — then a single guest.run shell does the install
-# under the build user's identity, so every created file is owned by them
-# from birth. We deliberately do NOT `chown` anywhere: govc guest.run
-# executes as the authenticated user (no root), and a non-root user on
-# Linux cannot chown even to their own UID without CAP_CHOWN, which made
-# the previous chown step fail with "Operation not permitted" — silently,
-# because govc returns the program's exit code but doesn't surface the
-# stderr message to its own stdout.
-tmp_pubkey="/tmp/smoke-pubkey-${GITHUB_RUN_ID:-$$}"
-govc guest.upload -f "${guest_auth[@]}" \
-  "${keydir}/id_ed25519.pub" \
-  "${tmp_pubkey}"
+  # guest_auth is already defined above (right after CLONE_NAME), so the EXIT
+  # trap can use it on early failures. Don't redefine.
 
-govc guest.run "${guest_auth[@]}" -- \
-  /bin/sh -c "set -e; \
-    mkdir -p /home/${BUILD_USERNAME}/.ssh; \
-    chmod 700 /home/${BUILD_USERNAME}/.ssh; \
-    mv ${tmp_pubkey} /home/${BUILD_USERNAME}/.ssh/authorized_keys; \
-    chmod 600 /home/${BUILD_USERNAME}/.ssh/authorized_keys"
+  # Upload the pubkey to /tmp first — /tmp is world-writable so the upload
+  # never fails on perms — then a single guest.run shell does the install
+  # under the build user's identity, so every created file is owned by them
+  # from birth. We deliberately do NOT `chown` anywhere: govc guest.run
+  # executes as the authenticated user (no root), and a non-root user on
+  # Linux cannot chown even to their own UID without CAP_CHOWN, which made
+  # the previous chown step fail with "Operation not permitted" — silently,
+  # because govc returns the program's exit code but doesn't surface the
+  # stderr message to its own stdout.
+  tmp_pubkey="/tmp/smoke-pubkey-${GITHUB_RUN_ID:-$$}"
+  govc guest.upload -f "${guest_auth[@]}" \
+    "${keydir}/id_ed25519.pub" \
+    "${tmp_pubkey}"
+
+  govc guest.run "${guest_auth[@]}" -- \
+    /bin/sh -c "set -e; \
+      mkdir -p /home/${BUILD_USERNAME}/.ssh; \
+      chmod 700 /home/${BUILD_USERNAME}/.ssh; \
+      mv ${tmp_pubkey} /home/${BUILD_USERNAME}/.ssh/authorized_keys; \
+      chmod 600 /home/${BUILD_USERNAME}/.ssh/authorized_keys"
+fi
 
 # ── Wait for SSH port ────────────────────────────────────────────────────────
 echo "==> Waiting up to ${SSH_TIMEOUT_SECONDS}s for SSH on ${ip}:22..."

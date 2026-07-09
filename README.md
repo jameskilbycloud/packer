@@ -155,6 +155,7 @@ For zero-sudo operation, also pre-install `packer`, `xorriso`, and `govc` as roo
 | vCenter connection | `VSPHERE_SERVER`, `VSPHERE_USER`, `VSPHERE_PASSWORD`, `VSPHERE_DATACENTER`, `VSPHERE_CLUSTER` (or `VSPHERE_HOST`), `VSPHERE_DATASTORE`, `VSPHERE_NETWORK`, `VSPHERE_FOLDER`, `VSPHERE_ISO_LIBRARY_DATASTORE` |
 | Build credentials | `BUILD_USERNAME`, `BUILD_PASSWORD`, `BUILD_PASSWORD_ENCRYPTED` |
 | Optional (admin account on built images) | `ADMIN_USERNAME`, `ADMIN_GITHUB_USER` — leave unset to skip admin-user creation in `setup.sh` |
+| Optional (VMC smoke test) | `SMOKE_SSH_PUBLIC_KEY`, `SMOKE_SSH_PRIVATE_KEY` — an SSH keypair for the post-publish smoke test. **Required on VMware Cloud on AWS (VMC)**, where the default guest-ops path can't reach the ESXi host; leave both unset elsewhere. See [docs/operations.md → Post-publish smoke test](docs/operations.md#post-publish-smoke-test). |
 
 For `BUILD_PASSWORD_ENCRYPTED` you need a SHA-512 hash. Generate it on the runner VM (or any Linux shell — Codespace, WSL, an existing server):
 
