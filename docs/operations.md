@@ -232,6 +232,8 @@ Add each secret via **Settings → Secrets and variables → Actions → New rep
 | `BUILD_PASSWORD_ENCRYPTED` | `build_password_encrypted` | SHA-512 hash — `openssl passwd -6 '<password>'` |
 | `ADMIN_USERNAME` (optional) | `admin_username` | Persistent admin account created by `setup.sh`. Leave empty to skip admin-user creation. |
 | `ADMIN_GITHUB_USER` (optional) | `admin_github_user` | GitHub username whose public keys are imported into the admin account via `ssh-import-id-gh`. Leave empty to skip key import. |
+| `SMOKE_SSH_PUBLIC_KEY` (optional) | `build_ssh_authorized_keys` (appended) | Public key of a dedicated smoke keypair, baked into every template's `authorized_keys` at build time. Set together with `SMOKE_SSH_PRIVATE_KEY` to switch the smoke test into **ssh-direct** mode. **Required on VMC** (see [Post-publish smoke test](#post-publish-smoke-test)); leave unset elsewhere. |
+| `SMOKE_SSH_PRIVATE_KEY` (optional) | (workflow env var → `smoke-test.sh`) | Matching private key. When set, the smoke job SSHes straight into the clone with it instead of injecting an ephemeral key via VMware Tools guest ops. Store it with real newlines: `gh secret set SMOKE_SSH_PRIVATE_KEY < id_ed25519`. |
 | `SLACK_WEBHOOK_URL` (optional) | (workflow env var, not a Packer var) | Slack incoming-webhook URL for build success / failure notifications. If unset, the notify steps log "SLACK_WEBHOOK_URL not set — skipping." and exit cleanly. |
 
 > **No ISO-path secrets.** ISO paths and the ISO backing datastore are resolved at workflow runtime from the Content Library — `build-templates.yml` calls `govc library.info -json` to discover both the per-version ISO item and the datastore that hosts it. This means new Ubuntu point releases (e.g. `22.04.5` → `22.04.6`) work automatically once the new ISO is uploaded; there's nothing to edit in repository secrets.
@@ -413,16 +415,39 @@ The `smoke` job in [`build-templates.yml`](../.github/workflows/build-templates.
 1. **Locate the just-built template.** `govc find . -type m -name "ubuntu-<version>-<role>-*"`, then `govc object.collect -s <path> config.template` per match to identify the template (rather than a WIP VM from an in-flight build). The script chooses the highest-dated match. **Don't** use `govc vm.info -json | parse-the-config-tree` for this — its JSON shape varies between govc versions and silently mis-classifies real templates.
 2. **Clone.** `govc vm.clone -on=false -vm <template>` to a transient name `smoke-<template>-<run-id>`, scoped to `VSPHERE_FOLDER` + `VSPHERE_CLUSTER` (or `VSPHERE_HOST`) + `VSPHERE_DATASTORE`.
 3. **Power on + wait for VMware Tools IP.** Up to `SMOKE_TIMEOUT_SECONDS` (default 600 s) for `govc vm.ip` to return a non-empty address.
-4. **Inject an ephemeral SSH pubkey via the VMware Tools Guest Operations API.** A fresh ed25519 keypair is generated locally on the runner; the pubkey is `govc guest.upload`'d to `/tmp/smoke-pubkey-<run-id>` on the clone; a `govc guest.run /bin/sh -c "mkdir + mv + chmod"` then puts it at `~/$BUILD_USERNAME/.ssh/authorized_keys` with correct perms. The keypair is wiped on the runner at script exit. Why not `sshpass` + the build password: [`finalize.sh`](../scripts/finalize.sh) removes the build-time `PasswordAuthentication yes` drop-in, so the clone refuses password SSH login — guest.upload bypasses sshd entirely.
+4. **Get an SSH key onto the clone.** Two modes, chosen by whether `SMOKE_SSH_PRIVATE_KEY` is set (see [SSH access modes](#ssh-access-modes-guest-ops-vs-ssh-direct) below):
+   - **guest-ops** (default): a fresh ed25519 keypair is generated locally on the runner; the pubkey is `govc guest.upload`'d to `/tmp/smoke-pubkey-<run-id>` on the clone; a `govc guest.run /bin/sh -c "mkdir + mv + chmod"` then puts it at `~/$BUILD_USERNAME/.ssh/authorized_keys` with correct perms. The keypair is wiped on the runner at script exit. Why not `sshpass` + the build password: [`finalize.sh`](../scripts/finalize.sh) removes the build-time `PasswordAuthentication yes` drop-in, so the clone refuses password SSH login — guest.upload bypasses sshd entirely.
+   - **ssh-direct**: the runner writes the supplied `SMOKE_SSH_PRIVATE_KEY` to a temp file and skips guest ops — the template already carries the matching `SMOKE_SSH_PUBLIC_KEY` in `authorized_keys`. Used on VMC.
 5. **Wait for SSH port 22.** Up to `SSH_TIMEOUT_SECONDS` (default 240 s) for TCP connect to succeed.
 6. **Copy goss spec + validator + run goss.** `scp` every `goss/*.yaml` to `/tmp/` (so any `gossfile:` include resolves), then SSH in and run `scripts/goss-validate.sh` against `goss/server-clone.yaml` (or `goss/desktop-clone.yaml`) under `sudo`. The build user is in the `sudo` group but `finalize.sh` removed the NOPASSWD drop-in, so the script uses `echo "$BUILD_PASSWORD" | sudo -S`.
 7. **Destroy the clone in an `EXIT` trap.** Captures the script's true exit code via `_exit_rc=$?` as the FIRST thing in the trap body (the `rm` cleanup that follows would otherwise clobber `$?` to 0). Powers off + destroys the clone regardless of pass/fail.
 
 Fan-out: one matrix entry per (version, role) — a combined `all-linux` build produces six independent smoke runs. The matrix entries don't share state; each clones from its own template.
 
+### SSH access modes (guest-ops vs ssh-direct)
+
+Step 4 has two modes because vSphere **guest-operations file transfer connects the runner directly to the ESXi host** running the clone — `InitiateFileTransferToGuest` returns a `https://<esxi-host>:443/guestFile?...` URL, *not* a vCenter URL. Every management-plane call (clone, power-on, `vm.ip`, `vm.info`) goes through vCenter and is fine; only `guest.upload` / `guest.run` need the host.
+
+On **VMware Cloud on AWS (VMC)** customer workloads cannot reach ESXi host management at all, so guest ops time out even though the clone deploys and boots perfectly. The symptom is a smoke job that hangs on `Uploading...` for ~10 min then fails with:
+
+```
+Put "https://10.x.x.x:443/guestFile?id=...": dial tcp 10.x.x.x:443: connect: connection timed out
+```
+
+where `10.x.x.x` is the **Host** shown in `govc vm.info`, on a subnet the runner can't route to.
+
+| | guest-ops (default) | ssh-direct (VMC) |
+|---|---|---|
+| Trigger | `SMOKE_SSH_PRIVATE_KEY` unset | `SMOKE_SSH_PRIVATE_KEY` set |
+| Key onto clone | generated per-run, injected via guest ops | baked into the template at build time (`SMOKE_SSH_PUBLIC_KEY` → `authorized_keys`) |
+| Runner → ESXi host `:443` | **required** | not needed |
+| Failure diagnostics | guest-ops dump + vCenter-side dump | vCenter-side dump only (guest ops unreachable) |
+
+To enable ssh-direct: generate a keypair (`ssh-keygen -t ed25519 -f smoke_key -N ''`), then `gh secret set SMOKE_SSH_PUBLIC_KEY < smoke_key.pub` and `gh secret set SMOKE_SSH_PRIVATE_KEY < smoke_key`. **Rebuild the templates afterwards** — the pubkey is only baked in at build time, so existing templates won't have it until they're rebuilt. The pubkey lives in every clone's `authorized_keys` permanently; it grants the unprivileged build user shell access only (sudo still requires the build password, which `finalize.sh` preserves), so treat the private key as you would any CI SSH secret.
+
 ### When smoke fails
 
-On any non-zero exit, the EXIT trap runs a **diagnostic dump via VMware Tools Guest Operations** before destroying the clone. The dump runs even when sshd is broken — it doesn't need SSH. The dump script is uploaded as a file (`/tmp/smoke-diag-<run-id>.sh`) then invoked with `govc guest.run /bin/sh <path>`; inlining via `sh -c "<multi-line>"` doesn't work because vmtoolsd's `arguments` parameter doesn't preserve newlines.
+On any non-zero exit, the EXIT trap runs diagnostics before destroying the clone. In **guest-ops** mode it first runs a **diagnostic dump via VMware Tools Guest Operations** — this runs even when sshd is broken, since it doesn't need SSH. The dump script is uploaded as a file (`/tmp/smoke-diag-<run-id>.sh`) then invoked with `govc guest.run /bin/sh <path>`; inlining via `sh -c "<multi-line>"` doesn't work because vmtoolsd's `arguments` parameter doesn't preserve newlines. In **ssh-direct** mode (VMC) guest ops are unreachable, so this dump is skipped and only the vCenter-side diagnostics below run.
 
 The dump emits, in one log frame:
 
