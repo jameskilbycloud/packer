@@ -127,14 +127,16 @@ sudo ./svc.sh start
    ```bash
    cat <<'SUDOERS' | sudo tee /etc/sudoers.d/github-runner
    YOUR_RUNNER_USER ALL=(root) NOPASSWD: /usr/bin/apt-get update, \
+     /usr/bin/apt-get update -qq, \
      /usr/bin/apt-get install -y xorriso, \
-     /bin/mv /tmp/packer /usr/local/bin/packer, \
-     /bin/chmod +x /usr/local/bin/packer, \
-     /bin/tar -xzf - -C /usr/local/bin govc
+     /usr/bin/install -m 0755 packer /usr/local/bin/packer, \
+     /usr/bin/install -m 0755 govc /usr/local/bin/govc
    SUDOERS
+   sudo chmod 0440 /etc/sudoers.d/github-runner
+   sudo visudo -c   # validate — a syntax error here can lock out sudo
    ```
 
-   This still grants enough for the install steps to work, while denying the runner ability to do anything else with sudo.
+   This still grants enough for the install steps to work, while denying the runner ability to do anything else with sudo. The commands must match exactly what the workflows run: `apt-get update -qq` and `apt-get install -y xorriso` (the xorriso step), and `install -m 0755 <tool> /usr/local/bin/<tool>` (the [`install-verified-binary`](../.github/actions/install-verified-binary/install.sh) action for packer and govc). Because sudoers matches the full argument list, if a workflow changes one of these flags the matching entry stops applying and the auto-install falls back to a password prompt — pre-installing (above) avoids that coupling entirely.
 
 By default the workflows target any runner registered with the default `self-hosted` label (`runs-on: self-hosted`). To target a specific runner or label, set the **`RUNNER_LABEL`** repository variable:
 
