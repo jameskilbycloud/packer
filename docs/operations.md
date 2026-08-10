@@ -226,7 +226,7 @@ Add each secret via **Settings → Secrets and variables → Actions → New rep
 | `VSPHERE_DATASTORE` | `vsphere_datastore` | Datastore for VM storage |
 | `VSPHERE_NETWORK` | `vsphere_network` | Port group / network name |
 | `VSPHERE_FOLDER` | `vsphere_folder` | VM folder for finished templates |
-| `VSPHERE_ISO_LIBRARY_DATASTORE` | (workflow env var, not a Packer var) | Datastore backing the Content Library where the ISOs live. Only needed by `upload-isos.yml` to create the library the first time; the build workflow resolves the actual backing datastore at runtime from the Content Library metadata via `govc library.info`. |
+| `VSPHERE_ISO_LIBRARY_DATASTORE` | (workflow env var, not a Packer var) | Datastore backing the Content Library where the ISOs live. Needed **only** by `upload-isos.yml`, to create the library the first time. `build-templates.yml` no longer reads it: the `vsphere-content-library-item` data sources in `data.pkr.hcl` hand the builder a `<library>/<item>/<file>` path and it resolves the backing datastore itself. |
 | `BUILD_USERNAME` | `build_username` | OS user created during install |
 | `BUILD_PASSWORD` | `build_password` | Plaintext build password |
 | `BUILD_PASSWORD_ENCRYPTED` | `build_password_encrypted` | SHA-512 hash — `openssl passwd -6 '<password>'` |
@@ -567,7 +567,7 @@ The VM booted but Packer cannot reach port 22. Check that the machine running Pa
 The boot command uses GRUB's command line (`c`) to inject kernel parameters. If the GRUB menu layout changes between Ubuntu point releases the timing or keystrokes may need adjusting. Increase `boot_wait` in the source block (e.g. `"10s"`) and check the GRUB prompt appears before characters are typed.
 
 **Checksum mismatch on ISO download**
-Ubuntu occasionally re-releases point ISOs with updated checksums. Re-run the upload script — it will re-download and replace the file. If the ISO filename has changed (e.g. `22.04.5`), update `ISO_FILENAME[2204]` in `scripts/upload-isos.sh` and the `ubuntu_2204_iso_path` variable. The `check-iso-updates` workflow now does this automatically on a weekly cron.
+Ubuntu occasionally re-releases point ISOs with updated checksums. Re-run the upload script — it will re-download and replace the file. If the ISO filename has changed (e.g. `22.04.5`), update `ISO_FILENAME[2204]` in `scripts/upload-isos.sh` — nothing on the Packer side needs changing, because the `vsphere-content-library-item` data source in `data.pkr.hcl` matches the library item by glob and takes the latest. The `check-iso-updates` workflow now does this automatically on a weekly cron.
 
 **`govc library.import` fails**
 Ensure the datastore has enough free space for the ISO (typically 1–2 GB each). Check that the vCenter user has the `Content library > Add library item` privilege.

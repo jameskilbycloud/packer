@@ -72,9 +72,10 @@ variable "git_commit" {
   default     = "unknown"
 }
 
-variable "vsphere_iso_datastore" {
+variable "vsphere_iso_content_library" {
   type        = string
-  description = "Datastore OR Content Library name that holds the Ubuntu ISO files. The builder uses the vSphere bracket notation [name] for both — just set this to the datastore or content library name without brackets."
+  description = "Content Library holding the Ubuntu install ISOs. The data sources in data.pkr.hcl look the ISO up here by item-name glob and hand the builder a <library>/<item>/<file> path, so no datastore name is needed — the builder resolves the backing datastore itself. The library must already exist; scripts/upload-isos.sh creates and populates it. ISOs on a plain datastore are no longer supported."
+  default     = "Packer-ISOs"
 }
 
 # =============================================================================
@@ -241,23 +242,10 @@ variable "keyboard_layout" {
 }
 
 # =============================================================================
-# ISO Paths (relative to vsphere_iso_datastore)
+# ISO Paths
 # =============================================================================
-
-variable "ubuntu_2204_iso_path" {
-  type        = string
-  description = "ISO filename/path within the datastore or content library. For a datastore use a folder path (e.g. ISOs/ubuntu-22.04.5-live-server-amd64.iso). For a content library use the filename only (e.g. ubuntu-22.04.5-live-server-amd64.iso)."
-  default     = "ISOs/ubuntu-22.04.5-live-server-amd64.iso"
-}
-
-variable "ubuntu_2404_iso_path" {
-  type        = string
-  description = "ISO filename/path within the datastore or content library. For a datastore use a folder path (e.g. ISOs/ubuntu-24.04.4-live-server-amd64.iso). For a content library use the filename only (e.g. ubuntu-24.04.4-live-server-amd64.iso)."
-  default     = "ISOs/ubuntu-24.04.4-live-server-amd64.iso"
-}
-
-variable "ubuntu_2604_iso_path" {
-  type        = string
-  description = "ISO filename/path within the datastore or content library. For a datastore use a folder path (e.g. ISOs/ubuntu-26.04-live-server-amd64.iso). For a content library use the filename only (e.g. ubuntu-26.04-live-server-amd64.iso)."
-  default     = "ISOs/ubuntu-26.04-live-server-amd64.iso"
-}
+# There are none. The per-release ubuntu_*_iso_path variables were removed —
+# ISOs are now discovered in the Content Library by the data sources in
+# data.pkr.hcl, which match on an item-name glob and take the latest. A new
+# Ubuntu point release is picked up as soon as upload-isos.yml imports it, with
+# no variable to bump. See vsphere_iso_content_library above.

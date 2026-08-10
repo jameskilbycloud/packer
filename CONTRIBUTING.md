@@ -52,7 +52,6 @@ From v1.0.1 onward the rule is **PR-first**:
      -var='vsphere_cluster=x' \
      -var='vsphere_datastore=x' \
      -var='vsphere_network=x' \
-     -var='vsphere_iso_datastore=x' \
      -var='build_password=x' \
      -var='build_password_encrypted=x' \
      .
