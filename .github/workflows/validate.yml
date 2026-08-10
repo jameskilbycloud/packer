@@ -125,6 +125,12 @@ jobs:
       # packer validate checks HCL syntax and that all required variables are
       # supplied. We pass placeholder values for variables that have no default
       # (the actual values are never used — no vSphere connection is made).
+      #
+      # The vsphere-content-library-item data sources in data.pkr.hcl WOULD
+      # contact vCenter, but `packer validate` skips data sources unless run
+      # with -evaluate-datasources. Do not add that flag here: these
+      # placeholder credentials cannot reach a real vCenter, and the run would
+      # fail on the data sources rather than on anything it is meant to catch.
       - name: Validate all builds
         run: |
           packer validate \
@@ -135,7 +141,6 @@ jobs:
             -var="vsphere_cluster=ci-validate" \
             -var="vsphere_datastore=ci-validate" \
             -var="vsphere_network=ci-validate" \
-            -var="vsphere_iso_datastore=ci-validate" \
             -var="build_password=ci-validate" \
             -var='build_password_encrypted=$6$civalidate$civalidate' \
             .

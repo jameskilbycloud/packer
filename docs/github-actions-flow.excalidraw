@@ -2518,11 +2518,11 @@
       "locked": false,
       "fontSize": 11,
       "fontFamily": 2,
-      "text": "govc library.info -json \u2192 library UUID + item UUID per ISO\n\u2192 contentlib-{lib}/{item}/{iso}\n\u2192 exports RESOLVED_ISO_2204/2404/2604 to GITHUB_ENV",
+      "text": "ISO lookup moved into Packer:\ndata vsphere-content-library-item\n(glob + latest) \u2192 <library>/<item>/<file>",
       "textAlign": "left",
       "verticalAlign": "top",
       "containerId": null,
-      "originalText": "govc library.info -json \u2192 library UUID + item UUID per ISO\n\u2192 contentlib-{lib}/{item}/{iso}\n\u2192 exports RESOLVED_ISO_2204/2404/2604 to GITHUB_ENV",
+      "originalText": "ISO lookup moved into Packer:\ndata vsphere-content-library-item\n(glob + latest) \u2192 <library>/<item>/<file>",
       "lineHeight": 1.25
     },
     {

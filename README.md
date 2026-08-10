@@ -152,7 +152,7 @@ For zero-sudo operation, also pre-install `packer`, `xorriso`, and `govc` as roo
 
 | Category | Secrets |
 |---|---|
-| vCenter connection | `VSPHERE_SERVER`, `VSPHERE_USER`, `VSPHERE_PASSWORD`, `VSPHERE_DATACENTER`, `VSPHERE_CLUSTER` (or `VSPHERE_HOST`), `VSPHERE_DATASTORE`, `VSPHERE_NETWORK`, `VSPHERE_FOLDER`, `VSPHERE_ISO_LIBRARY_DATASTORE` |
+| vCenter connection | `VSPHERE_SERVER`, `VSPHERE_USER`, `VSPHERE_PASSWORD`, `VSPHERE_DATACENTER`, `VSPHERE_CLUSTER` (or `VSPHERE_HOST`), `VSPHERE_DATASTORE`, `VSPHERE_NETWORK`, `VSPHERE_FOLDER`, `VSPHERE_ISO_LIBRARY_DATASTORE` (upload only) |
 | Build credentials | `BUILD_USERNAME`, `BUILD_PASSWORD`, `BUILD_PASSWORD_ENCRYPTED` |
 | Optional (admin account on built images) | `ADMIN_USERNAME`, `ADMIN_GITHUB_USER` — leave unset to skip admin-user creation in `setup.sh` |
 | Optional (VMC smoke test) | `SMOKE_SSH_PUBLIC_KEY`, `SMOKE_SSH_PRIVATE_KEY` — an SSH keypair for the post-publish smoke test. **Required on VMware Cloud on AWS (VMC)**, where the default guest-ops path can't reach the ESXi host; leave both unset elsewhere. See [docs/operations.md → Post-publish smoke test](docs/operations.md#post-publish-smoke-test). |
@@ -282,7 +282,7 @@ All variables are declared in `variables.pkr.hcl`. Connection details and creden
 | `vsphere_datastore` | yes | — | Datastore for VM storage |
 | `vsphere_network` | yes | — | Port group / network name for the VM NIC |
 | `vsphere_folder` | no | `"packer"` | VM folder path for finished templates |
-| `vsphere_iso_datastore` | yes | — | Datastore **or** Content Library name holding the ISOs |
+| `vsphere_iso_content_library` | no | `"Packer-ISOs"` | Content Library holding the install ISOs. Looked up by the data sources in `data.pkr.hcl` |
 | `vsphere_template_content_library` | no | `"Packer-ISOs"` | Local Content Library to publish finished templates into as updatable OVF items — defaults to the ISO library. `""` = disable. See [Publishing templates to a Content Library](#publishing-templates-to-a-content-library) |
 
 ### Build credentials
@@ -327,13 +327,21 @@ Threaded into the autoinstall user-data at render time, so they apply to every c
 
 ### ISO paths
 
-| Variable | Default | Description |
-|---|---|---|
-| `ubuntu_2204_iso_path` | `ISOs/ubuntu-22.04.5-live-server-amd64.iso` | Path within the datastore, or filename if using a Content Library |
-| `ubuntu_2404_iso_path` | `ISOs/ubuntu-24.04.4-live-server-amd64.iso` | As above for 24.04 |
-| `ubuntu_2604_iso_path` | `ISOs/ubuntu-26.04-live-server-amd64.iso` | As above for 26.04 |
+There are no ISO path variables. `data.pkr.hcl` declares one
+`vsphere-content-library-item` data source per Ubuntu release, which finds the
+ISO in `vsphere_iso_content_library` by item-name glob
+(`ubuntu-26.04*-live-server-amd64`) and takes the most recently modified match
+(`latest = true`). The data source returns a `<library>/<item>/<file>` path,
+which `iso_paths` accepts directly — the builder resolves the library's backing
+datastore itself.
 
-**Datastore vs Content Library:** the `vsphere_iso_datastore` variable accepts either a datastore name or a Content Library name — the vSphere bracket notation `[name]` works identically for both. When pointing at a Content Library, the ISO path should be just the filename with no subfolder prefix.
+Practically: a new Ubuntu point release is picked up as soon as
+`upload-isos.yml` imports it into the library, with no variable to bump and no
+commit. The glob is what absorbs `26.04` → `26.04.1` → `26.04.2` drift.
+
+**Content Library required.** ISOs on a plain datastore are no longer
+supported — the previous `vsphere_iso_datastore` + `ubuntu_*_iso_path`
+bracket-path mechanism has been removed. Requires vsphere plugin 2.3.0+.
 
 ---
 

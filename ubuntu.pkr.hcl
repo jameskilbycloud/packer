@@ -65,13 +65,15 @@
 
 locals {
   # Per-release metadata. `dotted` is the human version used in VM notes /
-  # library descriptions; `iso_path` is the datastore/content-library path.
+  # library descriptions; `iso_path` is the Content Library path resolved by
+  # the data sources in data.pkr.hcl, already in the `<library>/<item>/<file>`
+  # form that `iso_paths` accepts.
   # The compact release token (2204/2404/2604) stays literal in resource names
   # because Packer source labels and build names must be static strings.
   ubuntu = {
-    "2204" = { dotted = "22.04", codename = "Jammy Jellyfish", iso_path = var.ubuntu_2204_iso_path }
-    "2404" = { dotted = "24.04", codename = "Noble Numbat", iso_path = var.ubuntu_2404_iso_path }
-    "2604" = { dotted = "26.04", codename = "Resolute Raccoon", iso_path = var.ubuntu_2604_iso_path }
+    "2204" = { dotted = "22.04", codename = "Jammy Jellyfish", iso_path = data.vsphere-content-library-item.ubuntu_2204_iso.path }
+    "2404" = { dotted = "24.04", codename = "Noble Numbat", iso_path = data.vsphere-content-library-item.ubuntu_2404_iso.path }
+    "2604" = { dotted = "26.04", codename = "Resolute Raccoon", iso_path = data.vsphere-content-library-item.ubuntu_2604_iso.path }
   }
 }
 
@@ -115,7 +117,7 @@ source "vsphere-iso" "ubuntu-2204-server" {
     network_card = "vmxnet3"
   }
 
-  iso_paths = ["[${var.vsphere_iso_datastore}] ${local.ubuntu["2204"].iso_path}"]
+  iso_paths = [local.ubuntu["2204"].iso_path]
 
   cd_content = {
     "meta-data" = ""
@@ -201,7 +203,7 @@ source "vsphere-iso" "ubuntu-2204-desktop" {
     network_card = "vmxnet3"
   }
 
-  iso_paths = ["[${var.vsphere_iso_datastore}] ${local.ubuntu["2204"].iso_path}"]
+  iso_paths = [local.ubuntu["2204"].iso_path]
 
   cd_content = {
     "meta-data" = ""
@@ -396,7 +398,7 @@ source "vsphere-iso" "ubuntu-2404-server" {
     network_card = "vmxnet3"
   }
 
-  iso_paths = ["[${var.vsphere_iso_datastore}] ${local.ubuntu["2404"].iso_path}"]
+  iso_paths = [local.ubuntu["2404"].iso_path]
 
   cd_content = {
     "meta-data" = ""
@@ -482,7 +484,7 @@ source "vsphere-iso" "ubuntu-2404-desktop" {
     network_card = "vmxnet3"
   }
 
-  iso_paths = ["[${var.vsphere_iso_datastore}] ${local.ubuntu["2404"].iso_path}"]
+  iso_paths = [local.ubuntu["2404"].iso_path]
 
   cd_content = {
     "meta-data" = ""
@@ -683,7 +685,7 @@ source "vsphere-iso" "ubuntu-2604-server" {
     network_card = "vmxnet3"
   }
 
-  iso_paths = ["[${var.vsphere_iso_datastore}] ${local.ubuntu["2604"].iso_path}"]
+  iso_paths = [local.ubuntu["2604"].iso_path]
 
   cd_content = {
     "meta-data" = ""
@@ -769,7 +771,7 @@ source "vsphere-iso" "ubuntu-2604-desktop" {
     network_card = "vmxnet3"
   }
 
-  iso_paths = ["[${var.vsphere_iso_datastore}] ${local.ubuntu["2604"].iso_path}"]
+  iso_paths = [local.ubuntu["2604"].iso_path]
 
   cd_content = {
     "meta-data" = ""

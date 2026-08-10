@@ -278,7 +278,6 @@ jobs:
           VSPHERE_NETWORK:   ${{ secrets.VSPHERE_NETWORK }}
           VSPHERE_CLUSTER:   ${{ secrets.VSPHERE_CLUSTER }}
           VSPHERE_HOST:      ${{ secrets.VSPHERE_HOST }}
-          VSPHERE_ISO_LIBRARY_DATASTORE: ${{ secrets.VSPHERE_ISO_LIBRARY_DATASTORE }}
           BUILD_USERNAME:    ${{ secrets.BUILD_USERNAME }}
           BUILD_PASSWORD:    ${{ secrets.BUILD_PASSWORD }}
           BUILD_PASSWORD_ENCRYPTED: ${{ secrets.BUILD_PASSWORD_ENCRYPTED }}
@@ -292,8 +291,11 @@ jobs:
           [[ -z "${VSPHERE_DATACENTER}" ]] && missing+=("VSPHERE_DATACENTER")
           [[ -z "${VSPHERE_DATASTORE}" ]] && missing+=("VSPHERE_DATASTORE")
           [[ -z "${VSPHERE_NETWORK}"   ]] && missing+=("VSPHERE_NETWORK")
-          # Datastore that backs the Content Library (ISOs are resolved from it at runtime)
-          [[ -z "${VSPHERE_ISO_LIBRARY_DATASTORE}" ]] && missing+=("VSPHERE_ISO_LIBRARY_DATASTORE")
+          # VSPHERE_ISO_LIBRARY_DATASTORE is deliberately NOT checked here. The
+          # build no longer needs the library's backing datastore — the
+          # vsphere-content-library-item data sources hand the builder a
+          # <library>/<item>/<file> path and it resolves the datastore itself.
+          # upload-isos.yml still requires the secret to create the library.
 
           # At least one of VSPHERE_HOST or VSPHERE_CLUSTER must be set
           if [[ -z "${VSPHERE_HOST}" && -z "${VSPHERE_CLUSTER}" ]]; then
@@ -346,115 +348,12 @@ jobs:
           sudo apt-get install -y xorriso
           echo "xorriso: $(xorriso --version 2>&1 | sed -n '1p')"
 
-      # ── Install govc (required to resolve Content Library ISO paths) ──────────
+      # ── Install govc (required to create the vSphere VM folder below) ─────────
       - name: Install govc
         continue-on-error: true
         uses: ./.github/actions/install-verified-binary
         with:
           tool: govc
-
-      # ── Resolve Content Library ISO paths via govc library.info ─────────────
-      # Content Library items live at contentlib-{lib-uuid}/{item-uuid}/{file}
-      # on the backing datastore. We get the UUIDs via govc library.info -json
-      # (which uses the vSphere SDK, not the REST API) and construct the path.
-      - name: Resolve ISO paths from Content Library
-        env:
-          GOVC_URL:        ${{ secrets.VSPHERE_SERVER }}
-          GOVC_USERNAME:   ${{ secrets.VSPHERE_USER }}
-          GOVC_PASSWORD:   ${{ secrets.VSPHERE_PASSWORD }}
-          GOVC_INSECURE:   ${{ secrets.VSPHERE_INSECURE || 'false' }}
-          GOVC_DATACENTER: ${{ secrets.VSPHERE_DATACENTER }}
-          LIB_DATASTORE:   ${{ secrets.VSPHERE_ISO_LIBRARY_DATASTORE }}
-          CONTENT_LIBRARY: ${{ vars.CONTENT_LIBRARY || 'Packer-ISOs' }}
-          MATRIX_VERSION:  ${{ matrix.version }}
-        run: |
-          declare -A ISO_ITEMS=(
-            [2204]="ubuntu-22.04.5-live-server-amd64.iso"
-            [2404]="ubuntu-24.04.4-live-server-amd64.iso"
-            [2604]="ubuntu-26.04-live-server-amd64.iso"
-          )
-          declare -A RESOLVED=()
-
-          # ── Confirm library exists and list its contents ───────────────────
-          echo "Library '${CONTENT_LIBRARY}' items:"
-          govc library.ls "/${CONTENT_LIBRARY}/" 2>/dev/null | sed 's/^/  /' || true
-
-          if [[ -z "$(govc library.ls "/${CONTENT_LIBRARY}" 2>/dev/null)" ]]; then
-            echo "❌ Content Library '${CONTENT_LIBRARY}' not found. Available libraries:"
-            govc library.ls 2>/dev/null | sed 's/^/   /' || echo "   (none visible)"
-            echo "   Run the upload-isos workflow first, or fix the CONTENT_LIBRARY repo variable."
-            exit 1
-          fi
-
-          # ── Get library UUID from govc library.info -json ─────────────────
-          _pick_id='import sys,json;d=(json.load(sys.stdin) or [{}])[0];print(d.get("ID",d.get("id","")))'
-          lib_id=$(govc library.info -json "/${CONTENT_LIBRARY}" 2>/dev/null \
-            | python3 -c "${_pick_id}" 2>/dev/null || echo "")
-          echo "Library UUID: ${lib_id:-NOT FOUND}"
-
-          # ── For each ISO: get item UUID and construct the datastore path ───
-          echo "ISO_BACKING_DATASTORE=${LIB_DATASTORE}" >> "$GITHUB_ENV"
-
-          # Iterate every key in ISO_ITEMS. Each result is exported as an env
-          # var named RESOLVED_ISO_<KEY>, where <KEY> is uppercased
-          # (e.g. 2604 → RESOLVED_ISO_2604).
-          for ver in "${!ISO_ITEMS[@]}"; do
-            item="${ISO_ITEMS[$ver]}"
-            item_stem="${item%.iso}"
-            ver_key="${ver^^}"; ver_key="${ver_key//-/_}"
-
-            # Try exact name first, then stem without extension
-            item_id=$(govc library.info -json "/${CONTENT_LIBRARY}/${item}" 2>/dev/null \
-              | python3 -c "${_pick_id}" 2>/dev/null || echo "")
-            if [[ -z "${item_id}" ]]; then
-              item_id=$(govc library.info -json "/${CONTENT_LIBRARY}/${item_stem}" 2>/dev/null \
-                | python3 -c "${_pick_id}" 2>/dev/null || echo "")
-            fi
-            # Final fallback: pattern-match the library to absorb point-release
-            # suffixes that diverge from the hardcoded filename
-            # (e.g. ubuntu-26.04 vs ubuntu-26.04.0 vs ubuntu-26.04.1).
-            if [[ -z "${item_id}" ]]; then
-              maj="${ver:0:2}"
-              min="${ver:2:2}"
-              matched=$(govc library.ls "/${CONTENT_LIBRARY}/" 2>/dev/null \
-                | sed 's|^.*/||; s|\.iso$||' \
-                | grep -E "^ubuntu-${maj}\.${min}(\.[0-9]+)?-live-server-amd64$" \
-                | head -1 || true)
-              if [[ -n "${matched}" ]]; then
-                echo "  ${ver}: glob fallback matched '${matched}'"
-                item_id=$(govc library.info -json "/${CONTENT_LIBRARY}/${matched}" 2>/dev/null \
-                  | python3 -c "${_pick_id}" 2>/dev/null || echo "")
-              fi
-            fi
-
-            if [[ -n "${item_id}" && -n "${lib_id}" ]]; then
-              item_dir="contentlib-${lib_id}/${item_id}"
-              # List actual files in the item directory — vSphere may store
-              # with original filename or a UUID-based name; don't assume.
-              actual_file=$(govc datastore.ls -ds="${LIB_DATASTORE}" "${item_dir}/" 2>/dev/null \
-                | grep -i '\.iso$' | head -1 || true)
-              if [[ -n "${actual_file}" ]]; then
-                rel="${item_dir}/${actual_file}"
-                echo "  ${ver}: ${rel}"
-                RESOLVED[$ver]="${rel}"
-                echo "RESOLVED_ISO_${ver_key}=${rel}" >> "$GITHUB_ENV"
-              else
-                echo "  ${ver}: item dir found (${item_dir}) but no .iso file listed"
-                echo "  ${ver}: datastore.ls output:"
-                govc datastore.ls -ds="${LIB_DATASTORE}" "${item_dir}/" 2>&1 | sed 's/^/    /' || true
-                echo "RESOLVED_ISO_${ver_key}=" >> "$GITHUB_ENV"
-              fi
-            else
-              echo "  ${ver}: NOT FOUND (item_id='${item_id}' lib_id='${lib_id}')"
-              echo "RESOLVED_ISO_${ver_key}=" >> "$GITHUB_ENV"
-            fi
-          done
-
-          # Fail fast if the ISO for this matrix entry's version is missing
-          if [[ -n "${ISO_ITEMS[$MATRIX_VERSION]:-}" && -z "${RESOLVED[$MATRIX_VERSION]:-}" ]]; then
-            echo "❌ ${ISO_ITEMS[$MATRIX_VERSION]} not found — run the upload-isos workflow first"
-            exit 1
-          fi
 
       # ── Ensure vSphere VM folder exists ─────────────────────────────────────
       # govc folder.create is idempotent-ish but errors on existing folders.
@@ -463,9 +362,10 @@ jobs:
       # are handled by creating each level in turn.
       - name: Ensure vSphere VM folder exists
         # Skip on dry-run: this MUTATES vSphere (creates inventory folders) and
-        # `packer validate` doesn't need the folder to exist. The read-only ISO
-        # path resolution above still runs on dry-run because validate needs the
-        # resolved paths in runner.pkrvars.hcl.
+        # `packer validate` doesn't need the folder to exist. ISO lookup no
+        # longer happens here either — the data sources in data.pkr.hcl resolve
+        # Content Library paths at build time, and `packer validate` does not
+        # evaluate data sources unless given -evaluate-datasources.
         if: needs.resolve-targets.outputs.dry_run == 'false'
         env:
           GOVC_URL:        ${{ secrets.VSPHERE_SERVER }}
@@ -544,14 +444,11 @@ jobs:
           vsphere_datastore           = "${{ secrets.VSPHERE_DATASTORE }}"
           vsphere_network             = "${{ secrets.VSPHERE_NETWORK }}"
           vsphere_folder              = "${{ secrets.VSPHERE_FOLDER || 'packer' }}"
-          vsphere_iso_datastore       = "${{ env.ISO_BACKING_DATASTORE }}"
+          vsphere_iso_content_library = "${{ vars.CONTENT_LIBRARY || 'Packer-ISOs' }}"
           vsphere_template_content_library = "${{ vars.TEMPLATE_CONTENT_LIBRARY || vars.CONTENT_LIBRARY || 'Packer-ISOs' }}"
           build_username              = "${{ secrets.BUILD_USERNAME || 'ubuntu' }}"
           build_password              = "${{ secrets.BUILD_PASSWORD }}"
           build_password_encrypted    = "${{ secrets.BUILD_PASSWORD_ENCRYPTED }}"
-          ubuntu_2204_iso_path        = "${{ env.RESOLVED_ISO_2204 }}"
-          ubuntu_2404_iso_path        = "${{ env.RESOLVED_ISO_2404 }}"
-          ubuntu_2604_iso_path        = "${{ env.RESOLVED_ISO_2604 }}"
           admin_username              = "${{ secrets.ADMIN_USERNAME }}"
           admin_github_user           = "${{ secrets.ADMIN_GITHUB_USER }}"
           EOF
