@@ -375,10 +375,39 @@ verify_govc_connection() {
 }
 
 # ── Content Library ────────────────────────────────────────────────────────────
+# Existence is decided by listing LIBRARIES and matching the name, not by
+# listing the library's CONTENTS.
+#
+# `govc library.ls /Name` prints the items inside the library, so an existing
+# but EMPTY library prints nothing — indistinguishable from a library that
+# doesn't exist if you only test for empty output. That is what this function
+# used to do, and it deadlocked: an empty Packer-ISOs made the script take the
+# create branch, and vCenter answered the duplicate name with
+# `POST /rest/com/vmware/content/local-library: 500 Internal Server Error`,
+# so the one script that could repopulate the library could never run.
+# (scripts/vsphere-preflight.sh gets this right — it reports "exists but is
+# empty" — which is how the two disagreed on 2026-08-09/10.)
+#
+# `govc library.ls` with no arguments lists the libraries themselves, one path
+# per line. Matching there is unambiguous regardless of item count.
 ensure_content_library() {
   header "Content Library: ${CONTENT_LIBRARY}"
-  if [[ -n "$(govc library.ls "/${CONTENT_LIBRARY}" 2>/dev/null)" ]]; then
+
+  local libs
+  if ! libs=$(govc library.ls 2>&1); then
+    error "Could not list Content Libraries — check credentials and permissions:"
+    printf '%s\n' "${libs}" | sed 's/^/    /' >&2
+    exit 1
+  fi
+
+  # Tolerate both "/Name" and "Name" output forms.
+  if printf '%s\n' "${libs}" | sed 's|^/||' | grep -Fxq "${CONTENT_LIBRARY}"; then
     success "Library exists: ${CONTENT_LIBRARY}"
+    # An empty library is a normal state to upload into (first run, or the
+    # items were pruned) — say so rather than letting it look like a no-op.
+    if [[ -z "$(govc library.ls "/${CONTENT_LIBRARY}/" 2>/dev/null | sed '/^$/d')" ]]; then
+      info "Library is currently empty — all requested ISOs will be uploaded."
+    fi
   else
     info "Creating Content Library '${CONTENT_LIBRARY}' on datastore '${LIBRARY_DATASTORE}'..."
     govc library.create -ds="${LIBRARY_DATASTORE}" "${CONTENT_LIBRARY}"
