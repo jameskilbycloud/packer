@@ -378,18 +378,15 @@ verify_govc_connection() {
 # Existence is decided by listing LIBRARIES and matching the name, not by
 # listing the library's CONTENTS.
 #
-# `govc library.ls /Name` prints the items inside the library, so an existing
-# but EMPTY library prints nothing — indistinguishable from a library that
-# doesn't exist if you only test for empty output. That is what this function
-# used to do, and it deadlocked: an empty Packer-ISOs made the script take the
-# create branch, and vCenter answered the duplicate name with
-# `POST /rest/com/vmware/content/local-library: 500 Internal Server Error`,
-# so the one script that could repopulate the library could never run.
-# (scripts/vsphere-preflight.sh gets this right — it reports "exists but is
-# empty" — which is how the two disagreed on 2026-08-09/10.)
+# `govc library.ls /Name` prints the items inside the library, and exits 0 with
+# empty output BOTH when the library is empty and when it does not exist. Any
+# check built on that command alone cannot tell the two apart.
 #
 # `govc library.ls` with no arguments lists the libraries themselves, one path
-# per line. Matching there is unambiguous regardless of item count.
+# per line. Matching there is unambiguous regardless of item count, and is what
+# established on 2026-08-10 that Packer-ISOs is absent rather than empty —
+# vsphere-preflight.sh had been reporting "exists but is empty" for a library
+# that was not there at all.
 ensure_content_library() {
   header "Content Library: ${CONTENT_LIBRARY}"
 
@@ -410,7 +407,45 @@ ensure_content_library() {
     fi
   else
     info "Creating Content Library '${CONTENT_LIBRARY}' on datastore '${LIBRARY_DATASTORE}'..."
-    govc library.create -ds="${LIBRARY_DATASTORE}" "${CONTENT_LIBRARY}"
+
+    # govc surfaces a creation failure as a bare
+    # `POST /rest/com/vmware/content/local-library: 500 Internal Server Error`,
+    # which says nothing about the cause. vCenter answers 500 (not 4xx) for an
+    # unusable -ds among other things, so dump what the account can actually
+    # see — that is normally enough to tell a wrong VSPHERE_ISO_LIBRARY_DATASTORE
+    # from a genuine Content Library service problem, without a second run.
+    local create_out
+    if ! create_out=$(govc library.create -ds="${LIBRARY_DATASTORE}" "${CONTENT_LIBRARY}" 2>&1); then
+      error "Could not create Content Library '${CONTENT_LIBRARY}':"
+      printf '%s\n' "${create_out}" | sed 's/^/    /' >&2
+      echo "" >&2
+
+      echo "  Requested backing datastore (VSPHERE_ISO_LIBRARY_DATASTORE):" >&2
+      echo "    ${LIBRARY_DATASTORE:-(empty!)}" >&2
+      echo "" >&2
+
+      echo "  Datastores visible to this account:" >&2
+      govc ls "/${GOVC_DATACENTER}/datastore" 2>&1 | sed 's/^/    /' >&2 || true
+      echo "" >&2
+
+      echo "  Content Libraries that already exist:" >&2
+      if [[ -n "$(printf '%s\n' "${libs}" | sed '/^$/d')" ]]; then
+        printf '%s\n' "${libs}" | sed '/^$/d; s/^/    /' >&2
+      else
+        echo "    (none)" >&2
+      fi
+      echo "" >&2
+
+      echo "  Common causes:" >&2
+      echo "    • VSPHERE_ISO_LIBRARY_DATASTORE names a datastore this account" >&2
+      echo "      cannot write to, or one that does not exist. On VMware Cloud" >&2
+      echo "      on AWS this must be WorkloadDatastore — cloudadmin cannot" >&2
+      echo "      create a library on the management datastores." >&2
+      echo "    • The vCenter Content Library service is unhealthy." >&2
+      echo "    • A previously deleted library left orphaned state under the" >&2
+      echo "      same name, which vCenter reports as a 500 on recreate." >&2
+      exit 1
+    fi
     success "Library created: ${CONTENT_LIBRARY}"
   fi
 }

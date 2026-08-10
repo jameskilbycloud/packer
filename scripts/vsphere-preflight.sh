@@ -130,7 +130,18 @@ echo "==> Content library '${CONTENT_LIBRARY}'"
 if lib_listing=$(govc library.ls "/${CONTENT_LIBRARY}/" 2>&1); then
   trimmed=$(printf '%s\n' "${lib_listing}" | sed '/^$/d')
   if [[ -z "${trimmed}" ]]; then
-    bad "Library '${CONTENT_LIBRARY}' exists but is empty — upload ISOs first"
+    # `library.ls /Name/` exits 0 with empty output for BOTH an empty library
+    # and a missing one, so this branch cannot claim the library exists — it
+    # did exactly that on 2026-08-09 for a library that had been deleted, which
+    # sent the investigation after the wrong fault. Ask which it is by listing
+    # the libraries themselves.
+    if govc library.ls 2>/dev/null | sed 's|^/||' | grep -Fxq "${CONTENT_LIBRARY}"; then
+      bad "Library '${CONTENT_LIBRARY}' exists but is empty — run the upload-isos workflow"
+    else
+      bad "Library '${CONTENT_LIBRARY}' does NOT exist — run the upload-isos workflow to create it"
+      note "Libraries that do exist:"
+      govc library.ls 2>&1 | sed '/^$/d; s/^/        /' || true
+    fi
   else
     item_count=$(printf '%s\n' "${trimmed}" | grep -c .)
     # Content Library items are named after the source file but WITHOUT the
