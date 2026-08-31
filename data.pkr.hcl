@@ -16,7 +16,7 @@
 # Item vs file name — `govc library.import` names the item after the file's
 # basename with the extension stripped, so the item is
 # `ubuntu-26.04-live-server-amd64` and the file inside it is
-# `ubuntu-26.04-live-server-amd64.iso`. The `name` filter below matches the
+# `ubuntu-26.04.1-live-server-amd64.iso`. The `name` filter below matches the
 # ITEM, hence no `.iso` suffix. scripts/upload-isos.sh relies on the same
 # convention (see its "Library item existence check").
 #
