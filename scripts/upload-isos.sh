@@ -83,7 +83,7 @@ SKIP_CHECKSUM="${SKIP_CHECKSUM:-false}"
 # ── ISO catalogue ──────────────────────────────────────────────────────────────
 declare -A ISO_FILENAME=(
   [2204]="ubuntu-22.04.5-live-server-amd64.iso"
-  [2404]="ubuntu-24.04.4-live-server-amd64.iso"
+  [2404]="ubuntu-24.04.5-live-server-amd64.iso"
   [2604]="ubuntu-26.04.1-live-server-amd64.iso"
 )
 declare -A ISO_BASE_URL=(

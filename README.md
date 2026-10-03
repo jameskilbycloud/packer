@@ -218,7 +218,7 @@ vCenter credentials and the Content Library backing datastore come from the GitH
 | Version | ISO | Checksum |
 |---|---|---|
 | 22.04 LTS | [ubuntu-22.04.5-live-server-amd64.iso](https://releases.ubuntu.com/22.04/ubuntu-22.04.5-live-server-amd64.iso) | [SHA256SUMS](https://releases.ubuntu.com/22.04/SHA256SUMS) |
-| 24.04 LTS | [ubuntu-24.04.4-live-server-amd64.iso](https://releases.ubuntu.com/24.04/ubuntu-24.04.4-live-server-amd64.iso) | [SHA256SUMS](https://releases.ubuntu.com/24.04/SHA256SUMS) |
+| 24.04 LTS | [ubuntu-24.04.5-live-server-amd64.iso](https://releases.ubuntu.com/24.04/ubuntu-24.04.5-live-server-amd64.iso) | [SHA256SUMS](https://releases.ubuntu.com/24.04/SHA256SUMS) |
 | 26.04 LTS | [ubuntu-26.04.1-live-server-amd64.iso](https://releases.ubuntu.com/26.04/ubuntu-26.04.1-live-server-amd64.iso) | [SHA256SUMS](https://releases.ubuntu.com/26.04/SHA256SUMS) |
 
 > **Point releases are auto-detected.** The [`check-iso-updates`](.github/workflows/check-iso-updates.yml) workflow runs every Monday and opens a PR rewriting these filenames across the repo when Ubuntu ships a new `.X` release (e.g. `26.04` → `26.04.1`). You shouldn't need to bump them by hand.
