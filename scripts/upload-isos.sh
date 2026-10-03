@@ -84,7 +84,7 @@ SKIP_CHECKSUM="${SKIP_CHECKSUM:-false}"
 declare -A ISO_FILENAME=(
   [2204]="ubuntu-22.04.5-live-server-amd64.iso"
   [2404]="ubuntu-24.04.4-live-server-amd64.iso"
-  [2604]="ubuntu-26.04-live-server-amd64.iso"
+  [2604]="ubuntu-26.04.1-live-server-amd64.iso"
 )
 declare -A ISO_BASE_URL=(
   [2204]="https://releases.ubuntu.com/22.04"
@@ -708,7 +708,7 @@ resolve_extras_selection() {
 library_item_exists() {
   local filename="$1"
   # govc names the library *item* after the file's basename with the
-  # extension stripped (e.g. "ubuntu-26.04-live-server-amd64.iso" becomes
+  # extension stripped (e.g. "ubuntu-26.04.1-live-server-amd64.iso" becomes
   # the item "ubuntu-26.04-live-server-amd64"), so we must check for that
   # item name, not the raw filename — otherwise the check never matches, the
   # ISO is re-downloaded, and govc rejects the re-import with already_exists.
