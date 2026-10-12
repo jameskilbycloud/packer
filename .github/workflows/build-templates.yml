@@ -731,7 +731,7 @@ jobs:
 
       - name: Upload console screenshots
         if: (cancelled() || failure()) && needs.resolve-targets.outputs.dry_run == 'false'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: screenshots-${{ matrix.label }}-${{ github.run_number }}
           path: screenshots-${{ matrix.label }}/
@@ -783,7 +783,7 @@ jobs:
       # ── Upload logs ──────────────────────────────────────────────────────────
       - name: Upload Packer log
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: packer-log-${{ matrix.label }}-${{ github.run_number }}
           path: packer-${{ matrix.label }}.log
@@ -793,7 +793,7 @@ jobs:
       # matrix carries this as `manifest` (e.g. ubuntu-2204, ubuntu-2604).
       - name: Upload build manifest
         if: success() && needs.resolve-targets.outputs.dry_run == 'false'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: manifest-${{ matrix.label }}-${{ github.run_number }}
           path: manifests/${{ matrix.manifest }}.json
@@ -956,7 +956,7 @@ jobs:
 
       - name: Upload build metrics
         if: success() && needs.resolve-targets.outputs.dry_run == 'false'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: build-metrics-${{ matrix.label }}-${{ github.run_number }}
           path: build-metrics-${{ matrix.label }}.json
@@ -1134,7 +1134,7 @@ jobs:
       # was when smoke gave up — kernel panic, blank screen, login prompt, etc.
       - name: Upload smoke console screenshot
         if: failure() && needs.resolve-targets.outputs.dry_run == 'false'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: smoke-screenshots-${{ matrix.label }}-${{ github.run_number }}
           path: smoke-screenshots-${{ matrix.label }}/
